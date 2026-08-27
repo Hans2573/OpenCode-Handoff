@@ -1,0 +1,88 @@
+internal/handoff/engine.go
+  s_dd7f465f0d473b::t_66633be4607445 1-242,244
+  s_dd7f465f0d473b::t_75e052a0bfcb37 243
+  s_dd7f465f0d473b::t_5fdd5f108ed6f4 245-247
+internal/store/store.go
+  s_dd7f465f0d473b::t_348d0ba5c9907e 1-22
+  s_dd7f465f0d473b::t_82af053b4a5649 23-25
+internal/handoff/watcher.go
+  s_dd7f465f0d473b::t_66633be4607445 1-171
+  s_dd7f465f0d473b::t_bd2a00cf178d27 172-174
+internal/opencode/types.go
+  s_dd7f465f0d473b::t_9511979abf4c9c 1-138
+go.mod
+  s_dd7f465f0d473b::t_d7eb1e11370daa 9-23
+  s_dd7f465f0d473b::t_b006815f021eef 1-8,24
+internal/domain/handoff.go
+  s_dd7f465f0d473b::t_b006815f021eef 1-51
+  s_dd7f465f0d473b::t_587ff46042ec42 52-54
+internal/store/sqlite.go
+  s_dd7f465f0d473b::t_348d0ba5c9907e 1-213
+  s_dd7f465f0d473b::t_5adec5d7f0579e 214-216
+internal/opencode/client.go
+  s_dd7f465f0d473b::t_9511979abf4c9c 1-227
+  s_dd7f465f0d473b::t_82db0abc778cf9 228-230
+internal/config/config.go
+  s_dd7f465f0d473b::t_b006815f021eef 1-187,190
+  s_dd7f465f0d473b::t_0efb4b4694e5d3 188-189
+  s_dd7f465f0d473b::t_04a6a1eb432cf1 191-193
+internal/channel/channel.go
+  s_dd7f465f0d473b::t_b006815f021eef 1-13
+.gitattributes
+  s_2249a5c8388450::t_284ed51e7e317d 1
+docs/prd.md
+  s_75fd1d0e16005d::t_5c7fb8499fdce8 1-1282
+go.sum
+  s_dd7f465f0d473b::t_7c91d39f005544 1-88
+internal/channel/feishu/client_test.go
+  s_57a4d6b57af4f3::t_9f8e9a957c611d 1-218
+internal/handoff/engine_test.go
+  s_57a4d6b57af4f3::t_31ebed352df7f3 1-297
+internal/handoff/watcher_test.go
+  s_57a4d6b57af4f3::t_af5c2e76a6a448 1-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "19671587a30467d9462de7017453f3a2a025322e",
+  "prompts": {},
+  "humans": {
+    "h_cf0640c320ba82": {
+      "author": "xiaohang2 <xiaohang2@lenovo.com>"
+    }
+  },
+  "sessions": {
+    "s_2249a5c8388450": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fbedc458effeWnn3RnCD5JihQe",
+        "model": "unknown"
+      },
+      "human_author": "xiaohang2 <xiaohang2@lenovo.com>"
+    },
+    "s_57a4d6b57af4f3": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fbe115987ffeB1jkJOdO2xgR4D",
+        "model": "unknown"
+      },
+      "human_author": "xiaohang2 <xiaohang2@lenovo.com>"
+    },
+    "s_75fd1d0e16005d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a041db-fc33-7641-808f-071e050cea38",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "xiaohang2 <xiaohang2@lenovo.com>"
+    },
+    "s_dd7f465f0d473b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a041dd-67c1-7863-85c6-127929e52c4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "xiaohang2 <xiaohang2@lenovo.com>"
+    }
+  }
+}
