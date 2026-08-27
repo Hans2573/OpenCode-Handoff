@@ -22,6 +22,9 @@ type Adapter interface {
 	GetSessionStatuses(context.Context, string) (map[string]SessionStatus, error)
 	GetMessages(context.Context, string, string, int) ([]Message, error)
 	SendPrompt(context.Context, string, string, string) error
+	ListQuestions(context.Context, string) ([]QuestionRequest, error)
+	ReplyQuestion(context.Context, string, string, [][]string) error
+	RejectQuestion(context.Context, string, string) error
 	WatchEvents(context.Context, func(Event)) error
 }
 
@@ -137,6 +140,27 @@ func (c *Client) SendPrompt(ctx context.Context, sessionID, directory, text stri
 	}{Type: "text", Text: text})
 	path := "/session/" + url.PathEscape(sessionID) + "/prompt_async"
 	return c.doJSON(ctx, http.MethodPost, path, nil, directory, body, nil)
+}
+
+func (c *Client) ListQuestions(ctx context.Context, directory string) ([]QuestionRequest, error) {
+	var questions []QuestionRequest
+	if err := c.getJSON(ctx, "/question", nil, directory, &questions); err != nil {
+		return nil, err
+	}
+	return questions, nil
+}
+
+func (c *Client) ReplyQuestion(ctx context.Context, requestID, directory string, answers [][]string) error {
+	body := struct {
+		Answers [][]string `json:"answers"`
+	}{Answers: answers}
+	path := "/question/" + url.PathEscape(requestID) + "/reply"
+	return c.doJSON(ctx, http.MethodPost, path, nil, directory, body, nil)
+}
+
+func (c *Client) RejectQuestion(ctx context.Context, requestID, directory string) error {
+	path := "/question/" + url.PathEscape(requestID) + "/reject"
+	return c.doJSON(ctx, http.MethodPost, path, nil, directory, nil, nil)
 }
 
 func (c *Client) WatchEvents(ctx context.Context, handler func(Event)) error {

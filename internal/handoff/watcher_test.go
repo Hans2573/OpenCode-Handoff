@@ -66,3 +66,28 @@ func TestWatcherTreatsMissingBusyStatusAsIdle(t *testing.T) {
 		t.Fatal("missing busy status did not emit stopped signal")
 	}
 }
+
+func TestWatcherEmitsQuestionOnceAcrossSSEAndPolling(t *testing.T) {
+	watcher := NewWatcher(&fakeAdapter{}, WatcherOptions{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	question := opencode.QuestionRequest{ID: "que_1", SessionID: "ses_1"}
+	question.Questions = []opencode.QuestionInfo{{Question: "Choose"}}
+	properties, _ := json.Marshal(question)
+	watcher.handleEvent(context.Background(), opencode.Event{
+		Directory: "/work/a", Type: "question.asked", Properties: properties,
+	})
+	watcher.observeQuestion(context.Background(), "/work/a", question)
+
+	select {
+	case signal := <-watcher.signals:
+		if signal.Kind != SignalQuestion || signal.Question.ID != "que_1" || signal.Directory != "/work/a" {
+			t.Fatalf("signal = %+v", signal)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("question signal was not emitted")
+	}
+	select {
+	case duplicate := <-watcher.signals:
+		t.Fatalf("duplicate question signal = %+v", duplicate)
+	default:
+	}
+}

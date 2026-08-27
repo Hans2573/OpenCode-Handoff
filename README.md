@@ -16,7 +16,7 @@ V1.0 已实现：
 - 自动忽略带 `parentID` 的子 agent Session
 - 飞书用户 allowlist 和 OpenCode loopback 地址保护
 
-Question Tool、Permission Approval 和交互卡片属于 V1.1，配置字段与核心类型已预留，但 V1.0 不会处理它们。
+V1.1 已支持 Question Tool 和飞书交互卡片；Permission Approval 仍为后续版本预留。
 
 ## 前置条件
 
@@ -27,11 +27,40 @@ Question Tool、Permission Approval 和交互卡片属于 V1.1，配置字段与
    opencode serve --hostname 127.0.0.1 --port 4096
    ```
 
-2. 在飞书开放平台创建企业自建应用并启用机器人。
-3. 为应用开通发送/接收消息所需权限，至少包含 `im:message:send_as_bot`，并订阅 `im.message.receive_v1` 事件。
-4. 事件订阅方式选择“使用长连接接收事件”，发布应用版本，并把机器人加入目标群聊。
+2. 按下方“飞书开放平台配置清单”创建并发布企业自建应用。
 
 OpenCode Server 应只监听 loopback。配置为远程地址时，程序默认拒绝启动；确需使用可信内网地址时才设置 `opencode.allow_remote: true`，并同时启用 OpenCode Server 密码。
+
+### 飞书开放平台配置清单
+
+在飞书开放平台的开发者后台完成以下配置。控制台显示名称可能调整，括号内的权限或事件 ID 是核对依据。
+
+| 控制台位置 | 配置项 | 是否必需 |
+| --- | --- | --- |
+| 基础信息 > 凭证与基础信息 | 获取 App ID 和 App Secret | 必需 |
+| 应用能力 > 添加应用能力 | 添加“机器人”能力 | 必需 |
+| 权限管理 | 以应用身份发消息 (`im:message:send_as_bot`) | 必需 |
+| 权限管理 | 获取用户发给机器人的单聊消息 (`im:message.p2p_msg:readonly`) | 私聊配对和回复时必需 |
+| 权限管理 | 接收群聊中 @ 机器人消息 (`im:message.group_at_msg:readonly`) | 使用群聊时必需 |
+| 事件与回调 > 事件配置 | 使用长连接接收事件 | 必需 |
+| 事件与回调 > 事件配置 | 接收消息 (`im.message.receive_v1`) | 必需 |
+| 事件与回调 > 回调配置 | 使用长连接接收回调 | Question 卡片必需 |
+| 事件与回调 > 回调配置 | 卡片回传交互 (`card.action.trigger`) | Question 按钮、输入框和“忽略”必需 |
+| 版本管理与发布 | 创建版本并发布 | 每次修改权限、事件或回调后必需 |
+
+配置顺序：
+
+1. 创建企业自建应用，在“添加应用能力”中启用机器人。
+2. 在“权限管理”中开通上表权限。只使用私聊时不需要群聊权限；需要在群里 `/bind`、回复或操作卡片时，应同时开通群聊权限。
+3. 在“事件与回调 > 事件配置”中把订阅方式设为“使用长连接接收事件”，添加 `im.message.receive_v1`。
+4. 在“事件与回调 > 回调配置”中把订阅方式设为“使用长连接接收回调”，添加 `card.action.trigger`。卡片提示“该应用尚未配置卡片回调”时，可以直接点击“一键完成配置”。
+5. 在“版本管理与发布”中创建并发布新版本。开发者后台顶部出现“版本发布后，当前修改方可生效”时，未发布的配置不会生效。
+6. 确认应用的可用范围包含配对用户；群聊使用时把机器人加入目标群聊。
+7. 启动 Handoff 后使用日志中的 `/bind <配对码>` 完成绑定。私聊直接发送；群聊中需要 @机器人后发送。
+
+事件和回调都使用长连接，因此不需要公网 Webhook 地址，也不需要为本项目填写 Verification Token 或 Encrypt Key。App Secret 只放在本机环境变量或被 `.gitignore` 排除的 `config.yaml` 中。
+
+Question 卡片的选项按钮、自定义答案提交和“忽略”共用 `card.action.trigger`。如果该回调未生效，三种操作都会失败；此时仍可引用回复卡片，使用选项序号、自定义文本或“忽略”作为兜底。
 
 ## 配置
 
@@ -61,6 +90,8 @@ $env:OPENCODE_SERVER_PASSWORD = 'xxx'
 - `FEISHU_ALLOWED_USERS`（逗号分隔）或 `FEISHU_ALLOWED_USER`
 - `OPENCODE_BASE_URL`、`OPENCODE_DIRECTORY`
 - `OPENCODE_SERVER_USERNAME`、`OPENCODE_SERVER_PASSWORD`
+- `HANDOFF_MAX_OUTPUT_CHARS`
+- `HANDOFF_NOTIFY_IDLE`、`HANDOFF_NOTIFY_ERROR`、`HANDOFF_NOTIFY_QUESTION`、`HANDOFF_NOTIFY_PERMISSION`
 
 YAML 中也可以显式使用 `${任意变量名}`；这种写法要求该变量存在，否则配置检查会失败。
 
@@ -109,6 +140,15 @@ OpenCode busy -> idle/error -> 飞书通知
                                 |
 原 Session <- prompt_async <----+
 ```
+
+Question Tool 使用独立闭环，不会把选择结果当作普通 prompt：
+
+```text
+OpenCode question.asked -> 飞书选项卡片 -> /question/{id}/reply -> 原 Session 继续
+                                      \-> /question/{id}/reject（忽略）
+```
+
+单题单选可以直接点击飞书按钮。自定义答案可引用回复卡片并输入文本；多选用逗号分隔序号，多题时每题一行。回复“忽略”“拒绝”或 `reject` 会拒绝 Question。Question 记录只允许成功处理一次，并继续使用原 `session_id`；子 agent 的 Question 与结束/中断一样不会通知。
 
 服务启动时已处于 idle 的历史 Session 不会触发通知；只有本次进程观察到从非 idle 到 idle 的状态变化才会创建 handoff。唯一键为 `session_id + last_assistant_message_id + handoff_type`，SSE 与轮询同时命中也只发送一次。
 

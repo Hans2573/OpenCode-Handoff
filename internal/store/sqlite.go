@@ -48,6 +48,8 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			last_assistant_message_id TEXT NOT NULL,
 			last_assistant_text TEXT NOT NULL DEFAULT '',
 			error_text TEXT NOT NULL DEFAULT '',
+			question_id TEXT NOT NULL DEFAULT '',
+			question_json TEXT NOT NULL DEFAULT '[]',
 			status TEXT NOT NULL,
 			created_at INTEGER NOT NULL,
 			resolved_at INTEGER,
@@ -75,16 +77,59 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			return fmt.Errorf("migrate SQLite: %w", err)
 		}
 	}
+	for name, definition := range map[string]string{
+		"question_id":   "TEXT NOT NULL DEFAULT ''",
+		"question_json": "TEXT NOT NULL DEFAULT '[]'",
+	} {
+		if err := s.ensureColumn(ctx, "handoff_records", name, definition); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SQLite) ensureColumn(ctx context.Context, table, name, definition string) error {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return fmt.Errorf("inspect SQLite schema: %w", err)
+	}
+	found := false
+	for rows.Next() {
+		var cid int
+		var columnName, columnType string
+		var notNull, primaryKey int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan SQLite schema: %w", err)
+		}
+		if columnName == name {
+			found = true
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close SQLite schema rows: %w", err)
+	}
+	if found {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx, "ALTER TABLE "+table+" ADD COLUMN "+name+" "+definition); err != nil {
+		return fmt.Errorf("add SQLite column %s: %w", name, err)
+	}
 	return nil
 }
 
 func (s *SQLite) Create(ctx context.Context, handoff domain.Handoff) error {
-	_, err := s.db.ExecContext(ctx, `
+	questions, err := json.Marshal(handoff.Questions)
+	if err != nil {
+		return fmt.Errorf("encode handoff questions: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO handoff_records (
 			id, session_id, directory, project_name, handoff_type,
 			last_assistant_message_id, last_assistant_text, error_text,
-			status, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			question_id, question_json, status, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		handoff.ID,
 		handoff.SessionID,
 		handoff.Directory,
@@ -93,6 +138,8 @@ func (s *SQLite) Create(ctx context.Context, handoff domain.Handoff) error {
 		handoff.LastAssistantMessageID,
 		handoff.LastAssistantText,
 		handoff.ErrorText,
+		handoff.QuestionID,
+		string(questions),
 		domain.StatusOpen,
 		handoff.CreatedAt.UTC().UnixMilli(),
 	)
@@ -134,7 +181,8 @@ func (s *SQLite) ClaimByMessage(ctx context.Context, messageID, resumeMessageID 
 	row := tx.QueryRowContext(ctx, `
 		SELECT id, session_id, directory, project_name, feishu_chat_id,
 			feishu_message_id, handoff_type, last_assistant_message_id,
-			last_assistant_text, error_text, status, created_at, resolved_at
+			last_assistant_text, error_text, question_id, question_json,
+			status, created_at, resolved_at
 		FROM handoff_records
 		WHERE feishu_message_id = ?`, messageID)
 	handoff, err := scanHandoff(row)
@@ -143,6 +191,9 @@ func (s *SQLite) ClaimByMessage(ctx context.Context, messageID, resumeMessageID 
 	}
 	if err != nil {
 		return domain.Handoff{}, fmt.Errorf("find handoff message mapping: %w", err)
+	}
+	if handoff.Type == domain.HandoffQuestion && handoff.Status != domain.StatusOpen {
+		return domain.Handoff{}, ErrNotFound
 	}
 	if err := recordReplyReceipt(ctx, tx, resumeMessageID, handoff.ID); err != nil {
 		return domain.Handoff{}, err
@@ -205,7 +256,8 @@ func (s *SQLite) ClaimOnlyOpenByChat(ctx context.Context, chatID, resumeMessageI
 	row := tx.QueryRowContext(ctx, `
 		SELECT id, session_id, directory, project_name, feishu_chat_id,
 			feishu_message_id, handoff_type, last_assistant_message_id,
-			last_assistant_text, error_text, status, created_at, resolved_at
+			last_assistant_text, error_text, question_id, question_json,
+			status, created_at, resolved_at
 		FROM handoff_records
 		WHERE feishu_chat_id = ? AND session_id = ? AND status = ?
 		ORDER BY created_at DESC
@@ -310,6 +362,7 @@ type scanner interface {
 
 func scanHandoff(row scanner) (domain.Handoff, error) {
 	var handoff domain.Handoff
+	var questions string
 	var createdAt int64
 	var resolvedAt sql.NullInt64
 	err := row.Scan(
@@ -323,12 +376,17 @@ func scanHandoff(row scanner) (domain.Handoff, error) {
 		&handoff.LastAssistantMessageID,
 		&handoff.LastAssistantText,
 		&handoff.ErrorText,
+		&handoff.QuestionID,
+		&questions,
 		&handoff.Status,
 		&createdAt,
 		&resolvedAt,
 	)
 	if err != nil {
 		return domain.Handoff{}, err
+	}
+	if err := json.Unmarshal([]byte(questions), &handoff.Questions); err != nil {
+		return domain.Handoff{}, fmt.Errorf("decode handoff questions: %w", err)
 	}
 	handoff.CreatedAt = time.UnixMilli(createdAt).UTC()
 	if resolvedAt.Valid {

@@ -72,6 +72,33 @@ type SessionEvent struct {
 	Error     json.RawMessage `json:"error,omitempty"`
 }
 
+type QuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+type QuestionInfo struct {
+	Question string           `json:"question"`
+	Header   string           `json:"header"`
+	Options  []QuestionOption `json:"options"`
+	Multiple bool             `json:"multiple"`
+	Custom   *bool            `json:"custom,omitempty"`
+}
+
+func (q QuestionInfo) AllowsCustom() bool {
+	return q.Custom == nil || *q.Custom
+}
+
+type QuestionRequest struct {
+	ID        string         `json:"id"`
+	SessionID string         `json:"sessionID"`
+	Questions []QuestionInfo `json:"questions"`
+	Tool      struct {
+		MessageID string `json:"messageID"`
+		CallID    string `json:"callID"`
+	} `json:"tool"`
+}
+
 func LastAssistantOutput(messages []Message) (AssistantOutput, bool) {
 	for i := len(messages) - 1; i >= 0; i-- {
 		message := messages[i]

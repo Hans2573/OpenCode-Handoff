@@ -83,11 +83,13 @@ func main() {
 		SSE:             cfg.Watcher.SSE,
 		PollingFallback: cfg.Watcher.PollingFallback,
 		PollingInterval: cfg.Watcher.PollingInterval.Duration,
+		NotifyQuestions: cfg.Handoff.NotifyQuestion,
 	}, logger)
 	engine := handoff.NewEngine(opencodeClient, channelClient, handoffStore, handoff.EngineOptions{
 		MaxOutputChars: cfg.Handoff.MaxOutputChars,
 		NotifyIdle:     cfg.Handoff.NotifyIdle,
 		NotifyError:    cfg.Handoff.NotifyError,
+		NotifyQuestion: cfg.Handoff.NotifyQuestion,
 		AllowedUsers:   cfg.Security.AllowedUsers,
 		ChatID:         cfg.Feishu.ChatID,
 	}, logger)

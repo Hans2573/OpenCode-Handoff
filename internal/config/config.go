@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,6 +94,7 @@ func Default() Config {
 			MaxOutputChars: 3000,
 			NotifyIdle:     true,
 			NotifyError:    true,
+			NotifyQuestion: true,
 		},
 		Channel: ChannelConfig{Type: "feishu"},
 		Store:   StoreConfig{Path: "opencode-handoff.db"},
@@ -116,7 +118,9 @@ func Load(path string) (Config, error) {
 	if err := decoder.Decode(&cfg); err != nil {
 		return Config{}, fmt.Errorf("decode config: %w", err)
 	}
-	applyEnvironmentOverrides(&cfg)
+	if err := applyEnvironmentOverrides(&cfg); err != nil {
+		return Config{}, err
+	}
 
 	if cfg.Store.Path != ":memory:" && !filepath.IsAbs(cfg.Store.Path) {
 		cfg.Store.Path = filepath.Join(filepath.Dir(path), cfg.Store.Path)
@@ -129,7 +133,7 @@ func Load(path string) (Config, error) {
 
 // Environment variables override literal YAML values. YAML ${VAR} expansion is
 // still supported for deployments that prefer explicitly selecting each source.
-func applyEnvironmentOverrides(cfg *Config) {
+func applyEnvironmentOverrides(cfg *Config) error {
 	overrideString("OPENCODE_BASE_URL", &cfg.OpenCode.BaseURL)
 	overrideString("OPENCODE_DIRECTORY", &cfg.OpenCode.Directory)
 	overrideString("OPENCODE_SERVER_USERNAME", &cfg.OpenCode.Username)
@@ -143,12 +147,52 @@ func applyEnvironmentOverrides(cfg *Config) {
 	} else if value, ok := os.LookupEnv("FEISHU_ALLOWED_USER"); ok {
 		cfg.Security.AllowedUsers = splitCommaSeparated(value)
 	}
+	if err := overrideInt("HANDOFF_MAX_OUTPUT_CHARS", &cfg.Handoff.MaxOutputChars); err != nil {
+		return err
+	}
+	for name, target := range map[string]*bool{
+		"HANDOFF_NOTIFY_IDLE":       &cfg.Handoff.NotifyIdle,
+		"HANDOFF_NOTIFY_ERROR":      &cfg.Handoff.NotifyError,
+		"HANDOFF_NOTIFY_QUESTION":   &cfg.Handoff.NotifyQuestion,
+		"HANDOFF_NOTIFY_PERMISSION": &cfg.Handoff.NotifyPermission,
+	} {
+		if err := overrideBool(name, target); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func overrideString(name string, target *string) {
 	if value, ok := os.LookupEnv(name); ok {
 		*target = value
 	}
+}
+
+func overrideBool(name string, target *bool) error {
+	value, ok := os.LookupEnv(name)
+	if !ok {
+		return nil
+	}
+	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+	if err != nil {
+		return fmt.Errorf("environment variable %s must be true or false: %w", name, err)
+	}
+	*target = parsed
+	return nil
+}
+
+func overrideInt(name string, target *int) error {
+	value, ok := os.LookupEnv(name)
+	if !ok {
+		return nil
+	}
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return fmt.Errorf("environment variable %s must be an integer: %w", name, err)
+	}
+	*target = parsed
+	return nil
 }
 
 func splitCommaSeparated(value string) []string {
@@ -181,8 +225,8 @@ func (c Config) Validate() error {
 	if c.Handoff.MaxOutputChars <= 0 {
 		return errors.New("handoff.max_output_chars must be positive")
 	}
-	if c.Handoff.NotifyQuestion || c.Handoff.NotifyPermission {
-		return errors.New("question and permission notifications are reserved for V1.1 and must remain disabled in V1.0")
+	if c.Handoff.NotifyPermission {
+		return errors.New("permission notifications are not implemented and must remain disabled")
 	}
 	if c.Channel.Type != "feishu" {
 		return fmt.Errorf("unsupported channel.type %q", c.Channel.Type)

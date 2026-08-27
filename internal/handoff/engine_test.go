@@ -96,6 +96,7 @@ func TestEngineIgnoresSubagentSession(t *testing.T) {
 	for _, signal := range []Signal{
 		{SessionID: "ses_child", Directory: "/work/project", Kind: SignalError, Error: "child interrupted"},
 		{SessionID: "ses_child", Directory: "/work/project", Kind: SignalStopped},
+		{SessionID: "ses_child", Directory: "/work/project", Kind: SignalQuestion, Question: testQuestion("que_child", "ses_child")},
 	} {
 		if err := engine.handleSignal(ctx, signal); err != nil {
 			t.Fatal(err)
@@ -106,6 +107,72 @@ func TestEngineIgnoresSubagentSession(t *testing.T) {
 	}
 	if adapter.messageCalls != 0 {
 		t.Fatalf("subagent messages were fetched %d times", adapter.messageCalls)
+	}
+}
+
+func TestEngineRoutesQuestionAnswerWithoutSendingPrompt(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	adapter := &fakeAdapter{session: opencode.Session{ID: "ses_1", Directory: "/work/project", Title: "choose next"}}
+	channel := &fakeChannel{}
+	engine := NewEngine(adapter, channel, database, EngineOptions{
+		MaxOutputChars: 3000, NotifyQuestion: true, AllowedUsers: []string{"ou_allowed"}, ChatID: "oc_allowed",
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	question := testQuestion("que_1", "ses_1")
+	if err := engine.handleSignal(ctx, Signal{SessionID: "ses_1", Directory: "/work/project", Kind: SignalQuestion, Question: question}); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.sent) != 1 || channel.sent[0].Type != domain.HandoffQuestion || channel.sent[0].QuestionID != "que_1" {
+		t.Fatalf("question handoff = %+v", channel.sent)
+	}
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "om_answer", ParentMessageID: "om_handoff", ChatID: "oc_allowed",
+		SenderID: "ou_allowed", Text: "2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(adapter.questionReplies) != 1 || adapter.questionReplies[0][0][0] != "Review MR" {
+		t.Fatalf("question replies = %v", adapter.questionReplies)
+	}
+	if len(adapter.prompts) != 0 {
+		t.Fatalf("question answer sent as prompt: %v", adapter.prompts)
+	}
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "om_answer_again", ParentMessageID: "om_handoff", ChatID: "oc_allowed",
+		SenderID: "ou_allowed", Text: "1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(adapter.questionReplies) != 1 {
+		t.Fatalf("question was answered twice: %v", adapter.questionReplies)
+	}
+}
+
+func TestParseQuestionAnswersSupportsMultiSelectAndCustomText(t *testing.T) {
+	questions := []domain.Question{
+		{Options: []domain.QuestionOption{{Label: "A"}, {Label: "B"}, {Label: "C"}}, Multiple: true},
+		{Custom: true},
+	}
+	answers, err := parseQuestionAnswers(questions, "1，3\nwrite tests first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(answers) != "[[A C] [write tests first]]" {
+		t.Fatalf("answers = %v", answers)
+	}
+}
+
+func TestParseQuestionAnswersTreatsLegacyMissingCustomAsAllowed(t *testing.T) {
+	answers, err := parseQuestionAnswers([]domain.Question{{}}, "我要第四个普通选项")
+	if err != nil || len(answers) != 1 || answers[0][0] != "我要第四个普通选项" {
+		t.Fatalf("legacy custom answer = %v, %v", answers, err)
+	}
+	if _, err := parseQuestionAnswers([]domain.Question{{CustomSet: true, Custom: false}}, "not an option"); err == nil {
+		t.Fatal("explicit custom=false accepted an unknown answer")
 	}
 }
 
@@ -220,9 +287,19 @@ func newTestEngine(adapter opencode.Adapter, channel *fakeChannel, database stor
 		MaxOutputChars: 3000,
 		NotifyIdle:     notifyIdle,
 		NotifyError:    notifyError,
+		NotifyQuestion: true,
 		AllowedUsers:   []string{"ou_allowed"},
 		ChatID:         "oc_allowed",
 	}, logger)
+}
+
+func testQuestion(id, sessionID string) opencode.QuestionRequest {
+	question := opencode.QuestionRequest{ID: id, SessionID: sessionID}
+	question.Questions = []opencode.QuestionInfo{{
+		Question: "What next?", Header: "Choose",
+		Options: []opencode.QuestionOption{{Label: "Analyze PRD"}, {Label: "Review MR"}},
+	}}
+	return question
 }
 
 type promptCall struct {
@@ -232,10 +309,13 @@ type promptCall struct {
 }
 
 type fakeAdapter struct {
-	session      opencode.Session
-	messages     []opencode.Message
-	prompts      []promptCall
-	messageCalls int
+	session           opencode.Session
+	messages          []opencode.Message
+	prompts           []promptCall
+	messageCalls      int
+	questions         []opencode.QuestionRequest
+	questionReplies   [][][]string
+	rejectedQuestions []string
 }
 
 func (f *fakeAdapter) ListDirectories(context.Context) ([]string, error) {
@@ -261,6 +341,20 @@ func (f *fakeAdapter) GetMessages(context.Context, string, string, int) ([]openc
 
 func (f *fakeAdapter) SendPrompt(_ context.Context, sessionID, directory, text string) error {
 	f.prompts = append(f.prompts, promptCall{SessionID: sessionID, Directory: directory, Text: text})
+	return nil
+}
+
+func (f *fakeAdapter) ListQuestions(context.Context, string) ([]opencode.QuestionRequest, error) {
+	return f.questions, nil
+}
+
+func (f *fakeAdapter) ReplyQuestion(_ context.Context, _ string, _ string, answers [][]string) error {
+	f.questionReplies = append(f.questionReplies, answers)
+	return nil
+}
+
+func (f *fakeAdapter) RejectQuestion(_ context.Context, requestID, _ string) error {
+	f.rejectedQuestions = append(f.rejectedQuestions, requestID)
 	return nil
 }
 

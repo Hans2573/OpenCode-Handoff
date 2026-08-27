@@ -18,8 +18,9 @@ handoff:
   max_output_chars: 3000
   notify_idle: true
   notify_error: true
-  # V1.1 预留，V1.0 尚未启用。
-  notify_question: false
+  # OpenCode Question Tool 转发到飞书，并把答案回传到原 Session。
+  notify_question: true
+  # 预留，尚未启用。
   notify_permission: false
 
 channel:

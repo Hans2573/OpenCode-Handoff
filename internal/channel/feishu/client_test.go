@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
+	larkevent "github.com/larksuite/oapi-sdk-go/v3/event"
+	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
 	"github.com/xiaohang2/opencode-handoff/internal/domain"
@@ -85,6 +88,91 @@ func TestFormatFinishedHandoff(t *testing.T) {
 	}
 }
 
+func TestFormatQuestionHandoffWithOptionButtons(t *testing.T) {
+	content, err := formatHandoffCard(domain.Handoff{
+		SessionID: "ses_question", SessionName: "Choose next", ProjectName: "handoff", Type: domain.HandoffQuestion,
+		QuestionID: "que_1", Questions: []domain.Question{{
+			Header: "选择一个答案", Text: "你希望接下来做什么？",
+			Options: []domain.QuestionOption{{Label: "分析产品设计文档", Description: "解读规范和架构"}, {Label: "审查 GitLab MR"}},
+		}},
+	}, 3000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := decodeHandoffCard(t, content)
+	message := cardContents(card.Body.Elements)
+	for _, expected := range []string{"ses_question", "Choose next", "等待选择", "你希望接下来做什么？", "分析产品设计文档", "忽略", "输入自己的答案", "提交自定义答案", "回调不可用时可引用回复"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("question card %q does not contain %q", message, expected)
+		}
+	}
+	buttons := findCardElements(card.Body.Elements, "button")
+	if len(buttons) != 4 {
+		t.Fatalf("question buttons = %d, want 4", len(buttons))
+	}
+	for _, button := range buttons {
+		if len(button.Behaviors) != 1 || button.Behaviors[0].Type != "callback" {
+			t.Fatalf("button does not use a V2 callback behavior: %+v", button)
+		}
+	}
+	form := findCardElement(card.Body.Elements, "form")
+	input := findCardElement(card.Body.Elements, "input")
+	if form == nil || form.Name != "custom_answer_form" || input == nil || input.Name != "custom_answer" || input.InputType != "multiline_text" || input.Rows != 3 || input.MaxLength != 1000 || input.Required == nil || !*input.Required {
+		t.Fatalf("custom answer form is incomplete: form=%+v input=%+v", form, input)
+	}
+	if findCardElement(card.Body.Elements, "input_text") != nil {
+		t.Fatal("question card still contains the unsupported input_text tag")
+	}
+	submit := findNamedCardElement(card.Body.Elements, "custom_submit")
+	if submit == nil || submit.ActionType != "form_submit" || len(submit.Behaviors) != 1 || submit.Behaviors[0].Value["action"] != "question_custom_reply" {
+		t.Fatalf("custom answer submit button is incomplete: %+v", submit)
+	}
+}
+
+func TestSendHandoffFallsBackWhenFeishuRejectsQuestionForm(t *testing.T) {
+	messageID := "om_fallback"
+	var contents []string
+	client := &Client{
+		chatID: "oc_chat",
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		sendCard: func(_ context.Context, _, _, content string) (*larkim.CreateMessageResp, error) {
+			contents = append(contents, content)
+			if len(contents) == 1 {
+				return &larkim.CreateMessageResp{CodeError: larkcore.CodeError{
+					Code: 230099,
+					Msg:  "Failed to create card content, ext=ErrCode: 200621; ErrMsg: parse card json err",
+				}}, nil
+			}
+			return &larkim.CreateMessageResp{
+				CodeError: larkcore.CodeError{Code: 0},
+				Data:      &larkim.CreateMessageRespData{MessageId: &messageID},
+			}, nil
+		},
+	}
+	handoff := domain.Handoff{
+		ID: "handoff_1", SessionID: "ses_1", ProjectName: "handoff", Type: domain.HandoffQuestion,
+		Questions: []domain.Question{{Text: "下一步？", Options: []domain.QuestionOption{{Label: "继续"}}}},
+	}
+	ref, err := client.SendHandoff(context.Background(), handoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.MessageID != messageID || len(contents) != 2 {
+		t.Fatalf("fallback result = %+v, sends = %d", ref, len(contents))
+	}
+	first := decodeHandoffCard(t, contents[0])
+	second := decodeHandoffCard(t, contents[1])
+	if findCardElement(first.Body.Elements, "input") == nil {
+		t.Fatal("initial question card omitted the custom-answer input")
+	}
+	if findCardElement(second.Body.Elements, "form") != nil || findCardElement(second.Body.Elements, "input") != nil {
+		t.Fatal("fallback question card still contains the rejected form")
+	}
+	if !strings.Contains(cardContents(second.Body.Elements), "直接输入自定义答案") {
+		t.Fatal("fallback question card omitted the quoted-reply instruction")
+	}
+}
+
 func decodeHandoffCard(t *testing.T, content string) handoffCard {
 	t.Helper()
 	var card handoffCard
@@ -103,11 +191,101 @@ func cardContents(elements []handoffCardElement) string {
 		if element.Header != nil {
 			contents = append(contents, element.Header.Title.Content)
 		}
+		if element.Text != nil {
+			contents = append(contents, element.Text.Content)
+		}
+		if element.Label != nil {
+			contents = append(contents, element.Label.Content)
+		}
+		if element.Placeholder != nil {
+			contents = append(contents, element.Placeholder.Content)
+		}
 		if len(element.Elements) > 0 {
 			contents = append(contents, cardContents(element.Elements))
 		}
+		if len(element.Columns) > 0 {
+			contents = append(contents, cardContents(element.Columns))
+		}
 	}
 	return strings.Join(contents, "\n")
+}
+
+func TestOnCardActionRoutesCustomQuestionAnswer(t *testing.T) {
+	client := &Client{replies: make(chan domain.UserReply, 1)}
+	event := &callback.CardActionTriggerEvent{Event: &callback.CardActionTriggerRequest{
+		Operator: &callback.Operator{OpenID: "ou_1"},
+		Context:  &callback.Context{OpenMessageID: "om_question", OpenChatID: "oc_chat"},
+		Action: &callback.CallBackAction{
+			Value:     map[string]any{"action": "question_custom_reply"},
+			FormValue: map[string]any{"custom_answer": "按 TDD 开始"},
+		},
+	}}
+	go func() {
+		reply := <-client.replies
+		if len(reply.QuestionAnswers) != 1 || reply.QuestionAnswers[0][0] != "按 TDD 开始" {
+			t.Errorf("custom card reply = %+v", reply)
+		}
+		reply.Result <- nil
+	}()
+	response, err := client.onCardAction(context.Background(), event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Toast == nil || response.Toast.Type != "success" {
+		t.Fatalf("custom card response = %+v", response)
+	}
+}
+
+func TestOnCardActionRoutesQuestionReject(t *testing.T) {
+	client := &Client{replies: make(chan domain.UserReply, 1)}
+	event := &callback.CardActionTriggerEvent{Event: &callback.CardActionTriggerRequest{
+		Operator: &callback.Operator{OpenID: "ou_1"},
+		Context:  &callback.Context{OpenMessageID: "om_question", OpenChatID: "oc_chat"},
+		Action:   &callback.CallBackAction{Value: map[string]any{"action": "question_reject"}},
+	}}
+	go func() {
+		reply := <-client.replies
+		if !reply.RejectQuestion {
+			t.Errorf("reject card reply = %+v", reply)
+		}
+		reply.Result <- nil
+	}()
+	response, err := client.onCardAction(context.Background(), event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Toast == nil || response.Toast.Type != "success" || !strings.Contains(response.Toast.Content, "忽略") {
+		t.Fatalf("reject card response = %+v", response)
+	}
+}
+
+func TestOnCardActionRoutesQuestionAnswer(t *testing.T) {
+	client := &Client{replies: make(chan domain.UserReply, 1)}
+	userID := "user_1"
+	event := &callback.CardActionTriggerEvent{
+		EventV2Base: &larkevent.EventV2Base{Header: &larkevent.EventHeader{EventID: "evt_1"}},
+		Event: &callback.CardActionTriggerRequest{
+			Operator: &callback.Operator{OpenID: "ou_1", UserID: &userID},
+			Context:  &callback.Context{OpenMessageID: "om_question", OpenChatID: "oc_chat"},
+			Action: &callback.CallBackAction{Value: map[string]any{
+				"action": "question_reply", "answers": []any{[]any{"Analyze PRD"}},
+			}},
+		},
+	}
+	go func() {
+		reply := <-client.replies
+		if reply.MessageID != "evt_1" || reply.ParentMessageID != "om_question" || reply.ChatID != "oc_chat" || reply.QuestionAnswers[0][0] != "Analyze PRD" {
+			t.Errorf("card reply = %+v", reply)
+		}
+		reply.Result <- nil
+	}()
+	response, err := client.onCardAction(context.Background(), event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Toast == nil || response.Toast.Type != "success" {
+		t.Fatalf("card response = %+v", response)
+	}
 }
 
 func findCardElement(elements []handoffCardElement, tag string) *handoffCardElement {
@@ -116,6 +294,36 @@ func findCardElement(elements []handoffCardElement, tag string) *handoffCardElem
 			return &elements[index]
 		}
 		if nested := findCardElement(elements[index].Elements, tag); nested != nil {
+			return nested
+		}
+		if nested := findCardElement(elements[index].Columns, tag); nested != nil {
+			return nested
+		}
+	}
+	return nil
+}
+
+func findCardElements(elements []handoffCardElement, tag string) []*handoffCardElement {
+	var result []*handoffCardElement
+	for index := range elements {
+		if elements[index].Tag == tag {
+			result = append(result, &elements[index])
+		}
+		result = append(result, findCardElements(elements[index].Elements, tag)...)
+		result = append(result, findCardElements(elements[index].Columns, tag)...)
+	}
+	return result
+}
+
+func findNamedCardElement(elements []handoffCardElement, name string) *handoffCardElement {
+	for index := range elements {
+		if elements[index].Name == name {
+			return &elements[index]
+		}
+		if nested := findNamedCardElement(elements[index].Elements, name); nested != nil {
+			return nested
+		}
+		if nested := findNamedCardElement(elements[index].Columns, name); nested != nil {
 			return nested
 		}
 	}

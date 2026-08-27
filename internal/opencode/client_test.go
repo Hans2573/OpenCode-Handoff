@@ -14,6 +14,8 @@ import (
 func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 	var promptDirectory string
 	var promptText string
+	var questionAnswers [][]string
+	var rejected bool
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {
 		case request.Method == http.MethodGet && request.URL.Path == "/project":
@@ -34,6 +36,20 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 			if len(body.Parts) == 1 {
 				promptText = body.Parts[0].Text
 			}
+			writer.WriteHeader(http.StatusNoContent)
+		case request.Method == http.MethodGet && request.URL.Path == "/question":
+			writeJSON(t, writer, []QuestionRequest{{ID: "que_1", SessionID: "ses_1"}})
+		case request.Method == http.MethodPost && request.URL.Path == "/question/que_1/reply":
+			var body struct {
+				Answers [][]string `json:"answers"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Errorf("decode question reply: %v", err)
+			}
+			questionAnswers = body.Answers
+			writer.WriteHeader(http.StatusNoContent)
+		case request.Method == http.MethodPost && request.URL.Path == "/question/que_1/reject":
+			rejected = true
 			writer.WriteHeader(http.StatusNoContent)
 		default:
 			http.NotFound(writer, request)
@@ -58,6 +74,19 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 	}
 	if promptDirectory != "/work/a" || promptText != "continue" {
 		t.Fatalf("prompt directory=%q text=%q", promptDirectory, promptText)
+	}
+	questions, err := client.ListQuestions(context.Background(), "/work/a")
+	if err != nil || len(questions) != 1 || questions[0].ID != "que_1" {
+		t.Fatalf("ListQuestions() = %v, %v", questions, err)
+	}
+	if err := client.ReplyQuestion(context.Background(), "que_1", "/work/a", [][]string{{"answer"}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(questionAnswers) != 1 || questionAnswers[0][0] != "answer" {
+		t.Fatalf("question answers = %v", questionAnswers)
+	}
+	if err := client.RejectQuestion(context.Background(), "que_1", "/work/a"); err != nil || !rejected {
+		t.Fatalf("RejectQuestion() rejected=%v err=%v", rejected, err)
 	}
 }
 

@@ -33,9 +33,29 @@ type Handoff struct {
 	LastAssistantMessageID string
 	LastAssistantText      string
 	ErrorText              string
+	QuestionID             string
+	Questions              []Question
 	Status                 HandoffStatus
 	CreatedAt              time.Time
 	ResolvedAt             *time.Time
+}
+
+type Question struct {
+	Text      string
+	Header    string
+	Options   []QuestionOption
+	Multiple  bool
+	Custom    bool
+	CustomSet bool
+}
+
+func (q Question) AllowsCustom() bool {
+	return !q.CustomSet || q.Custom
+}
+
+type QuestionOption struct {
+	Label       string
+	Description string
 }
 
 type MessageRef struct {
@@ -50,6 +70,10 @@ type UserReply struct {
 	SenderID        string
 	SenderIDs       []string
 	Text            string
+	QuestionAnswers [][]string
+	RejectQuestion  bool
+	CardAction      bool
+	Result          chan error
 }
 
 type ChannelBinding struct {

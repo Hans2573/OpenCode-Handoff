@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -22,6 +23,7 @@ type EngineOptions struct {
 	MaxOutputChars int
 	NotifyIdle     bool
 	NotifyError    bool
+	NotifyQuestion bool
 	AllowedUsers   []string
 	ChatID         string
 }
@@ -76,14 +78,25 @@ func (e *Engine) Run(ctx context.Context, signals <-chan Signal) error {
 			if !ok {
 				return errors.New("channel receiver stopped")
 			}
-			if err := e.handleReply(ctx, reply); err != nil && ctx.Err() == nil {
-				e.logger.Error("process channel reply", "message_id", reply.MessageID, "error", err)
+			replyErr := e.handleReply(ctx, reply)
+			if reply.Result != nil {
+				reply.Result <- replyErr
+				close(reply.Result)
+			}
+			if replyErr != nil && ctx.Err() == nil {
+				e.logger.Error("process channel reply", "message_id", reply.MessageID, "error", replyErr)
 			}
 		}
 	}
 }
 
 func (e *Engine) handleSignal(ctx context.Context, signal Signal) error {
+	if signal.Kind == SignalQuestion {
+		if !e.options.NotifyQuestion {
+			return nil
+		}
+		return e.handleQuestion(ctx, signal.Directory, signal.Question)
+	}
 	if signal.Kind == SignalError && !e.options.NotifyError {
 		return nil
 	}
@@ -95,6 +108,18 @@ func (e *Engine) handleSignal(ctx context.Context, signal Signal) error {
 	if session.ParentID != "" {
 		e.logger.Debug("ignore subagent session handoff", "session_id", session.ID, "parent_id", session.ParentID)
 		return nil
+	}
+	if signal.Kind == SignalStopped && e.options.NotifyQuestion {
+		questions, err := e.opencode.ListQuestions(ctx, signal.Directory)
+		if err != nil {
+			e.logger.Warn("could not check pending questions before idle handoff", "session_id", session.ID, "error", err)
+		} else {
+			for _, question := range questions {
+				if question.SessionID == session.ID {
+					return e.handleQuestionForSession(ctx, session, signal.Directory, question)
+				}
+			}
+		}
 	}
 	messages, err := e.opencode.GetMessages(ctx, signal.SessionID, signal.Directory, 100)
 	if err != nil {
@@ -139,8 +164,60 @@ func (e *Engine) handleSignal(ctx context.Context, signal Signal) error {
 		Status:                 domain.StatusOpen,
 		CreatedAt:              time.Now().UTC(),
 	}
+	return e.persistAndSend(ctx, handoff)
+}
+
+func (e *Engine) handleQuestion(ctx context.Context, directory string, question opencode.QuestionRequest) error {
+	if question.ID == "" || question.SessionID == "" || len(question.Questions) == 0 {
+		return errors.New("OpenCode question event is incomplete")
+	}
+	session, err := e.opencode.GetSession(ctx, question.SessionID, directory)
+	if err != nil {
+		return fmt.Errorf("get question session: %w", err)
+	}
+	return e.handleQuestionForSession(ctx, session, directory, question)
+}
+
+func (e *Engine) handleQuestionForSession(ctx context.Context, session opencode.Session, directory string, question opencode.QuestionRequest) error {
+	if session.ParentID != "" {
+		e.logger.Debug("ignore subagent question", "session_id", session.ID, "parent_id", session.ParentID)
+		return nil
+	}
+	if session.Directory == "" {
+		session.Directory = directory
+	}
+	questions := make([]domain.Question, 0, len(question.Questions))
+	for _, item := range question.Questions {
+		converted := domain.Question{
+			Text: item.Question, Header: item.Header, Multiple: item.Multiple,
+			Custom: item.AllowsCustom(), CustomSet: item.Custom != nil,
+		}
+		for _, option := range item.Options {
+			converted.Options = append(converted.Options, domain.QuestionOption{
+				Label: option.Label, Description: option.Description,
+			})
+		}
+		questions = append(questions, converted)
+	}
+	handoff := domain.Handoff{
+		ID:                     newID(),
+		SessionID:              session.ID,
+		SessionName:            sessionName(session),
+		Directory:              session.Directory,
+		ProjectName:            projectName(session),
+		Type:                   domain.HandoffQuestion,
+		LastAssistantMessageID: "question:" + question.ID,
+		QuestionID:             question.ID,
+		Questions:              questions,
+		Status:                 domain.StatusOpen,
+		CreatedAt:              time.Now().UTC(),
+	}
+	return e.persistAndSend(ctx, handoff)
+}
+
+func (e *Engine) persistAndSend(ctx context.Context, handoff domain.Handoff) error {
 	if err := e.store.Create(ctx, handoff); errors.Is(err, store.ErrDuplicate) {
-		e.logger.Debug("skip duplicate handoff", "session_id", handoff.SessionID, "message_id", messageID, "type", handoffType)
+		e.logger.Debug("skip duplicate handoff", "session_id", handoff.SessionID, "message_id", handoff.LastAssistantMessageID, "type", handoff.Type)
 		return nil
 	} else if err != nil {
 		return err
@@ -191,7 +268,7 @@ func (e *Engine) sendWithRetry(ctx context.Context, handoff domain.Handoff) (dom
 
 func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error {
 	text := strings.TrimSpace(reply.Text)
-	if text == "" {
+	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion {
 		return nil
 	}
 	allowed, err := e.isAllowed(ctx, reply)
@@ -200,6 +277,9 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 	}
 	if !allowed {
 		e.logger.Warn("ignore reply from unauthorized user", "sender_id", reply.SenderID)
+		if reply.CardAction {
+			return errors.New("当前用户无权操作这条消息")
+		}
 		return nil
 	}
 
@@ -221,23 +301,173 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 	}
 	if errors.Is(err, store.ErrNotFound) {
 		e.logger.Debug("ignore reply without an open handoff", "parent_message_id", reply.ParentMessageID)
+		if reply.CardAction {
+			return errors.New("该问题已处理或已过期")
+		}
 		return nil
 	}
 	if err != nil {
 		return err
 	}
+	if handoff.Type == domain.HandoffQuestion {
+		return e.handleQuestionReply(ctx, handoff, reply, text)
+	}
 	if err := e.opencode.SendPrompt(ctx, handoff.SessionID, handoff.Directory, text); err != nil {
 		if reopenErr := e.store.Reopen(context.WithoutCancel(ctx), handoff.ID); reopenErr != nil {
 			e.logger.Error("reopen handoff after prompt failure", "handoff_id", handoff.ID, "error", reopenErr)
 		}
-		if replyErr := e.channel.Reply(ctx, reply.MessageID, "发送到 OpenCode Session 失败，请检查服务日志后重新发送。"); replyErr != nil {
-			e.logger.Warn("report session resume failure in channel", "session_id", handoff.SessionID, "error", replyErr)
+		if !reply.CardAction {
+			if replyErr := e.channel.Reply(ctx, reply.MessageID, "发送到 OpenCode Session 失败，请检查服务日志后重新发送。"); replyErr != nil {
+				e.logger.Warn("report session resume failure in channel", "session_id", handoff.SessionID, "error", replyErr)
+			}
 		}
 		return fmt.Errorf("resume OpenCode session: %w", err)
 	}
 	e.logger.Info("session resumed", "session_id", handoff.SessionID, "sender_id", reply.SenderID)
-	if err := e.channel.Reply(ctx, reply.MessageID, "已发送到 OpenCode Session，任务正在继续。"); err != nil {
-		e.logger.Warn("confirm session resume in channel", "session_id", handoff.SessionID, "error", err)
+	if !reply.CardAction {
+		if err := e.channel.Reply(ctx, reply.MessageID, "已发送到 OpenCode Session，任务正在继续。"); err != nil {
+			e.logger.Warn("confirm session resume in channel", "session_id", handoff.SessionID, "error", err)
+		}
+	}
+	return nil
+}
+
+func (e *Engine) handleQuestionReply(ctx context.Context, handoff domain.Handoff, reply domain.UserReply, text string) error {
+	reopen := func() {
+		if err := e.store.Reopen(context.WithoutCancel(ctx), handoff.ID); err != nil {
+			e.logger.Error("reopen question handoff", "handoff_id", handoff.ID, "error", err)
+		}
+	}
+	reject := reply.RejectQuestion || isQuestionReject(text)
+	var answers [][]string
+	var err error
+	if !reject {
+		answers = reply.QuestionAnswers
+		if len(answers) == 0 {
+			answers, err = parseQuestionAnswers(handoff.Questions, text)
+		} else {
+			err = validateQuestionAnswers(handoff.Questions, answers)
+		}
+		if err != nil {
+			reopen()
+			if reply.CardAction {
+				return err
+			}
+			_ = e.channel.Reply(ctx, reply.MessageID, "答案格式不正确："+err.Error())
+			return nil
+		}
+	}
+	if reject {
+		err = e.opencode.RejectQuestion(ctx, handoff.QuestionID, handoff.Directory)
+	} else {
+		err = e.opencode.ReplyQuestion(ctx, handoff.QuestionID, handoff.Directory, answers)
+	}
+	if err != nil {
+		reopen()
+		if !reply.CardAction {
+			_ = e.channel.Reply(ctx, reply.MessageID, "提交到 OpenCode 失败，请检查服务日志后重试。")
+		}
+		return fmt.Errorf("submit OpenCode question response: %w", err)
+	}
+	e.logger.Info("question answered", "session_id", handoff.SessionID, "question_id", handoff.QuestionID, "rejected", reject)
+	if !reply.CardAction {
+		message := "答案已提交到原 OpenCode Session。"
+		if reject {
+			message = "已忽略该问题。"
+		}
+		if err := e.channel.Reply(ctx, reply.MessageID, message); err != nil {
+			e.logger.Warn("confirm question response", "question_id", handoff.QuestionID, "error", err)
+		}
+	}
+	return nil
+}
+
+func isQuestionReject(text string) bool {
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "忽略", "拒绝", "reject", "skip", "cancel", "取消":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseQuestionAnswers(questions []domain.Question, text string) ([][]string, error) {
+	if len(questions) == 0 {
+		return nil, errors.New("问题内容缺失")
+	}
+	parts := []string{strings.TrimSpace(text)}
+	if len(questions) > 1 {
+		parts = strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+		if len(parts) != len(questions) {
+			return nil, fmt.Errorf("共有 %d 题，请每题一行作答", len(questions))
+		}
+	}
+	answers := make([][]string, len(questions))
+	for index, question := range questions {
+		answer, err := parseQuestionAnswer(question, strings.TrimSpace(parts[index]))
+		if err != nil {
+			return nil, fmt.Errorf("第 %d 题：%w", index+1, err)
+		}
+		answers[index] = answer
+	}
+	return answers, nil
+}
+
+func parseQuestionAnswer(question domain.Question, text string) ([]string, error) {
+	if text == "" {
+		return nil, errors.New("答案不能为空")
+	}
+	items := []string{text}
+	if question.Multiple {
+		normalized := strings.NewReplacer("，", ",", "、", ",").Replace(text)
+		items = strings.Split(normalized, ",")
+	}
+	answers := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if number, err := strconv.Atoi(item); err == nil && number >= 1 && number <= len(question.Options) {
+			answers = append(answers, question.Options[number-1].Label)
+			continue
+		}
+		matched := ""
+		for _, option := range question.Options {
+			if strings.EqualFold(item, option.Label) {
+				matched = option.Label
+				break
+			}
+		}
+		if matched != "" {
+			answers = append(answers, matched)
+			continue
+		}
+		if question.AllowsCustom() {
+			answers = append(answers, item)
+			continue
+		}
+		return nil, fmt.Errorf("%q 不是有效选项", item)
+	}
+	if len(answers) == 0 {
+		return nil, errors.New("答案不能为空")
+	}
+	if !question.Multiple && len(answers) != 1 {
+		return nil, errors.New("只能选择一个答案")
+	}
+	return answers, nil
+}
+
+func validateQuestionAnswers(questions []domain.Question, answers [][]string) error {
+	if len(answers) != len(questions) {
+		return fmt.Errorf("需要提交 %d 题的答案", len(questions))
+	}
+	for index, values := range answers {
+		parsed, err := parseQuestionAnswer(questions[index], strings.Join(values, ","))
+		if err != nil {
+			return fmt.Errorf("第 %d 题：%w", index+1, err)
+		}
+		answers[index] = parsed
 	}
 	return nil
 }

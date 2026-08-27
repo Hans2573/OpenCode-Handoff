@@ -15,8 +15,9 @@ import (
 type SignalKind string
 
 const (
-	SignalStopped SignalKind = "stopped"
-	SignalError   SignalKind = "error"
+	SignalStopped  SignalKind = "stopped"
+	SignalError    SignalKind = "error"
+	SignalQuestion SignalKind = "question"
 )
 
 type Signal struct {
@@ -24,21 +25,24 @@ type Signal struct {
 	Directory string
 	Kind      SignalKind
 	Error     string
+	Question  opencode.QuestionRequest
 }
 
 type WatcherOptions struct {
 	SSE             bool
 	PollingFallback bool
 	PollingInterval time.Duration
+	NotifyQuestions bool
 }
 
 type Watcher struct {
-	client   opencode.Adapter
-	options  WatcherOptions
-	logger   *slog.Logger
-	signals  chan Signal
-	mu       sync.Mutex
-	statuses map[string]observedStatus
+	client    opencode.Adapter
+	options   WatcherOptions
+	logger    *slog.Logger
+	signals   chan Signal
+	mu        sync.Mutex
+	statuses  map[string]observedStatus
+	questions map[string]struct{}
 }
 
 type observedStatus struct {
@@ -48,11 +52,12 @@ type observedStatus struct {
 
 func NewWatcher(client opencode.Adapter, options WatcherOptions, logger *slog.Logger) *Watcher {
 	return &Watcher{
-		client:   client,
-		options:  options,
-		logger:   logger,
-		signals:  make(chan Signal, 128),
-		statuses: make(map[string]observedStatus),
+		client:    client,
+		options:   options,
+		logger:    logger,
+		signals:   make(chan Signal, 128),
+		statuses:  make(map[string]observedStatus),
+		questions: make(map[string]struct{}),
 	}
 }
 
@@ -107,9 +112,21 @@ func (w *Watcher) poll(ctx context.Context) {
 			if ctx.Err() == nil {
 				w.logger.Warn("poll OpenCode session statuses", "directory", directory, "error", err)
 			}
-			continue
+		} else {
+			w.reconcileStatuses(ctx, directory, statuses)
 		}
-		w.reconcileStatuses(ctx, directory, statuses)
+		if w.options.NotifyQuestions {
+			questions, err := w.client.ListQuestions(ctx, directory)
+			if err != nil {
+				if ctx.Err() == nil {
+					w.logger.Warn("poll OpenCode questions", "directory", directory, "error", err)
+				}
+				continue
+			}
+			for _, question := range questions {
+				w.observeQuestion(ctx, directory, question)
+			}
+		}
 	}
 }
 
@@ -185,6 +202,26 @@ func (w *Watcher) handleEvent(ctx context.Context, event opencode.Event) {
 				Error:     opencode.ErrorSummary(sessionEvent.Error),
 			})
 		}
+	case "question.asked":
+		var question opencode.QuestionRequest
+		if json.Unmarshal(event.Properties, &question) == nil {
+			w.observeQuestion(ctx, event.Directory, question)
+		}
+	}
+}
+
+func (w *Watcher) observeQuestion(ctx context.Context, directory string, question opencode.QuestionRequest) {
+	if question.ID == "" || question.SessionID == "" {
+		return
+	}
+	w.mu.Lock()
+	_, known := w.questions[question.ID]
+	if !known {
+		w.questions[question.ID] = struct{}{}
+	}
+	w.mu.Unlock()
+	if !known {
+		w.emit(ctx, Signal{SessionID: question.SessionID, Directory: directory, Kind: SignalQuestion, Question: question})
 	}
 }
 

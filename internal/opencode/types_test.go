@@ -33,3 +33,21 @@ func TestLastAssistantOutput(t *testing.T) {
 		t.Fatalf("error = %q", output.Error)
 	}
 }
+
+func TestQuestionCustomDefaultsToAllowed(t *testing.T) {
+	var omitted QuestionInfo
+	if err := json.Unmarshal([]byte(`{"question":"Choose","header":"Next","options":[]}`), &omitted); err != nil {
+		t.Fatal(err)
+	}
+	if !omitted.AllowsCustom() {
+		t.Fatal("omitted custom field should allow a custom answer")
+	}
+
+	var disabled QuestionInfo
+	if err := json.Unmarshal([]byte(`{"question":"Choose","header":"Next","options":[],"custom":false}`), &disabled); err != nil {
+		t.Fatal(err)
+	}
+	if disabled.Custom == nil || disabled.AllowsCustom() {
+		t.Fatal("explicit custom=false should disable custom answers")
+	}
+}

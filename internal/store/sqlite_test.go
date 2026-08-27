@@ -89,3 +89,34 @@ func TestSQLiteChannelBinding(t *testing.T) {
 		t.Fatalf("rebind error = %v", err)
 	}
 }
+
+func TestSQLitePersistsQuestionAndPreventsSecondAnswer(t *testing.T) {
+	ctx := context.Background()
+	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	handoff := domain.Handoff{
+		ID: "hof_question", SessionID: "ses_1", Directory: "/work/a", ProjectName: "a",
+		Type: domain.HandoffQuestion, LastAssistantMessageID: "question:que_1", QuestionID: "que_1",
+		Questions: []domain.Question{{Text: "Choose", Options: []domain.QuestionOption{{Label: "A"}}}},
+		CreatedAt: time.Now(),
+	}
+	if err := database.Create(ctx, handoff); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.BindMessage(ctx, handoff.ID, domain.MessageRef{ChatID: "oc_1", MessageID: "om_question"}); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := database.ClaimByMessage(ctx, "om_question", "evt_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.QuestionID != "que_1" || len(claimed.Questions) != 1 || claimed.Questions[0].Options[0].Label != "A" {
+		t.Fatalf("claimed question = %+v", claimed)
+	}
+	if _, err := database.ClaimByMessage(ctx, "om_question", "evt_2"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second question claim error = %v", err)
+	}
+}

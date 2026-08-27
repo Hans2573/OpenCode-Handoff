@@ -68,6 +68,18 @@ func TestValidateAllowsPairingWithoutManualRoute(t *testing.T) {
 	}
 }
 
+func TestValidateAllowsQuestionNotifications(t *testing.T) {
+	cfg := validConfig()
+	cfg.Handoff.NotifyQuestion = true
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() question notifications error = %v", err)
+	}
+	cfg.Handoff.NotifyPermission = true
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "permission") {
+		t.Fatalf("Validate() permission error = %v", err)
+	}
+}
+
 func TestEnvironmentOverridesLiteralYAML(t *testing.T) {
 	t.Setenv("FEISHU_APP_ID", "cli_env")
 	t.Setenv("FEISHU_APP_SECRET", "secret_env")
@@ -77,6 +89,8 @@ func TestEnvironmentOverridesLiteralYAML(t *testing.T) {
 	t.Setenv("OPENCODE_DIRECTORY", "/work/env")
 	t.Setenv("OPENCODE_SERVER_USERNAME", "env_user")
 	t.Setenv("OPENCODE_SERVER_PASSWORD", "env_password")
+	t.Setenv("HANDOFF_MAX_OUTPUT_CHARS", "1200")
+	t.Setenv("HANDOFF_NOTIFY_QUESTION", "false")
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := `
@@ -109,6 +123,9 @@ security:
 	if len(cfg.Security.AllowedUsers) != 2 || cfg.Security.AllowedUsers[1] != "user_two" {
 		t.Fatalf("allowed users = %v", cfg.Security.AllowedUsers)
 	}
+	if cfg.Handoff.MaxOutputChars != 1200 || cfg.Handoff.NotifyQuestion {
+		t.Fatalf("handoff env overrides not applied: %+v", cfg.Handoff)
+	}
 }
 
 func validConfig() Config {
@@ -130,6 +147,11 @@ func clearAutomaticOverrides(t *testing.T) {
 		"FEISHU_CHAT_ID",
 		"FEISHU_ALLOWED_USERS",
 		"FEISHU_ALLOWED_USER",
+		"HANDOFF_MAX_OUTPUT_CHARS",
+		"HANDOFF_NOTIFY_IDLE",
+		"HANDOFF_NOTIFY_ERROR",
+		"HANDOFF_NOTIFY_QUESTION",
+		"HANDOFF_NOTIFY_PERMISSION",
 	} {
 		value, existed := os.LookupEnv(name)
 		if err := os.Unsetenv(name); err != nil {
