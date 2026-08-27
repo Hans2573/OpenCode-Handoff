@@ -1,0 +1,28 @@
+package store
+
+import (
+	"context"
+	"errors"
+
+	"github.com/xiaohang2/opencode-handoff/internal/domain"
+)
+
+var (
+	ErrDuplicate      = errors.New("handoff already exists")
+	ErrNotFound       = errors.New("handoff not found")
+	ErrAlreadyBound   = errors.New("channel is already bound")
+	ErrAmbiguous      = errors.New("multiple sessions are waiting in this channel")
+	ErrDuplicateReply = errors.New("channel reply was already processed")
+)
+
+type Store interface {
+	Create(context.Context, domain.Handoff) error
+	BindMessage(context.Context, string, domain.MessageRef) error
+	DeleteUnbound(context.Context, string) error
+	ClaimByMessage(context.Context, string, string) (domain.Handoff, error)
+	ClaimOnlyOpenByChat(context.Context, string, string) (domain.Handoff, error)
+	Reopen(context.Context, string) error
+	GetChannelBinding(context.Context) (domain.ChannelBinding, error)
+	BindChannel(context.Context, domain.ChannelBinding) error
+	Close() error
+}

@@ -1,0 +1,42 @@
+# 所有值均可直接写在 YAML 中。这里对敏感值使用环境变量占位符是推荐写法。
+# 同时存在 YAML 固定值和受支持的同名环境变量时，环境变量优先。
+opencode:
+  base_url: http://127.0.0.1:4096
+  # 留空时使用 /global/event，并轮询所有已知项目。
+  directory: ""
+  username: opencode
+  # OpenCode Server 未配置密码时保持为空；若存在 OPENCODE_SERVER_PASSWORD，env 会自动覆盖。
+  password: ""
+  allow_remote: false
+
+watcher:
+  sse: true
+  polling_fallback: true
+  polling_interval: 3s
+
+handoff:
+  max_output_chars: 3000
+  notify_idle: true
+  notify_error: true
+  # V1.1 预留，V1.0 尚未启用。
+  notify_question: false
+  notify_permission: false
+
+channel:
+  type: feishu
+
+feishu:
+  app_id: ${FEISHU_APP_ID}
+  app_secret: ${FEISHU_APP_SECRET}
+  # 留空时通过启动日志中的 /bind 配对码自动绑定。
+  chat_id: ""
+
+security:
+  # 可选。留空时，只有持有本机一次性配对码的用户能够完成绑定。
+  allowed_users: []
+
+store:
+  path: opencode-handoff.db
+
+logging:
+  level: info
