@@ -99,6 +99,31 @@ type QuestionRequest struct {
 	} `json:"tool"`
 }
 
+type PermissionRequest struct {
+	ID         string         `json:"id"`
+	SessionID  string         `json:"sessionID"`
+	Permission string         `json:"permission"`
+	Patterns   []string       `json:"patterns"`
+	Metadata   map[string]any `json:"metadata"`
+	Always     []string       `json:"always"`
+	Tool       *struct {
+		MessageID string `json:"messageID"`
+		CallID    string `json:"callID"`
+	} `json:"tool,omitempty"`
+}
+
+type PermissionReply string
+
+const (
+	PermissionOnce   PermissionReply = "once"
+	PermissionAlways PermissionReply = "always"
+	PermissionReject PermissionReply = "reject"
+)
+
+func (r PermissionReply) Valid() bool {
+	return r == PermissionOnce || r == PermissionAlways || r == PermissionReject
+}
+
 func LastAssistantOutput(messages []Message) (AssistantOutput, bool) {
 	for i := len(messages) - 1; i >= 0; i-- {
 		message := messages[i]

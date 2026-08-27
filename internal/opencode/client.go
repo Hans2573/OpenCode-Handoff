@@ -25,6 +25,8 @@ type Adapter interface {
 	ListQuestions(context.Context, string) ([]QuestionRequest, error)
 	ReplyQuestion(context.Context, string, string, [][]string) error
 	RejectQuestion(context.Context, string, string) error
+	ListPermissions(context.Context, string) ([]PermissionRequest, error)
+	ReplyPermission(context.Context, string, string, PermissionReply) error
 	WatchEvents(context.Context, func(Event)) error
 }
 
@@ -161,6 +163,25 @@ func (c *Client) ReplyQuestion(ctx context.Context, requestID, directory string,
 func (c *Client) RejectQuestion(ctx context.Context, requestID, directory string) error {
 	path := "/question/" + url.PathEscape(requestID) + "/reject"
 	return c.doJSON(ctx, http.MethodPost, path, nil, directory, nil, nil)
+}
+
+func (c *Client) ListPermissions(ctx context.Context, directory string) ([]PermissionRequest, error) {
+	var permissions []PermissionRequest
+	if err := c.getJSON(ctx, "/permission", nil, directory, &permissions); err != nil {
+		return nil, err
+	}
+	return permissions, nil
+}
+
+func (c *Client) ReplyPermission(ctx context.Context, requestID, directory string, reply PermissionReply) error {
+	if !reply.Valid() {
+		return fmt.Errorf("invalid OpenCode permission reply %q", reply)
+	}
+	body := struct {
+		Reply PermissionReply `json:"reply"`
+	}{Reply: reply}
+	path := "/permission/" + url.PathEscape(requestID) + "/reply"
+	return c.doJSON(ctx, http.MethodPost, path, nil, directory, body, nil)
 }
 
 func (c *Client) WatchEvents(ctx context.Context, handler func(Event)) error {

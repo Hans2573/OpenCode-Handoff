@@ -80,18 +80,20 @@ func main() {
 	}, logger)
 
 	watcher := handoff.NewWatcher(opencodeClient, handoff.WatcherOptions{
-		SSE:             cfg.Watcher.SSE,
-		PollingFallback: cfg.Watcher.PollingFallback,
-		PollingInterval: cfg.Watcher.PollingInterval.Duration,
-		NotifyQuestions: cfg.Handoff.NotifyQuestion,
+		SSE:               cfg.Watcher.SSE,
+		PollingFallback:   cfg.Watcher.PollingFallback,
+		PollingInterval:   cfg.Watcher.PollingInterval.Duration,
+		NotifyQuestions:   cfg.Handoff.NotifyQuestion,
+		NotifyPermissions: cfg.Handoff.NotifyPermission,
 	}, logger)
 	engine := handoff.NewEngine(opencodeClient, channelClient, handoffStore, handoff.EngineOptions{
-		MaxOutputChars: cfg.Handoff.MaxOutputChars,
-		NotifyIdle:     cfg.Handoff.NotifyIdle,
-		NotifyError:    cfg.Handoff.NotifyError,
-		NotifyQuestion: cfg.Handoff.NotifyQuestion,
-		AllowedUsers:   cfg.Security.AllowedUsers,
-		ChatID:         cfg.Feishu.ChatID,
+		MaxOutputChars:   cfg.Handoff.MaxOutputChars,
+		NotifyIdle:       cfg.Handoff.NotifyIdle,
+		NotifyError:      cfg.Handoff.NotifyError,
+		NotifyQuestion:   cfg.Handoff.NotifyQuestion,
+		NotifyPermission: cfg.Handoff.NotifyPermission,
+		AllowedUsers:     cfg.Security.AllowedUsers,
+		ChatID:           cfg.Feishu.ChatID,
 	}, logger)
 
 	logger.Info("OpenCode Handoff starting", "version", version, "opencode", cfg.OpenCode.BaseURL)

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,6 +98,7 @@ func TestEngineIgnoresSubagentSession(t *testing.T) {
 		{SessionID: "ses_child", Directory: "/work/project", Kind: SignalError, Error: "child interrupted"},
 		{SessionID: "ses_child", Directory: "/work/project", Kind: SignalStopped},
 		{SessionID: "ses_child", Directory: "/work/project", Kind: SignalQuestion, Question: testQuestion("que_child", "ses_child")},
+		{SessionID: "ses_child", Directory: "/work/project", Kind: SignalPermission, Permission: testPermission("per_child", "ses_child")},
 	} {
 		if err := engine.handleSignal(ctx, signal); err != nil {
 			t.Fatal(err)
@@ -107,6 +109,60 @@ func TestEngineIgnoresSubagentSession(t *testing.T) {
 	}
 	if adapter.messageCalls != 0 {
 		t.Fatalf("subagent messages were fetched %d times", adapter.messageCalls)
+	}
+}
+
+func TestEngineRoutesPermissionDecisionWithoutSendingPrompt(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	adapter := &fakeAdapter{session: opencode.Session{ID: "ses_1", Directory: "/work/project", Title: "inspect preview"}}
+	channel := &fakeChannel{}
+	engine := NewEngine(adapter, channel, database, EngineOptions{
+		MaxOutputChars: 3000, NotifyPermission: true, AllowedUsers: []string{"ou_allowed"}, ChatID: "oc_allowed",
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	permission := testPermission("per_1", "ses_1")
+	if err := engine.handleSignal(ctx, Signal{SessionID: "ses_1", Directory: "/work/project", Kind: SignalPermission, Permission: permission}); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.sent) != 1 || channel.sent[0].Type != domain.HandoffPermission || channel.sent[0].PermissionID != "per_1" {
+		t.Fatalf("permission handoff = %+v", channel.sent)
+	}
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "evt_permission", ParentMessageID: "om_handoff", ChatID: "oc_allowed",
+		SenderID: "ou_allowed", PermissionReply: "once", CardAction: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(adapter.permissionReplies) != 1 || adapter.permissionReplies[0].Decision != opencode.PermissionOnce || adapter.permissionReplies[0].ID != "per_1" {
+		t.Fatalf("permission replies = %+v", adapter.permissionReplies)
+	}
+	if len(adapter.prompts) != 0 {
+		t.Fatalf("permission decision sent as prompt: %v", adapter.prompts)
+	}
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "evt_permission_again", ParentMessageID: "om_handoff", ChatID: "oc_allowed",
+		SenderID: "ou_allowed", PermissionReply: "always", CardAction: true,
+	}); err == nil || !strings.Contains(err.Error(), "已处理") {
+		t.Fatalf("second permission decision error = %v", err)
+	}
+}
+
+func TestParsePermissionReply(t *testing.T) {
+	for input, expected := range map[string]opencode.PermissionReply{
+		"允许一次":   opencode.PermissionOnce,
+		"2":      opencode.PermissionAlways,
+		"reject": opencode.PermissionReject,
+	} {
+		if actual := parsePermissionReply(input); actual != expected {
+			t.Fatalf("parsePermissionReply(%q) = %q, want %q", input, actual, expected)
+		}
+	}
+	if actual := parsePermissionReply("继续"); actual != "" {
+		t.Fatalf("invalid permission reply = %q", actual)
 	}
 }
 
@@ -284,12 +340,13 @@ func TestEngineExplainsAmbiguousUnquotedReply(t *testing.T) {
 func newTestEngine(adapter opencode.Adapter, channel *fakeChannel, database store.Store, notifyIdle, notifyError bool) *Engine {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return NewEngine(adapter, channel, database, EngineOptions{
-		MaxOutputChars: 3000,
-		NotifyIdle:     notifyIdle,
-		NotifyError:    notifyError,
-		NotifyQuestion: true,
-		AllowedUsers:   []string{"ou_allowed"},
-		ChatID:         "oc_allowed",
+		MaxOutputChars:   3000,
+		NotifyIdle:       notifyIdle,
+		NotifyError:      notifyError,
+		NotifyQuestion:   true,
+		NotifyPermission: true,
+		AllowedUsers:     []string{"ou_allowed"},
+		ChatID:           "oc_allowed",
 	}, logger)
 }
 
@@ -302,10 +359,24 @@ func testQuestion(id, sessionID string) opencode.QuestionRequest {
 	return question
 }
 
+func testPermission(id, sessionID string) opencode.PermissionRequest {
+	return opencode.PermissionRequest{
+		ID: id, SessionID: sessionID, Permission: "external_directory",
+		Patterns: []string{`C:\Users\test\Desktop\preview.html`},
+		Always:   []string{`C:\Users\test\Desktop\*`},
+	}
+}
+
 type promptCall struct {
 	SessionID string
 	Directory string
 	Text      string
+}
+
+type permissionReplyCall struct {
+	ID        string
+	Directory string
+	Decision  opencode.PermissionReply
 }
 
 type fakeAdapter struct {
@@ -316,6 +387,8 @@ type fakeAdapter struct {
 	questions         []opencode.QuestionRequest
 	questionReplies   [][][]string
 	rejectedQuestions []string
+	permissions       []opencode.PermissionRequest
+	permissionReplies []permissionReplyCall
 }
 
 func (f *fakeAdapter) ListDirectories(context.Context) ([]string, error) {
@@ -355,6 +428,15 @@ func (f *fakeAdapter) ReplyQuestion(_ context.Context, _ string, _ string, answe
 
 func (f *fakeAdapter) RejectQuestion(_ context.Context, requestID, _ string) error {
 	f.rejectedQuestions = append(f.rejectedQuestions, requestID)
+	return nil
+}
+
+func (f *fakeAdapter) ListPermissions(context.Context, string) ([]opencode.PermissionRequest, error) {
+	return f.permissions, nil
+}
+
+func (f *fakeAdapter) ReplyPermission(_ context.Context, requestID, directory string, decision opencode.PermissionReply) error {
+	f.permissionReplies = append(f.permissionReplies, permissionReplyCall{ID: requestID, Directory: directory, Decision: decision})
 	return nil
 }
 

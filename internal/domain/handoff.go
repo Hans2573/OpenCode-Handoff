@@ -35,6 +35,8 @@ type Handoff struct {
 	ErrorText              string
 	QuestionID             string
 	Questions              []Question
+	PermissionID           string
+	Permission             Permission
 	Status                 HandoffStatus
 	CreatedAt              time.Time
 	ResolvedAt             *time.Time
@@ -58,6 +60,13 @@ type QuestionOption struct {
 	Description string
 }
 
+type Permission struct {
+	Name     string
+	Patterns []string
+	Always   []string
+	Metadata map[string]any
+}
+
 type MessageRef struct {
 	ChatID    string
 	MessageID string
@@ -72,6 +81,7 @@ type UserReply struct {
 	Text            string
 	QuestionAnswers [][]string
 	RejectQuestion  bool
+	PermissionReply string
 	CardAction      bool
 	Result          chan error
 }

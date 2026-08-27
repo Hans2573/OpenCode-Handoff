@@ -75,8 +75,8 @@ func TestValidateAllowsQuestionNotifications(t *testing.T) {
 		t.Fatalf("Validate() question notifications error = %v", err)
 	}
 	cfg.Handoff.NotifyPermission = true
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "permission") {
-		t.Fatalf("Validate() permission error = %v", err)
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() permission notifications error = %v", err)
 	}
 }
 
@@ -91,6 +91,7 @@ func TestEnvironmentOverridesLiteralYAML(t *testing.T) {
 	t.Setenv("OPENCODE_SERVER_PASSWORD", "env_password")
 	t.Setenv("HANDOFF_MAX_OUTPUT_CHARS", "1200")
 	t.Setenv("HANDOFF_NOTIFY_QUESTION", "false")
+	t.Setenv("HANDOFF_NOTIFY_PERMISSION", "false")
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := `
@@ -123,7 +124,7 @@ security:
 	if len(cfg.Security.AllowedUsers) != 2 || cfg.Security.AllowedUsers[1] != "user_two" {
 		t.Fatalf("allowed users = %v", cfg.Security.AllowedUsers)
 	}
-	if cfg.Handoff.MaxOutputChars != 1200 || cfg.Handoff.NotifyQuestion {
+	if cfg.Handoff.MaxOutputChars != 1200 || cfg.Handoff.NotifyQuestion || cfg.Handoff.NotifyPermission {
 		t.Fatalf("handoff env overrides not applied: %+v", cfg.Handoff)
 	}
 }

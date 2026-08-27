@@ -15,34 +15,40 @@ import (
 type SignalKind string
 
 const (
-	SignalStopped  SignalKind = "stopped"
-	SignalError    SignalKind = "error"
-	SignalQuestion SignalKind = "question"
+	SignalStopped            SignalKind = "stopped"
+	SignalError              SignalKind = "error"
+	SignalQuestion           SignalKind = "question"
+	SignalPermission         SignalKind = "permission"
+	SignalPermissionResolved SignalKind = "permission_resolved"
 )
 
 type Signal struct {
-	SessionID string
-	Directory string
-	Kind      SignalKind
-	Error     string
-	Question  opencode.QuestionRequest
+	SessionID    string
+	Directory    string
+	Kind         SignalKind
+	Error        string
+	Question     opencode.QuestionRequest
+	Permission   opencode.PermissionRequest
+	PermissionID string
 }
 
 type WatcherOptions struct {
-	SSE             bool
-	PollingFallback bool
-	PollingInterval time.Duration
-	NotifyQuestions bool
+	SSE               bool
+	PollingFallback   bool
+	PollingInterval   time.Duration
+	NotifyQuestions   bool
+	NotifyPermissions bool
 }
 
 type Watcher struct {
-	client    opencode.Adapter
-	options   WatcherOptions
-	logger    *slog.Logger
-	signals   chan Signal
-	mu        sync.Mutex
-	statuses  map[string]observedStatus
-	questions map[string]struct{}
+	client      opencode.Adapter
+	options     WatcherOptions
+	logger      *slog.Logger
+	signals     chan Signal
+	mu          sync.Mutex
+	statuses    map[string]observedStatus
+	questions   map[string]struct{}
+	permissions map[string]struct{}
 }
 
 type observedStatus struct {
@@ -52,12 +58,13 @@ type observedStatus struct {
 
 func NewWatcher(client opencode.Adapter, options WatcherOptions, logger *slog.Logger) *Watcher {
 	return &Watcher{
-		client:    client,
-		options:   options,
-		logger:    logger,
-		signals:   make(chan Signal, 128),
-		statuses:  make(map[string]observedStatus),
-		questions: make(map[string]struct{}),
+		client:      client,
+		options:     options,
+		logger:      logger,
+		signals:     make(chan Signal, 128),
+		statuses:    make(map[string]observedStatus),
+		questions:   make(map[string]struct{}),
+		permissions: make(map[string]struct{}),
 	}
 }
 
@@ -121,10 +128,22 @@ func (w *Watcher) poll(ctx context.Context) {
 				if ctx.Err() == nil {
 					w.logger.Warn("poll OpenCode questions", "directory", directory, "error", err)
 				}
-				continue
+			} else {
+				for _, question := range questions {
+					w.observeQuestion(ctx, directory, question)
+				}
 			}
-			for _, question := range questions {
-				w.observeQuestion(ctx, directory, question)
+		}
+		if w.options.NotifyPermissions {
+			permissions, err := w.client.ListPermissions(ctx, directory)
+			if err != nil {
+				if ctx.Err() == nil {
+					w.logger.Warn("poll OpenCode permissions", "directory", directory, "error", err)
+				}
+			} else {
+				for _, permission := range permissions {
+					w.observePermission(ctx, directory, permission)
+				}
 			}
 		}
 	}
@@ -207,6 +226,37 @@ func (w *Watcher) handleEvent(ctx context.Context, event opencode.Event) {
 		if json.Unmarshal(event.Properties, &question) == nil {
 			w.observeQuestion(ctx, event.Directory, question)
 		}
+	case "permission.asked":
+		var permission opencode.PermissionRequest
+		if json.Unmarshal(event.Properties, &permission) == nil {
+			w.observePermission(ctx, event.Directory, permission)
+		}
+	case "permission.replied":
+		var replied struct {
+			SessionID string `json:"sessionID"`
+			RequestID string `json:"requestID"`
+		}
+		if json.Unmarshal(event.Properties, &replied) == nil && replied.RequestID != "" {
+			w.emit(ctx, Signal{
+				SessionID: replied.SessionID, Directory: event.Directory,
+				Kind: SignalPermissionResolved, PermissionID: replied.RequestID,
+			})
+		}
+	}
+}
+
+func (w *Watcher) observePermission(ctx context.Context, directory string, permission opencode.PermissionRequest) {
+	if permission.ID == "" || permission.SessionID == "" {
+		return
+	}
+	w.mu.Lock()
+	_, known := w.permissions[permission.ID]
+	if !known {
+		w.permissions[permission.ID] = struct{}{}
+	}
+	w.mu.Unlock()
+	if !known {
+		w.emit(ctx, Signal{SessionID: permission.SessionID, Directory: directory, Kind: SignalPermission, Permission: permission})
 	}
 }
 

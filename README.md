@@ -1,6 +1,6 @@
 # OpenCode Handoff
 
-OpenCode Handoff 是一个独立的 Human-in-the-Loop sidecar。它只在 OpenCode Session 从运行态进入 idle 或 error 时通知飞书；用户引用回复通知后，内容会作为真实 User Message 写回原 Session。
+OpenCode Handoff 是一个独立的 Human-in-the-Loop sidecar。它在 OpenCode Session 进入 idle/error、Question Tool 等待回答或 Permission 等待授权时通知飞书，并把用户回复精确送回原 Session。
 
 V1.0 已实现：
 
@@ -16,7 +16,7 @@ V1.0 已实现：
 - 自动忽略带 `parentID` 的子 agent Session
 - 飞书用户 allowlist 和 OpenCode loopback 地址保护
 
-V1.1 已支持 Question Tool 和飞书交互卡片；Permission Approval 仍为后续版本预留。
+V1.1 已支持 Question Tool、Permission Approval 和飞书交互卡片。
 
 ## 前置条件
 
@@ -44,8 +44,8 @@ OpenCode Server 应只监听 loopback。配置为远程地址时，程序默认�
 | 权限管理 | 接收群聊中 @ 机器人消息 (`im:message.group_at_msg:readonly`) | 使用群聊时必需 |
 | 事件与回调 > 事件配置 | 使用长连接接收事件 | 必需 |
 | 事件与回调 > 事件配置 | 接收消息 (`im.message.receive_v1`) | 必需 |
-| 事件与回调 > 回调配置 | 使用长连接接收回调 | Question 卡片必需 |
-| 事件与回调 > 回调配置 | 卡片回传交互 (`card.action.trigger`) | Question 按钮、输入框和“忽略”必需 |
+| 事件与回调 > 回调配置 | 使用长连接接收回调 | Question 和 Permission 卡片必需 |
+| 事件与回调 > 回调配置 | 卡片回传交互 (`card.action.trigger`) | Question 与 Permission 按钮必需 |
 | 版本管理与发布 | 创建版本并发布 | 每次修改权限、事件或回调后必需 |
 
 配置顺序：
@@ -60,7 +60,7 @@ OpenCode Server 应只监听 loopback。配置为远程地址时，程序默认�
 
 事件和回调都使用长连接，因此不需要公网 Webhook 地址，也不需要为本项目填写 Verification Token 或 Encrypt Key。App Secret 只放在本机环境变量或被 `.gitignore` 排除的 `config.yaml` 中。
 
-Question 卡片的选项按钮、自定义答案提交和“忽略”共用 `card.action.trigger`。如果该回调未生效，三种操作都会失败；此时仍可引用回复卡片，使用选项序号、自定义文本或“忽略”作为兜底。
+Question 卡片的选项按钮、自定义答案提交和“忽略”，以及 Permission 卡片的三种授权按钮，都共用 `card.action.trigger`。如果回调未生效，仍可引用回复卡片：Question 使用选项序号、自定义文本或“忽略”，Permission 使用“允许一次”“始终允许”或“拒绝”。
 
 ## 配置
 
@@ -82,6 +82,13 @@ security:
 $env:FEISHU_APP_ID = 'cli_xxx'
 $env:FEISHU_APP_SECRET = 'xxx'
 $env:OPENCODE_SERVER_PASSWORD = 'xxx'
+```
+
+Permission 通知默认开启。旧配置若曾显式关闭预留开关，需要改为：
+
+```yaml
+handoff:
+  notify_permission: true
 ```
 
 配置优先级是：**环境变量 > YAML > 内置默认值**。即使 YAML 中写了固定的 `feishu.app_id`，只要 `FEISHU_APP_ID` 存在，运行时就使用环境变量。支持自动覆盖的变量为：
@@ -148,9 +155,18 @@ OpenCode question.asked -> 飞书选项卡片 -> /question/{id}/reply -> 原 Ses
                                       \-> /question/{id}/reject（忽略）
 ```
 
+Permission Approval 同样使用独立闭环：
+
+```text
+OpenCode permission.asked -> 飞书授权卡片 -> /permission/{id}/reply
+                                                  once / always / reject
+```
+
 单题单选可以直接点击飞书按钮。自定义答案可引用回复卡片并输入文本；多选用逗号分隔序号，多题时每题一行。回复“忽略”“拒绝”或 `reject` 会拒绝 Question。Question 记录只允许成功处理一次，并继续使用原 `session_id`；子 agent 的 Question 与结束/中断一样不会通知。
 
-服务启动时已处于 idle 的历史 Session 不会触发通知；只有本次进程观察到从非 idle 到 idle 的状态变化才会创建 handoff。唯一键为 `session_id + last_assistant_message_id + handoff_type`，SSE 与轮询同时命中也只发送一次。
+Permission 卡片会显示权限类型、本次请求范围和 OpenCode 提供的“始终允许”范围。可点击“允许一次”“始终允许”或“拒绝”，也可引用回复对应中文、`once`、`always`、`reject`。选择“拒绝”会按 OpenCode 语义同时拒绝该 Session 中其他待处理权限；“始终允许”会放行后续匹配范围，操作前应核对卡片中的 pattern。Permission 只允许处理一次，子 agent 的 Permission 不会通知。
+
+服务启动时已处于 idle 的历史 Session 不会触发完成通知；但仍处于 pending 的 Question 和 Permission 会由轮询兜底发现。唯一键为 `session_id + last_assistant_message_id + handoff_type`，SSE 与轮询同时命中也只发送一次。
 
 每条历史 Handoff 通知都会持久映射到创建它的 `session_id`；引用回复哪条通知，就会继续对应的原 Session，即使该通知此前已经恢复过一次。飞书入站 `message_id` 会单独持久化去重，事件重投不会重复执行。
 

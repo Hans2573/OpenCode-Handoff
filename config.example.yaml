@@ -20,8 +20,8 @@ handoff:
   notify_error: true
   # OpenCode Question Tool 转发到飞书，并把答案回传到原 Session。
   notify_question: true
-  # 预留，尚未启用。
-  notify_permission: false
+  # OpenCode 权限确认转发到飞书，支持允许一次、始终允许和拒绝。
+  notify_permission: true
 
 channel:
   type: feishu

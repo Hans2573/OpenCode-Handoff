@@ -173,6 +173,51 @@ func TestSendHandoffFallsBackWhenFeishuRejectsQuestionForm(t *testing.T) {
 	}
 }
 
+func TestFormatPermissionHandoff(t *testing.T) {
+	content, err := formatHandoffCard(domain.Handoff{
+		SessionID: "ses_permission", SessionName: "Inspect preview", ProjectName: "handoff", Type: domain.HandoffPermission,
+		PermissionID: "per_1", Permission: domain.Permission{
+			Name:     "external_directory",
+			Patterns: []string{`C:\Users\test\Desktop\preview.html`},
+			Always:   []string{`C:\Users\test\Desktop\*`},
+		},
+	}, 3000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := decodeHandoffCard(t, content)
+	message := cardContents(card.Body.Elements)
+	for _, expected := range []string{
+		"ses_permission", "Inspect preview", "等待授权", "访问项目目录外文件",
+		`C:\Users\test\Desktop\preview.html`, `C:\Users\test\Desktop\*`,
+		"允许一次", "始终允许", "拒绝", "其他待处理权限",
+	} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("permission card %q does not contain %q", message, expected)
+		}
+	}
+	buttons := findCardElements(card.Body.Elements, "button")
+	if len(buttons) != 3 {
+		t.Fatalf("permission buttons = %d, want 3", len(buttons))
+	}
+	want := map[string]bool{"once": false, "always": false, "reject": false}
+	for _, button := range buttons {
+		if len(button.Behaviors) != 1 || button.Behaviors[0].Value["action"] != "permission_reply" {
+			t.Fatalf("permission button callback = %+v", button)
+		}
+		decision, _ := button.Behaviors[0].Value["decision"].(string)
+		if _, ok := want[decision]; !ok {
+			t.Fatalf("unexpected permission decision %q", decision)
+		}
+		want[decision] = true
+	}
+	for decision, found := range want {
+		if !found {
+			t.Fatalf("missing permission decision %q", decision)
+		}
+	}
+}
+
 func decodeHandoffCard(t *testing.T, content string) handoffCard {
 	t.Helper()
 	var card handoffCard
@@ -256,6 +301,31 @@ func TestOnCardActionRoutesQuestionReject(t *testing.T) {
 	}
 	if response.Toast == nil || response.Toast.Type != "success" || !strings.Contains(response.Toast.Content, "忽略") {
 		t.Fatalf("reject card response = %+v", response)
+	}
+}
+
+func TestOnCardActionRoutesPermissionDecision(t *testing.T) {
+	client := &Client{replies: make(chan domain.UserReply, 1)}
+	event := &callback.CardActionTriggerEvent{Event: &callback.CardActionTriggerRequest{
+		Operator: &callback.Operator{OpenID: "ou_1"},
+		Context:  &callback.Context{OpenMessageID: "om_permission", OpenChatID: "oc_chat"},
+		Action: &callback.CallBackAction{Value: map[string]any{
+			"action": "permission_reply", "decision": "always",
+		}},
+	}}
+	go func() {
+		reply := <-client.replies
+		if reply.PermissionReply != "always" || reply.ParentMessageID != "om_permission" || !reply.CardAction {
+			t.Errorf("permission card reply = %+v", reply)
+		}
+		reply.Result <- nil
+	}()
+	response, err := client.onCardAction(context.Background(), event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Toast == nil || response.Toast.Type != "success" || !strings.Contains(response.Toast.Content, "始终允许") {
+		t.Fatalf("permission card response = %+v", response)
 	}
 }
 

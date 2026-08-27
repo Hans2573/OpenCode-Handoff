@@ -22,6 +22,8 @@ type Store interface {
 	ClaimByMessage(context.Context, string, string) (domain.Handoff, error)
 	ClaimOnlyOpenByChat(context.Context, string, string) (domain.Handoff, error)
 	Reopen(context.Context, string) error
+	CloseResolvedPermissions(context.Context, string, []string) error
+	ClosePermission(context.Context, string) error
 	GetChannelBinding(context.Context) (domain.ChannelBinding, error)
 	BindChannel(context.Context, domain.ChannelBinding) error
 	Close() error

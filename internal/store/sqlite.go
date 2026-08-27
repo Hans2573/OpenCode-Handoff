@@ -50,6 +50,8 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			error_text TEXT NOT NULL DEFAULT '',
 			question_id TEXT NOT NULL DEFAULT '',
 			question_json TEXT NOT NULL DEFAULT '[]',
+			permission_id TEXT NOT NULL DEFAULT '',
+			permission_json TEXT NOT NULL DEFAULT '{}',
 			status TEXT NOT NULL,
 			created_at INTEGER NOT NULL,
 			resolved_at INTEGER,
@@ -78,8 +80,10 @@ func (s *SQLite) migrate(ctx context.Context) error {
 		}
 	}
 	for name, definition := range map[string]string{
-		"question_id":   "TEXT NOT NULL DEFAULT ''",
-		"question_json": "TEXT NOT NULL DEFAULT '[]'",
+		"question_id":     "TEXT NOT NULL DEFAULT ''",
+		"question_json":   "TEXT NOT NULL DEFAULT '[]'",
+		"permission_id":   "TEXT NOT NULL DEFAULT ''",
+		"permission_json": "TEXT NOT NULL DEFAULT '{}'",
 	} {
 		if err := s.ensureColumn(ctx, "handoff_records", name, definition); err != nil {
 			return err
@@ -124,12 +128,17 @@ func (s *SQLite) Create(ctx context.Context, handoff domain.Handoff) error {
 	if err != nil {
 		return fmt.Errorf("encode handoff questions: %w", err)
 	}
+	permission, err := json.Marshal(handoff.Permission)
+	if err != nil {
+		return fmt.Errorf("encode handoff permission: %w", err)
+	}
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO handoff_records (
 			id, session_id, directory, project_name, handoff_type,
 			last_assistant_message_id, last_assistant_text, error_text,
-			question_id, question_json, status, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			question_id, question_json, permission_id, permission_json,
+			status, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		handoff.ID,
 		handoff.SessionID,
 		handoff.Directory,
@@ -140,6 +149,8 @@ func (s *SQLite) Create(ctx context.Context, handoff domain.Handoff) error {
 		handoff.ErrorText,
 		handoff.QuestionID,
 		string(questions),
+		handoff.PermissionID,
+		string(permission),
 		domain.StatusOpen,
 		handoff.CreatedAt.UTC().UnixMilli(),
 	)
@@ -182,6 +193,7 @@ func (s *SQLite) ClaimByMessage(ctx context.Context, messageID, resumeMessageID 
 		SELECT id, session_id, directory, project_name, feishu_chat_id,
 			feishu_message_id, handoff_type, last_assistant_message_id,
 			last_assistant_text, error_text, question_id, question_json,
+			permission_id, permission_json,
 			status, created_at, resolved_at
 		FROM handoff_records
 		WHERE feishu_message_id = ?`, messageID)
@@ -192,7 +204,7 @@ func (s *SQLite) ClaimByMessage(ctx context.Context, messageID, resumeMessageID 
 	if err != nil {
 		return domain.Handoff{}, fmt.Errorf("find handoff message mapping: %w", err)
 	}
-	if handoff.Type == domain.HandoffQuestion && handoff.Status != domain.StatusOpen {
+	if (handoff.Type == domain.HandoffQuestion || handoff.Type == domain.HandoffPermission) && handoff.Status != domain.StatusOpen {
 		return domain.Handoff{}, ErrNotFound
 	}
 	if err := recordReplyReceipt(ctx, tx, resumeMessageID, handoff.ID); err != nil {
@@ -257,6 +269,7 @@ func (s *SQLite) ClaimOnlyOpenByChat(ctx context.Context, chatID, resumeMessageI
 		SELECT id, session_id, directory, project_name, feishu_chat_id,
 			feishu_message_id, handoff_type, last_assistant_message_id,
 			last_assistant_text, error_text, question_id, question_json,
+			permission_id, permission_json,
 			status, created_at, resolved_at
 		FROM handoff_records
 		WHERE feishu_chat_id = ? AND session_id = ? AND status = ?
@@ -302,6 +315,35 @@ func (s *SQLite) Reopen(ctx context.Context, id string) error {
 		return fmt.Errorf("reopen handoff: %w", err)
 	}
 	return expectOne(result)
+}
+
+func (s *SQLite) CloseResolvedPermissions(ctx context.Context, sessionID string, pendingIDs []string) error {
+	query := `
+		UPDATE handoff_records
+		SET status = ?, resolved_at = ?
+		WHERE session_id = ? AND handoff_type = ? AND status = ?`
+	args := []any{domain.StatusClosed, time.Now().UTC().UnixMilli(), sessionID, domain.HandoffPermission, domain.StatusOpen}
+	if len(pendingIDs) > 0 {
+		query += " AND permission_id NOT IN (" + strings.TrimRight(strings.Repeat("?,", len(pendingIDs)), ",") + ")"
+		for _, id := range pendingIDs {
+			args = append(args, id)
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
+		return fmt.Errorf("close resolved permission handoffs: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLite) ClosePermission(ctx context.Context, permissionID string) error {
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE handoff_records
+		SET status = ?, resolved_at = ?
+		WHERE permission_id = ? AND handoff_type = ? AND status = ?`,
+		domain.StatusClosed, time.Now().UTC().UnixMilli(), permissionID, domain.HandoffPermission, domain.StatusOpen); err != nil {
+		return fmt.Errorf("close permission handoff: %w", err)
+	}
+	return nil
 }
 
 func (s *SQLite) GetChannelBinding(ctx context.Context) (domain.ChannelBinding, error) {
@@ -363,6 +405,7 @@ type scanner interface {
 func scanHandoff(row scanner) (domain.Handoff, error) {
 	var handoff domain.Handoff
 	var questions string
+	var permission string
 	var createdAt int64
 	var resolvedAt sql.NullInt64
 	err := row.Scan(
@@ -378,6 +421,8 @@ func scanHandoff(row scanner) (domain.Handoff, error) {
 		&handoff.ErrorText,
 		&handoff.QuestionID,
 		&questions,
+		&handoff.PermissionID,
+		&permission,
 		&handoff.Status,
 		&createdAt,
 		&resolvedAt,
@@ -387,6 +432,9 @@ func scanHandoff(row scanner) (domain.Handoff, error) {
 	}
 	if err := json.Unmarshal([]byte(questions), &handoff.Questions); err != nil {
 		return domain.Handoff{}, fmt.Errorf("decode handoff questions: %w", err)
+	}
+	if err := json.Unmarshal([]byte(permission), &handoff.Permission); err != nil {
+		return domain.Handoff{}, fmt.Errorf("decode handoff permission: %w", err)
 	}
 	handoff.CreatedAt = time.UnixMilli(createdAt).UTC()
 	if resolvedAt.Valid {

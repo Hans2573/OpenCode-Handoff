@@ -120,3 +120,67 @@ func TestSQLitePersistsQuestionAndPreventsSecondAnswer(t *testing.T) {
 		t.Fatalf("second question claim error = %v", err)
 	}
 }
+
+func TestSQLitePersistsPermissionAndPreventsSecondDecision(t *testing.T) {
+	ctx := context.Background()
+	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	handoff := domain.Handoff{
+		ID: "hof_permission", SessionID: "ses_1", Directory: "/work/a", ProjectName: "a",
+		Type: domain.HandoffPermission, LastAssistantMessageID: "permission:per_1", PermissionID: "per_1",
+		Permission: domain.Permission{
+			Name: "external_directory", Patterns: []string{`C:\Users\test\Desktop\preview.html`},
+			Always: []string{`C:\Users\test\Desktop\*`}, Metadata: map[string]any{"source": "read"},
+		},
+		CreatedAt: time.Now(),
+	}
+	if err := database.Create(ctx, handoff); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.BindMessage(ctx, handoff.ID, domain.MessageRef{ChatID: "oc_1", MessageID: "om_permission"}); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := database.ClaimByMessage(ctx, "om_permission", "evt_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.PermissionID != "per_1" || claimed.Permission.Name != "external_directory" || claimed.Permission.Always[0] != `C:\Users\test\Desktop\*` {
+		t.Fatalf("claimed permission = %+v", claimed)
+	}
+	if _, err := database.ClaimByMessage(ctx, "om_permission", "evt_2"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second permission claim error = %v", err)
+	}
+	handoff.ID = "hof_permission_2"
+	handoff.PermissionID = "per_2"
+	handoff.LastAssistantMessageID = "permission:per_2"
+	if err := database.Create(ctx, handoff); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.BindMessage(ctx, handoff.ID, domain.MessageRef{ChatID: "oc_1", MessageID: "om_permission_2"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CloseResolvedPermissions(ctx, "ses_1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ClaimByMessage(ctx, "om_permission_2", "evt_3"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("closed related permission claim error = %v", err)
+	}
+	handoff.ID = "hof_permission_3"
+	handoff.PermissionID = "per_3"
+	handoff.LastAssistantMessageID = "permission:per_3"
+	if err := database.Create(ctx, handoff); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.BindMessage(ctx, handoff.ID, domain.MessageRef{ChatID: "oc_1", MessageID: "om_permission_3"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ClosePermission(ctx, "per_3"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ClaimByMessage(ctx, "om_permission_3", "evt_4"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("locally resolved permission claim error = %v", err)
+	}
+}

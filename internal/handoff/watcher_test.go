@@ -91,3 +91,48 @@ func TestWatcherEmitsQuestionOnceAcrossSSEAndPolling(t *testing.T) {
 	default:
 	}
 }
+
+func TestWatcherEmitsPermissionOnceAcrossSSEAndPolling(t *testing.T) {
+	watcher := NewWatcher(&fakeAdapter{}, WatcherOptions{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	permission := opencode.PermissionRequest{
+		ID: "per_1", SessionID: "ses_1", Permission: "external_directory",
+		Patterns: []string{`C:\Users\test\Desktop\*`},
+	}
+	properties, _ := json.Marshal(permission)
+	watcher.handleEvent(context.Background(), opencode.Event{
+		Directory: "/work/a", Type: "permission.asked", Properties: properties,
+	})
+	watcher.observePermission(context.Background(), "/work/a", permission)
+
+	select {
+	case signal := <-watcher.signals:
+		if signal.Kind != SignalPermission || signal.Permission.ID != "per_1" || signal.Directory != "/work/a" {
+			t.Fatalf("signal = %+v", signal)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("permission signal was not emitted")
+	}
+	select {
+	case duplicate := <-watcher.signals:
+		t.Fatalf("duplicate permission signal = %+v", duplicate)
+	default:
+	}
+}
+
+func TestWatcherEmitsPermissionResolved(t *testing.T) {
+	watcher := NewWatcher(&fakeAdapter{}, WatcherOptions{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	properties, _ := json.Marshal(map[string]any{
+		"sessionID": "ses_1", "requestID": "per_1", "reply": "once",
+	})
+	watcher.handleEvent(context.Background(), opencode.Event{
+		Directory: "/work/a", Type: "permission.replied", Properties: properties,
+	})
+	select {
+	case signal := <-watcher.signals:
+		if signal.Kind != SignalPermissionResolved || signal.PermissionID != "per_1" || signal.SessionID != "ses_1" {
+			t.Fatalf("signal = %+v", signal)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("permission resolved signal was not emitted")
+	}
+}

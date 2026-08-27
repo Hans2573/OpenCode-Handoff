@@ -91,10 +91,11 @@ func Default() Config {
 			PollingInterval: Duration{Duration: 3 * time.Second},
 		},
 		Handoff: HandoffConfig{
-			MaxOutputChars: 3000,
-			NotifyIdle:     true,
-			NotifyError:    true,
-			NotifyQuestion: true,
+			MaxOutputChars:   3000,
+			NotifyIdle:       true,
+			NotifyError:      true,
+			NotifyQuestion:   true,
+			NotifyPermission: true,
 		},
 		Channel: ChannelConfig{Type: "feishu"},
 		Store:   StoreConfig{Path: "opencode-handoff.db"},
@@ -224,9 +225,6 @@ func (c Config) Validate() error {
 	}
 	if c.Handoff.MaxOutputChars <= 0 {
 		return errors.New("handoff.max_output_chars must be positive")
-	}
-	if c.Handoff.NotifyPermission {
-		return errors.New("permission notifications are not implemented and must remain disabled")
 	}
 	if c.Channel.Type != "feishu" {
 		return fmt.Errorf("unsupported channel.type %q", c.Channel.Type)

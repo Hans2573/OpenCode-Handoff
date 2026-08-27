@@ -16,6 +16,7 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 	var promptText string
 	var questionAnswers [][]string
 	var rejected bool
+	var permissionReply PermissionReply
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {
 		case request.Method == http.MethodGet && request.URL.Path == "/project":
@@ -50,6 +51,20 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 			writer.WriteHeader(http.StatusNoContent)
 		case request.Method == http.MethodPost && request.URL.Path == "/question/que_1/reject":
 			rejected = true
+			writer.WriteHeader(http.StatusNoContent)
+		case request.Method == http.MethodGet && request.URL.Path == "/permission":
+			writeJSON(t, writer, []PermissionRequest{{
+				ID: "per_1", SessionID: "ses_1", Permission: "external_directory",
+				Patterns: []string{`C:\Users\test\Desktop\*`}, Always: []string{`C:\Users\test\Desktop\*`},
+			}})
+		case request.Method == http.MethodPost && request.URL.Path == "/permission/per_1/reply":
+			var body struct {
+				Reply PermissionReply `json:"reply"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Errorf("decode permission reply: %v", err)
+			}
+			permissionReply = body.Reply
 			writer.WriteHeader(http.StatusNoContent)
 		default:
 			http.NotFound(writer, request)
@@ -87,6 +102,19 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 	}
 	if err := client.RejectQuestion(context.Background(), "que_1", "/work/a"); err != nil || !rejected {
 		t.Fatalf("RejectQuestion() rejected=%v err=%v", rejected, err)
+	}
+	permissions, err := client.ListPermissions(context.Background(), "/work/a")
+	if err != nil || len(permissions) != 1 || permissions[0].Permission != "external_directory" {
+		t.Fatalf("ListPermissions() = %v, %v", permissions, err)
+	}
+	if err := client.ReplyPermission(context.Background(), "per_1", "/work/a", PermissionOnce); err != nil {
+		t.Fatal(err)
+	}
+	if permissionReply != PermissionOnce {
+		t.Fatalf("permission reply = %q", permissionReply)
+	}
+	if err := client.ReplyPermission(context.Background(), "per_1", "/work/a", PermissionReply("invalid")); err == nil {
+		t.Fatal("invalid permission reply was accepted")
 	}
 }
 

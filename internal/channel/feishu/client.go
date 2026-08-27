@@ -238,7 +238,7 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		return cardToast("error", "无效的卡片操作"), nil
 	}
 	action := stringMapValue(event.Event.Action.Value, "action")
-	if action != "question_reply" && action != "question_custom_reply" && action != "question_reject" {
+	if action != "question_reply" && action != "question_custom_reply" && action != "question_reject" && action != "permission_reply" {
 		return cardToast("error", "不支持的卡片操作"), nil
 	}
 	messageID := ""
@@ -273,6 +273,12 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 			return cardToast("error", "请输入自定义答案"), nil
 		}
 		reply.QuestionAnswers = [][]string{{answer}}
+	} else if action == "permission_reply" {
+		decision := strings.ToLower(strings.TrimSpace(stringMapValue(event.Event.Action.Value, "decision")))
+		if decision != "once" && decision != "always" && decision != "reject" {
+			return cardToast("error", "权限决定无效"), nil
+		}
+		reply.PermissionReply = decision
 	}
 	select {
 	case <-ctx.Done():
@@ -286,6 +292,14 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		}
 		if reply.RejectQuestion {
 			return cardToast("success", "已忽略该问题"), nil
+		}
+		switch reply.PermissionReply {
+		case "once":
+			return cardToast("success", "已允许本次操作"), nil
+		case "always":
+			return cardToast("success", "已设置始终允许"), nil
+		case "reject":
+			return cardToast("success", "已拒绝权限请求"), nil
 		}
 		return cardToast("success", "答案已提交到原 Session"), nil
 	case <-ctx.Done():
@@ -485,6 +499,9 @@ func formatHandoffCard(handoff domain.Handoff, maxOutputChars int) (string, erro
 	if handoff.Type == domain.HandoffQuestion {
 		return formatQuestionCard(handoff, true)
 	}
+	if handoff.Type == domain.HandoffPermission {
+		return formatPermissionCard(handoff)
+	}
 	title := "✅ OpenCode · Task Finished"
 	if handoff.Type == domain.HandoffError {
 		title = "🚨 OpenCode · Interrupted"
@@ -558,6 +575,108 @@ func formatHandoffCard(handoff domain.Handoff, maxOutputChars int) (string, erro
 		return "", err
 	}
 	return string(content), nil
+}
+
+func formatPermissionCard(handoff domain.Handoff) (string, error) {
+	sessionName := strings.TrimSpace(handoff.SessionName)
+	if sessionName == "" {
+		sessionName = "Untitled Session"
+	}
+	permissionName := strings.TrimSpace(handoff.Permission.Name)
+	elements := []handoffCardElement{
+		{Tag: "markdown", Content: fmt.Sprintf("🆔 Session ID: %s\n🏷️ Session Name: %s", handoff.SessionID, sessionName)},
+		{Tag: "hr"},
+		{Tag: "markdown", Content: fmt.Sprintf("🔐 **OpenCode · 等待授权**\n📁 Project: %s", handoff.ProjectName)},
+		{Tag: "markdown", Content: fmt.Sprintf("**权限类型**\n%s (`%s`)", permissionDisplayName(permissionName), sanitizeInlineCode(permissionName))},
+		{Tag: "markdown", Content: "**本次请求范围**\n" + permissionValues(handoff.Permission.Patterns)},
+	}
+	if len(handoff.Permission.Always) > 0 {
+		elements = append(elements, handoffCardElement{
+			Tag:     "markdown",
+			Content: "**选择“始终允许”后保存的范围**\n" + permissionValues(handoff.Permission.Always),
+		})
+	} else {
+		elements = append(elements, handoffCardElement{
+			Tag:     "markdown",
+			Content: "ℹ️ OpenCode 未提供可保存的范围；此请求选择“始终允许”可能只对本次生效。",
+		})
+	}
+	elements = append(elements,
+		handoffCardElement{Tag: "markdown", Content: "⚠️ “始终允许”会放行后续匹配操作；“拒绝”还会拒绝该 Session 中其他待处理权限。"},
+		permissionButtonRow(
+			callbackButton("✅ 允许一次", map[string]any{"action": "permission_reply", "decision": "once"}, "primary"),
+			callbackButton("🔓 始终允许", map[string]any{"action": "permission_reply", "decision": "always"}, "default"),
+			callbackButton("❌ 拒绝", map[string]any{"action": "permission_reply", "decision": "reject"}, "danger"),
+		),
+		handoffCardElement{Tag: "markdown", Content: "↩️ 回调不可用时可引用回复本消息：允许一次 / 始终允许 / 拒绝（或 once / always / reject）。"},
+	)
+	content, err := json.Marshal(handoffCard{
+		Schema: "2.0",
+		Config: handoffCardConfig{UpdateMulti: true, WidthMode: "fill"},
+		Body:   handoffCardBody{Direction: "vertical", Padding: "12px 12px 12px 12px", Elements: elements},
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func permissionDisplayName(permission string) string {
+	switch permission {
+	case "external_directory":
+		return "访问项目目录外文件"
+	case "read":
+		return "读取文件"
+	case "edit":
+		return "修改文件"
+	case "bash":
+		return "执行 Shell 命令"
+	case "task":
+		return "启动子任务"
+	case "webfetch":
+		return "访问网页"
+	case "websearch":
+		return "搜索网络"
+	case "doom_loop":
+		return "继续可能重复的操作"
+	default:
+		if permission == "" {
+			return "未知权限"
+		}
+		return "工具操作授权"
+	}
+}
+
+func permissionValues(values []string) string {
+	if len(values) == 0 {
+		return "（未提供）"
+	}
+	lines := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(value, "\r", " "), "\n", " "))
+		if value != "" {
+			lines = append(lines, "- `"+sanitizeInlineCode(value)+"`")
+		}
+	}
+	if len(lines) == 0 {
+		return "（未提供）"
+	}
+	return strings.Join(lines, "\n")
+}
+
+func sanitizeInlineCode(value string) string {
+	return strings.ReplaceAll(value, "`", "ˋ")
+}
+
+func permissionButtonRow(buttons ...handoffCardElement) handoffCardElement {
+	columns := make([]handoffCardElement, 0, len(buttons))
+	for _, button := range buttons {
+		columns = append(columns, handoffCardElement{
+			Tag: "column", Width: "weighted", Weight: 1,
+			Elements: []handoffCardElement{button},
+		})
+	}
+	return handoffCardElement{Tag: "column_set", Columns: columns}
 }
 
 func formatQuestionCard(handoff domain.Handoff, includeCustomForm bool) (string, error) {

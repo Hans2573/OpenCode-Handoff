@@ -20,12 +20,13 @@ import (
 )
 
 type EngineOptions struct {
-	MaxOutputChars int
-	NotifyIdle     bool
-	NotifyError    bool
-	NotifyQuestion bool
-	AllowedUsers   []string
-	ChatID         string
+	MaxOutputChars   int
+	NotifyIdle       bool
+	NotifyError      bool
+	NotifyQuestion   bool
+	NotifyPermission bool
+	AllowedUsers     []string
+	ChatID           string
 }
 
 type Engine struct {
@@ -91,11 +92,20 @@ func (e *Engine) Run(ctx context.Context, signals <-chan Signal) error {
 }
 
 func (e *Engine) handleSignal(ctx context.Context, signal Signal) error {
+	if signal.Kind == SignalPermissionResolved {
+		return e.store.ClosePermission(ctx, signal.PermissionID)
+	}
 	if signal.Kind == SignalQuestion {
 		if !e.options.NotifyQuestion {
 			return nil
 		}
 		return e.handleQuestion(ctx, signal.Directory, signal.Question)
+	}
+	if signal.Kind == SignalPermission {
+		if !e.options.NotifyPermission {
+			return nil
+		}
+		return e.handlePermission(ctx, signal.Directory, signal.Permission)
 	}
 	if signal.Kind == SignalError && !e.options.NotifyError {
 		return nil
@@ -117,6 +127,18 @@ func (e *Engine) handleSignal(ctx context.Context, signal Signal) error {
 			for _, question := range questions {
 				if question.SessionID == session.ID {
 					return e.handleQuestionForSession(ctx, session, signal.Directory, question)
+				}
+			}
+		}
+	}
+	if signal.Kind == SignalStopped && e.options.NotifyPermission {
+		permissions, err := e.opencode.ListPermissions(ctx, signal.Directory)
+		if err != nil {
+			e.logger.Warn("could not check pending permissions before idle handoff", "session_id", session.ID, "error", err)
+		} else {
+			for _, permission := range permissions {
+				if permission.SessionID == session.ID {
+					return e.handlePermissionForSession(ctx, session, signal.Directory, permission)
 				}
 			}
 		}
@@ -215,6 +237,44 @@ func (e *Engine) handleQuestionForSession(ctx context.Context, session opencode.
 	return e.persistAndSend(ctx, handoff)
 }
 
+func (e *Engine) handlePermission(ctx context.Context, directory string, permission opencode.PermissionRequest) error {
+	if permission.ID == "" || permission.SessionID == "" || permission.Permission == "" || len(permission.Patterns) == 0 {
+		return errors.New("OpenCode permission event is incomplete")
+	}
+	session, err := e.opencode.GetSession(ctx, permission.SessionID, directory)
+	if err != nil {
+		return fmt.Errorf("get permission session: %w", err)
+	}
+	return e.handlePermissionForSession(ctx, session, directory, permission)
+}
+
+func (e *Engine) handlePermissionForSession(ctx context.Context, session opencode.Session, directory string, permission opencode.PermissionRequest) error {
+	if session.ParentID != "" {
+		e.logger.Debug("ignore subagent permission", "session_id", session.ID, "parent_id", session.ParentID)
+		return nil
+	}
+	if session.Directory == "" {
+		session.Directory = directory
+	}
+	handoff := domain.Handoff{
+		ID:                     newID(),
+		SessionID:              session.ID,
+		SessionName:            sessionName(session),
+		Directory:              session.Directory,
+		ProjectName:            projectName(session),
+		Type:                   domain.HandoffPermission,
+		LastAssistantMessageID: "permission:" + permission.ID,
+		PermissionID:           permission.ID,
+		Permission: domain.Permission{
+			Name: permission.Permission, Patterns: permission.Patterns,
+			Always: permission.Always, Metadata: permission.Metadata,
+		},
+		Status:    domain.StatusOpen,
+		CreatedAt: time.Now().UTC(),
+	}
+	return e.persistAndSend(ctx, handoff)
+}
+
 func (e *Engine) persistAndSend(ctx context.Context, handoff domain.Handoff) error {
 	if err := e.store.Create(ctx, handoff); errors.Is(err, store.ErrDuplicate) {
 		e.logger.Debug("skip duplicate handoff", "session_id", handoff.SessionID, "message_id", handoff.LastAssistantMessageID, "type", handoff.Type)
@@ -268,7 +328,7 @@ func (e *Engine) sendWithRetry(ctx context.Context, handoff domain.Handoff) (dom
 
 func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error {
 	text := strings.TrimSpace(reply.Text)
-	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion {
+	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion && reply.PermissionReply == "" {
 		return nil
 	}
 	allowed, err := e.isAllowed(ctx, reply)
@@ -302,7 +362,7 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 	if errors.Is(err, store.ErrNotFound) {
 		e.logger.Debug("ignore reply without an open handoff", "parent_message_id", reply.ParentMessageID)
 		if reply.CardAction {
-			return errors.New("该问题已处理或已过期")
+			return errors.New("该请求已处理或已过期")
 		}
 		return nil
 	}
@@ -311,6 +371,9 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 	}
 	if handoff.Type == domain.HandoffQuestion {
 		return e.handleQuestionReply(ctx, handoff, reply, text)
+	}
+	if handoff.Type == domain.HandoffPermission {
+		return e.handlePermissionReply(ctx, handoff, reply, text)
 	}
 	if err := e.opencode.SendPrompt(ctx, handoff.SessionID, handoff.Directory, text); err != nil {
 		if reopenErr := e.store.Reopen(context.WithoutCancel(ctx), handoff.ID); reopenErr != nil {
@@ -330,6 +393,79 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 		}
 	}
 	return nil
+}
+
+func (e *Engine) handlePermissionReply(ctx context.Context, handoff domain.Handoff, reply domain.UserReply, text string) error {
+	reopen := func() {
+		if err := e.store.Reopen(context.WithoutCancel(ctx), handoff.ID); err != nil {
+			e.logger.Error("reopen permission handoff", "handoff_id", handoff.ID, "error", err)
+		}
+	}
+	decision := opencode.PermissionReply(strings.ToLower(strings.TrimSpace(reply.PermissionReply)))
+	if decision == "" {
+		decision = parsePermissionReply(text)
+	}
+	if !decision.Valid() {
+		reopen()
+		if reply.CardAction {
+			return errors.New("请选择允许一次、始终允许或拒绝")
+		}
+		_ = e.channel.Reply(ctx, reply.MessageID, "权限答复格式不正确，请回复“允许一次”“始终允许”或“拒绝”。")
+		return nil
+	}
+	if err := e.opencode.ReplyPermission(ctx, handoff.PermissionID, handoff.Directory, decision); err != nil {
+		reopen()
+		if !reply.CardAction {
+			_ = e.channel.Reply(ctx, reply.MessageID, "提交权限决定到 OpenCode 失败，请检查服务日志后重试。")
+		}
+		return fmt.Errorf("submit OpenCode permission response: %w", err)
+	}
+	e.reconcilePermissionHandoffs(ctx, handoff, decision)
+	e.logger.Info("permission answered", "session_id", handoff.SessionID, "permission_id", handoff.PermissionID, "decision", decision)
+	if !reply.CardAction {
+		message := map[opencode.PermissionReply]string{
+			opencode.PermissionOnce:   "已允许本次操作，原 OpenCode Session 正在继续。",
+			opencode.PermissionAlways: "已设置始终允许，原 OpenCode Session 正在继续。",
+			opencode.PermissionReject: "已拒绝权限请求。",
+		}[decision]
+		if err := e.channel.Reply(ctx, reply.MessageID, message); err != nil {
+			e.logger.Warn("confirm permission response", "permission_id", handoff.PermissionID, "error", err)
+		}
+	}
+	return nil
+}
+
+func (e *Engine) reconcilePermissionHandoffs(ctx context.Context, handoff domain.Handoff, decision opencode.PermissionReply) {
+	permissions, err := e.opencode.ListPermissions(ctx, handoff.Directory)
+	if err != nil {
+		if decision != opencode.PermissionReject {
+			e.logger.Warn("could not reconcile pending permissions", "session_id", handoff.SessionID, "error", err)
+			return
+		}
+		permissions = nil
+	}
+	var pendingIDs []string
+	for _, permission := range permissions {
+		if permission.SessionID == handoff.SessionID {
+			pendingIDs = append(pendingIDs, permission.ID)
+		}
+	}
+	if err := e.store.CloseResolvedPermissions(context.WithoutCancel(ctx), handoff.SessionID, pendingIDs); err != nil {
+		e.logger.Warn("close resolved permission handoffs", "session_id", handoff.SessionID, "error", err)
+	}
+}
+
+func parsePermissionReply(text string) opencode.PermissionReply {
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "1", "允许一次", "仅此一次", "once", "allow once":
+		return opencode.PermissionOnce
+	case "2", "始终允许", "总是允许", "always", "allow always":
+		return opencode.PermissionAlways
+	case "3", "拒绝", "取消", "reject", "deny":
+		return opencode.PermissionReject
+	default:
+		return ""
+	}
 }
 
 func (e *Engine) handleQuestionReply(ctx context.Context, handoff domain.Handoff, reply domain.UserReply, text string) error {
