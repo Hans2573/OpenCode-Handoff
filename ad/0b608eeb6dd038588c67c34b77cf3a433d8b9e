@@ -1,0 +1,43 @@
+README.md
+  s_7b9d596adc544c::t_fea5c5490a25de 65-79,153
+cmd/handoff/main.go
+  s_7b9d596adc544c::t_f52c83690d61e2 16-20
+go.mod
+  s_7b9d596adc544c::t_2b14f1e0b3d6b0 1
+internal/channel/channel.go
+  s_7b9d596adc544c::t_fadd4b03399bb5 6
+internal/channel/feishu/client.go
+  s_7b9d596adc544c::t_c822bed73e066b 21-22
+internal/channel/feishu/client_test.go
+  s_7b9d596adc544c::t_0c7d99a9dd3730 17-18
+internal/handoff/engine.go
+  s_7b9d596adc544c::t_0be14e17b74f39 16-19
+internal/handoff/engine_test.go
+  s_7b9d596adc544c::t_71b76d4e9308ce 13-15
+internal/handoff/watcher.go
+  s_7b9d596adc544c::t_1c844709e8c3a4 12
+internal/handoff/watcher_test.go
+  s_7b9d596adc544c::t_2a7a3b87600692 11
+internal/store/sqlite.go
+  s_7b9d596adc544c::t_239d3c95d058ac 14
+internal/store/sqlite_test.go
+  s_7b9d596adc544c::t_eaf6e7b6f35ee2 10
+internal/store/store.go
+  s_7b9d596adc544c::t_7769daa4de7c3a 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "ad0b608eeb6dd038588c67c34b77cf3a433d8b9e",
+  "prompts": {},
+  "sessions": {
+    "s_7b9d596adc544c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0439e-6bbd-7e52-a8ee-9a21a5a8b2b2",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
