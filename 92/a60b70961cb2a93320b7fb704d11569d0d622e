@@ -1,0 +1,51 @@
+internal/handoff/engine.go
+  s_dd7f465f0d473b::t_66633be4607445 94-96,99,204
+  s_dd7f465f0d473b::t_67e30df9b948b3 97-98
+  s_dd7f465f0d473b::t_374b22d4f51b49 201-203
+  s_dd7f465f0d473b::t_9849a8ac13eb41 205-207
+internal/channel/feishu/client.go
+  s_2249a5c8388450::t_8ea44710f8a2f3 17,43,76,78-79,98-124,131,136,138-143,145-146,236-316,438-457,485-487,562-665
+internal/channel/feishu/client_test.go
+  s_2249a5c8388450::t_69fa578ee5a04c 12-14,91-175,194-202,206-208,213-290,299-328
+internal/handoff/engine_test.go
+  s_57a4d6b57af4f3::t_ed46f0802420cc 99,113-178,290,296-304,312-318,347-360
+internal/handoff/watcher_test.go
+  s_57a4d6b57af4f3::t_38ab12780d8c01 69-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "92a60b70961cb2a93320b7fb704d11569d0d622e",
+  "prompts": {},
+  "humans": {
+    "h_cf0640c320ba82": {
+      "author": "xiaohang2 <xiaohang2@lenovo.com>"
+    }
+  },
+  "sessions": {
+    "s_2249a5c8388450": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fbedc458effeWnn3RnCD5JihQe",
+        "model": "unknown"
+      },
+      "human_author": "xiaohang2 <xiaohang2@lenovo.com>"
+    },
+    "s_57a4d6b57af4f3": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fbe115987ffeB1jkJOdO2xgR4D",
+        "model": "unknown"
+      },
+      "human_author": "xiaohang2 <xiaohang2@lenovo.com>"
+    },
+    "s_dd7f465f0d473b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a041dd-67c1-7863-85c6-127929e52c4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "xiaohang2 <xiaohang2@lenovo.com>"
+    }
+  }
+}
