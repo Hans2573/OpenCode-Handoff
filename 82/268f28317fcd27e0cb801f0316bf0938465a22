@@ -1,0 +1,28 @@
+internal/channel/feishu/client_test.go
+  s_57a4d6b57af4f3::t_a6e0fa8d87263f 176-220,307-331
+internal/handoff/engine_test.go
+  s_57a4d6b57af4f3::t_ae568db48e1a91 9,101,115-168,343-349,362-369,376-381,390-391,434-442
+internal/handoff/watcher_test.go
+  s_57a4d6b57af4f3::t_1c70e4f6285f6f 94-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "82268f28317fcd27e0cb801f0316bf0938465a22",
+  "prompts": {},
+  "humans": {
+    "h_cf0640c320ba82": {
+      "author": "xiaohang2 <xiaohang2@lenovo.com>"
+    }
+  },
+  "sessions": {
+    "s_57a4d6b57af4f3": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fbe115987ffeB1jkJOdO2xgR4D",
+        "model": "unknown"
+      },
+      "human_author": "xiaohang2 <xiaohang2@lenovo.com>"
+    }
+  }
+}
