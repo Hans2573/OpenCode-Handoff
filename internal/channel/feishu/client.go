@@ -18,8 +18,8 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 
-	"github.com/xiaohang2/opencode-handoff/internal/domain"
-	"github.com/xiaohang2/opencode-handoff/internal/store"
+	"github.com/Hans2573/OpenCode-Handoff/internal/domain"
+	"github.com/Hans2573/OpenCode-Handoff/internal/store"
 )
 
 type BindingStore interface {

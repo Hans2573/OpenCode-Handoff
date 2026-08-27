@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaohang2/opencode-handoff/internal/domain"
+	"github.com/Hans2573/OpenCode-Handoff/internal/domain"
 )
 
 func TestClaimOnlyOpenByChat(t *testing.T) {

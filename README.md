@@ -62,6 +62,21 @@ OpenCode Server 应只监听 loopback。配置为远程地址时，程序默认�
 
 Question 卡片的选项按钮、自定义答案提交和“忽略”，以及 Permission 卡片的三种授权按钮，都共用 `card.action.trigger`。如果回调未生效，仍可引用回复卡片：Question 使用选项序号、自定义文本或“忽略”，Permission 使用“允许一次”“始终允许”或“拒绝”。
 
+## 下载与安装
+
+Windows x64 用户可从 [GitHub Releases](https://github.com/Hans2573/OpenCode-Handoff/releases) 下载 `OpenCode-Handoff-v1.1.0-windows-amd64.zip`，解压到一个固定目录。发布包包含：
+
+```text
+OpenCode-Handoff-v1.1.0-windows-amd64/
+├─ opencode-handoff.exe
+├─ config.example.yaml
+└─ README.md
+```
+
+将 `config.example.yaml` 复制为 `config.yaml`，然后按照下方说明填写配置。首次运行时，程序会根据 `store.path` 自动创建 SQLite 数据库和表结构，不需要预先准备或下载数据库。
+
+`config.yaml` 包含本机凭据，SQLite 包含飞书绑定身份、Session 和消息映射，因此二者都不会放入 Release。升级时解压新版程序并替换 `opencode-handoff.exe`，同时保留原来的 `config.yaml` 和 `opencode-handoff.db`。
+
 ## 配置
 
 以 [config.example.yaml](./config.example.yaml) 为模板创建本机 `config.yaml`。新安装只需要提供飞书应用凭据：
@@ -135,7 +150,7 @@ go run ./cmd/handoff -config ./config.yaml
 构建独立二进制：
 
 ```powershell
-go build -trimpath -ldflags "-s -w -X main.version=1.0.0" -o bin/opencode-handoff.exe ./cmd/handoff
+go build -trimpath -ldflags "-s -w -X main.version=1.1.0" -o bin/opencode-handoff.exe ./cmd/handoff
 ```
 
 正常闭环如下：

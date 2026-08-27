@@ -13,10 +13,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/xiaohang2/opencode-handoff/internal/channel"
-	"github.com/xiaohang2/opencode-handoff/internal/domain"
-	"github.com/xiaohang2/opencode-handoff/internal/opencode"
-	"github.com/xiaohang2/opencode-handoff/internal/store"
+	"github.com/Hans2573/OpenCode-Handoff/internal/channel"
+	"github.com/Hans2573/OpenCode-Handoff/internal/domain"
+	"github.com/Hans2573/OpenCode-Handoff/internal/opencode"
+	"github.com/Hans2573/OpenCode-Handoff/internal/store"
 )
 
 type EngineOptions struct {

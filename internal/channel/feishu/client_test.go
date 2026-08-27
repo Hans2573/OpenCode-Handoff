@@ -14,8 +14,8 @@ import (
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
-	"github.com/xiaohang2/opencode-handoff/internal/domain"
-	"github.com/xiaohang2/opencode-handoff/internal/store"
+	"github.com/Hans2573/OpenCode-Handoff/internal/domain"
+	"github.com/Hans2573/OpenCode-Handoff/internal/store"
 )
 
 func TestFormatHandoff(t *testing.T) {

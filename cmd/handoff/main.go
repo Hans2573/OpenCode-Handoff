@@ -13,11 +13,11 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/xiaohang2/opencode-handoff/internal/channel/feishu"
-	"github.com/xiaohang2/opencode-handoff/internal/config"
-	"github.com/xiaohang2/opencode-handoff/internal/handoff"
-	"github.com/xiaohang2/opencode-handoff/internal/opencode"
-	"github.com/xiaohang2/opencode-handoff/internal/store"
+	"github.com/Hans2573/OpenCode-Handoff/internal/channel/feishu"
+	"github.com/Hans2573/OpenCode-Handoff/internal/config"
+	"github.com/Hans2573/OpenCode-Handoff/internal/handoff"
+	"github.com/Hans2573/OpenCode-Handoff/internal/opencode"
+	"github.com/Hans2573/OpenCode-Handoff/internal/store"
 )
 
 var version = "dev"

@@ -1,4 +1,4 @@
-module github.com/xiaohang2/opencode-handoff
+module github.com/Hans2573/OpenCode-Handoff
 
 go 1.24.0
 

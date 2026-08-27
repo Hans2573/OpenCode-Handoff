@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaohang2/opencode-handoff/internal/opencode"
+	"github.com/Hans2573/OpenCode-Handoff/internal/opencode"
 )
 
 type SignalKind string
