@@ -16,6 +16,7 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 	var promptText string
 	var questionAnswers [][]string
 	var rejected bool
+	var aborted bool
 	var permissionReply PermissionReply
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {
@@ -36,6 +37,12 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 			}
 			if len(body.Parts) == 1 {
 				promptText = body.Parts[0].Text
+			}
+			writer.WriteHeader(http.StatusNoContent)
+		case request.Method == http.MethodPost && request.URL.Path == "/session/ses_1/abort":
+			aborted = true
+			if request.URL.Query().Get("directory") != "/work/a" {
+				t.Errorf("abort directory = %q", request.URL.Query().Get("directory"))
 			}
 			writer.WriteHeader(http.StatusNoContent)
 		case request.Method == http.MethodGet && request.URL.Path == "/question":
@@ -89,6 +96,9 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 	}
 	if promptDirectory != "/work/a" || promptText != "continue" {
 		t.Fatalf("prompt directory=%q text=%q", promptDirectory, promptText)
+	}
+	if err := client.AbortSession(context.Background(), "ses_1", "/work/a"); err != nil || !aborted {
+		t.Fatalf("AbortSession() aborted=%v err=%v", aborted, err)
 	}
 	questions, err := client.ListQuestions(context.Background(), "/work/a")
 	if err != nil || len(questions) != 1 || questions[0].ID != "que_1" {

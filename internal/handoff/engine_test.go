@@ -157,6 +157,54 @@ func TestEngineRoutesPermissionDecisionWithoutSendingPrompt(t *testing.T) {
 	}
 }
 
+func TestEngineAbortsSessionFromQuotedHandoff(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	adapter := &fakeAdapter{
+		session:  opencode.Session{ID: "ses_1", Directory: "/work/project"},
+		messages: []opencode.Message{{Info: opencode.MessageInfo{ID: "msg_1", Role: "assistant"}, Parts: []opencode.Part{{Type: "text", Text: "running"}}}},
+	}
+	channel := &fakeChannel{}
+	engine := newTestEngine(adapter, channel, database, true, true)
+	if err := engine.handleSignal(ctx, Signal{SessionID: "ses_1", Directory: "/work/project", Kind: SignalStopped}); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "om_abort", ParentMessageID: "om_handoff", ChatID: "oc_allowed",
+		SenderID: "ou_allowed", Text: "/stop", AbortSession: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(adapter.aborts) != 1 || adapter.aborts[0].ID != "ses_1" || adapter.aborts[0].Directory != "/work/project" {
+		t.Fatalf("aborts = %+v", adapter.aborts)
+	}
+	if len(channel.notices) != 1 || !strings.Contains(channel.notices[0], "已请求中断") {
+		t.Fatalf("abort confirmation = %v", channel.notices)
+	}
+}
+
+func TestEngineRequiresQuotedHandoffForAbort(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	adapter := &fakeAdapter{}
+	channel := &fakeChannel{}
+	engine := newTestEngine(adapter, channel, database, true, true)
+	if err := engine.handleReply(ctx, domain.UserReply{MessageID: "om_abort", ChatID: "oc_allowed", SenderID: "ou_allowed", Text: "/stop", AbortSession: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(adapter.aborts) != 0 || len(channel.notices) != 1 || !strings.Contains(channel.notices[0], "引用对应") {
+		t.Fatalf("abort without quote: aborts=%v notices=%v", adapter.aborts, channel.notices)
+	}
+}
+
 func TestParsePermissionReply(t *testing.T) {
 	for input, expected := range map[string]opencode.PermissionReply{
 		"允许一次":   opencode.PermissionOnce,
@@ -388,6 +436,11 @@ type permissionReplyCall struct {
 	Decision  opencode.PermissionReply
 }
 
+type abortCall struct {
+	ID        string
+	Directory string
+}
+
 type fakeAdapter struct {
 	session           opencode.Session
 	messages          []opencode.Message
@@ -398,6 +451,7 @@ type fakeAdapter struct {
 	rejectedQuestions []string
 	permissions       []opencode.PermissionRequest
 	permissionReplies []permissionReplyCall
+	aborts            []abortCall
 }
 
 func (f *fakeAdapter) ListDirectories(context.Context) ([]string, error) {
@@ -423,6 +477,11 @@ func (f *fakeAdapter) GetMessages(context.Context, string, string, int) ([]openc
 
 func (f *fakeAdapter) SendPrompt(_ context.Context, sessionID, directory, text string) error {
 	f.prompts = append(f.prompts, promptCall{SessionID: sessionID, Directory: directory, Text: text})
+	return nil
+}
+
+func (f *fakeAdapter) AbortSession(_ context.Context, sessionID, directory string) error {
+	f.aborts = append(f.aborts, abortCall{ID: sessionID, Directory: directory})
 	return nil
 }
 

@@ -22,6 +22,7 @@ type Adapter interface {
 	GetSessionStatuses(context.Context, string) (map[string]SessionStatus, error)
 	GetMessages(context.Context, string, string, int) ([]Message, error)
 	SendPrompt(context.Context, string, string, string) error
+	AbortSession(context.Context, string, string) error
 	ListQuestions(context.Context, string) ([]QuestionRequest, error)
 	ReplyQuestion(context.Context, string, string, [][]string) error
 	RejectQuestion(context.Context, string, string) error
@@ -142,6 +143,11 @@ func (c *Client) SendPrompt(ctx context.Context, sessionID, directory, text stri
 	}{Type: "text", Text: text})
 	path := "/session/" + url.PathEscape(sessionID) + "/prompt_async"
 	return c.doJSON(ctx, http.MethodPost, path, nil, directory, body, nil)
+}
+
+func (c *Client) AbortSession(ctx context.Context, sessionID, directory string) error {
+	path := "/session/" + url.PathEscape(sessionID) + "/abort"
+	return c.doJSON(ctx, http.MethodPost, path, nil, directory, nil, nil)
 }
 
 func (c *Client) ListQuestions(ctx context.Context, directory string) ([]QuestionRequest, error) {

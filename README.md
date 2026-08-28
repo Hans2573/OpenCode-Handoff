@@ -190,7 +190,15 @@ Permission 卡片会显示权限类型、本次请求范围和 OpenCode 提供�
 
 在绑定会话中，如果只有一个 OpenCode Session 等待输入，也可以直接发送普通文本继续它；服务会从 OPEN handoff 记录解析唯一 `session_id`。如果多个 Session 同时等待，则必须引用回复对应的 Handoff 通知，机器人会提示选择，避免串线。成功注入后机器人会回复“已发送到 OpenCode Session，任务正在继续”。
 
+如需从飞书中断 Session，请在飞书中**引用对应的 Handoff 通知**，回复 `/stop`。Handoff 会根据被引用消息映射到原始 `session_id`，调用 OpenCode 的 `POST /session/{sessionID}/abort`，成功后回复“已请求中断 OpenCode Session”。未引用消息时不会猜测目标，会提示必须引用对应通知。
+
+只有已经发送过 Handoff 通知的消息才具备 Session 映射；如果某个 Session 从未产生 Handoff 通知，不能仅凭“中断”文本安全判断要停止哪个 Session。
+
 每条飞书 Handoff 通知都以 `🆔 Session ID` 和 OpenCode 的 `🏷️ Session Name` 开头，并用 `✅/🚨` 区分完成和中断状态、`📁` 标识项目。最后输出位于默认收起的 `💬 最后输出（3000）` 卡片面板中，括号内数字来自当前的 `handoff.max_output_chars` 配置，便于在多个通知之间快速区分并准确引用。
+
+中断命令仅支持 `/stop`，其他文本不会触发中断。
+
+在飞书中发送 `/help` 可随时查看上述使用说明；该命令不会发送到 OpenCode Session。
 
 ## 开发验证
 

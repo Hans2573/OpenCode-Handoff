@@ -82,6 +82,7 @@ type UserReply struct {
 	QuestionAnswers [][]string
 	RejectQuestion  bool
 	PermissionReply string
+	AbortSession    bool
 	CardAction      bool
 	Result          chan error
 }

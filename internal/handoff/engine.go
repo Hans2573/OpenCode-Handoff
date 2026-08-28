@@ -328,7 +328,7 @@ func (e *Engine) sendWithRetry(ctx context.Context, handoff domain.Handoff) (dom
 
 func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error {
 	text := strings.TrimSpace(reply.Text)
-	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion && reply.PermissionReply == "" {
+	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion && reply.PermissionReply == "" && !reply.AbortSession {
 		return nil
 	}
 	allowed, err := e.isAllowed(ctx, reply)
@@ -339,6 +339,12 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 		e.logger.Warn("ignore reply from unauthorized user", "sender_id", reply.SenderID)
 		if reply.CardAction {
 			return errors.New("当前用户无权操作这条消息")
+		}
+		return nil
+	}
+	if reply.AbortSession && reply.ParentMessageID == "" {
+		if err := e.channel.Reply(ctx, reply.MessageID, "请引用对应的 OpenCode Handoff 通知后回复 /stop。"); err != nil {
+			return fmt.Errorf("explain missing handoff for abort: %w", err)
 		}
 		return nil
 	}
@@ -369,6 +375,9 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 	if err != nil {
 		return err
 	}
+	if reply.AbortSession {
+		return e.handleAbortReply(ctx, handoff, reply)
+	}
 	if handoff.Type == domain.HandoffQuestion {
 		return e.handleQuestionReply(ctx, handoff, reply, text)
 	}
@@ -391,6 +400,23 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 		if err := e.channel.Reply(ctx, reply.MessageID, "已发送到 OpenCode Session，任务正在继续。"); err != nil {
 			e.logger.Warn("confirm session resume in channel", "session_id", handoff.SessionID, "error", err)
 		}
+	}
+	return nil
+}
+
+func (e *Engine) handleAbortReply(ctx context.Context, handoff domain.Handoff, reply domain.UserReply) error {
+	if err := e.opencode.AbortSession(ctx, handoff.SessionID, handoff.Directory); err != nil {
+		if reopenErr := e.store.Reopen(context.WithoutCancel(ctx), handoff.ID); reopenErr != nil {
+			e.logger.Error("reopen handoff after abort failure", "handoff_id", handoff.ID, "error", reopenErr)
+		}
+		if !reply.CardAction {
+			_ = e.channel.Reply(ctx, reply.MessageID, "请求中断 OpenCode Session 失败，请检查服务日志后重试。")
+		}
+		return fmt.Errorf("abort OpenCode session: %w", err)
+	}
+	e.logger.Info("session abort requested", "session_id", handoff.SessionID, "sender_id", reply.SenderID)
+	if err := e.channel.Reply(ctx, reply.MessageID, "已请求中断 OpenCode Session。引用的对话将停止当前任务。"); err != nil {
+		e.logger.Warn("confirm session abort in channel", "session_id", handoff.SessionID, "error", err)
 	}
 	return nil
 }

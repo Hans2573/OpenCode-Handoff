@@ -215,12 +215,19 @@ func (c *Client) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1
 	if strings.HasPrefix(strings.ToLower(text), "/bind") {
 		return c.handlePairing(ctx, stringValue(message.MessageId), stringValue(message.ChatId), senderIDs, text)
 	}
+	if isHelpCommand(text) {
+		if c.replyText == nil {
+			return errors.New("Feishu text reply is not configured")
+		}
+		return c.replyText(ctx, stringValue(message.MessageId), helpMessage)
+	}
 	reply := domain.UserReply{
 		MessageID:       stringValue(message.MessageId),
 		ParentMessageID: stringValue(message.ParentId),
 		ChatID:          stringValue(message.ChatId),
 		Text:            text,
 		SenderIDs:       senderIDs,
+		AbortSession:    isAbortCommand(text),
 	}
 	if len(senderIDs) > 0 {
 		reply.SenderID = senderIDs[0]
@@ -232,6 +239,33 @@ func (c *Client) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1
 		return nil
 	}
 }
+
+func isHelpCommand(text string) bool {
+	return strings.EqualFold(strings.TrimSpace(text), "/help")
+}
+
+func isAbortCommand(text string) bool {
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "/stop":
+		return true
+	default:
+		return false
+	}
+}
+
+const helpMessage = `OpenCode Handoff 使用说明
+
+1. 继续任务
+引用对应的 Handoff、Question 或 Permission 消息，直接回复内容，或点击卡片按钮。
+
+2. 中断任务
+引用对应的 Handoff 消息，回复 /stop。
+
+3. 绑定会话
+首次使用时，按服务日志中的提示发送 /bind <配对码>。
+
+4. 获取帮助
+发送 /help。`
 
 func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
 	if event == nil || event.Event == nil || event.Event.Action == nil || event.Event.Context == nil || event.Event.Operator == nil {

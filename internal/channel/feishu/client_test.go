@@ -329,6 +329,68 @@ func TestOnCardActionRoutesPermissionDecision(t *testing.T) {
 	}
 }
 
+func TestIsAbortCommand(t *testing.T) {
+	for _, input := range []string{"/stop", " /stop ", "/STOP"} {
+		if !isAbortCommand(input) {
+			t.Fatalf("isAbortCommand(%q) = false", input)
+		}
+	}
+	for _, input := range []string{"/abort", "/cancel", "中断", "停止", "终止", "abort", "stop", "cancel", "继续", "中断一下然后继续", ""} {
+		if isAbortCommand(input) {
+			t.Fatalf("isAbortCommand(%q) = true", input)
+		}
+	}
+}
+
+func TestIsHelpCommand(t *testing.T) {
+	for _, input := range []string{"/help", " /HELP "} {
+		if !isHelpCommand(input) {
+			t.Fatalf("isHelpCommand(%q) = false", input)
+		}
+	}
+	for _, input := range []string{"help", "/help now", ""} {
+		if isHelpCommand(input) {
+			t.Fatalf("isHelpCommand(%q) = true", input)
+		}
+	}
+}
+
+func TestOnMessageRepliesHelpWithoutRouting(t *testing.T) {
+	var response string
+	client := &Client{
+		replies: make(chan domain.UserReply, 1),
+		replyText: func(_ context.Context, _ string, text string) error {
+			response = text
+			return nil
+		},
+	}
+	messageID := "om_help"
+	chatID := "oc_chat"
+	messageType := "text"
+	content := `{"text":"/help"}`
+	openID := "ou_open"
+	event := &larkim.P2MessageReceiveV1{Event: &larkim.P2MessageReceiveV1Data{
+		Sender: &larkim.EventSender{SenderId: &larkim.UserId{OpenId: &openID}},
+		Message: &larkim.EventMessage{
+			MessageId:   &messageID,
+			ChatId:      &chatID,
+			MessageType: &messageType,
+			Content:     &content,
+		},
+	}}
+	if err := client.onMessage(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(response, "回复 /stop") {
+		t.Fatalf("help response = %q", response)
+	}
+	select {
+	case reply := <-client.replies:
+		t.Fatalf("help command was routed as reply: %+v", reply)
+	default:
+	}
+}
+
 func TestOnCardActionRoutesQuestionAnswer(t *testing.T) {
 	client := &Client{replies: make(chan domain.UserReply, 1)}
 	userID := "user_1"
