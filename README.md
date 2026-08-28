@@ -64,16 +64,19 @@ Question 卡片的选项按钮、自定义答案提交和“忽略”，以及 P
 
 ## 下载与安装
 
-Windows x64 用户可从 [GitHub Releases](https://github.com/Hans2573/OpenCode-Handoff/releases) 下载 `OpenCode-Handoff-v1.1.0-windows-amd64.zip`，解压到一个固定目录。发布包包含：
+Windows x64 用户可从 [GitHub Releases](https://github.com/Hans2573/OpenCode-Handoff/releases) 下载 `OpenCode-Handoff-v1.1.1-windows-amd64.zip`，解压到一个固定目录。发布包包含：
 
 ```text
-OpenCode-Handoff-v1.1.0-windows-amd64/
+OpenCode-Handoff-v1.1.1-windows-amd64/
 ├─ opencode-handoff.exe
+├─ start-handoff.bat
 ├─ config.example.yaml
 └─ README.md
 ```
 
 将 `config.example.yaml` 复制为 `config.yaml`，然后按照下方说明填写配置。首次运行时，程序会根据 `store.path` 自动创建 SQLite 数据库和表结构，不需要预先准备或下载数据库。
+
+也可以直接双击 `start-handoff.bat` 启动。脚本会自动使用脚本所在目录作为工作目录；如果还没有 `config.yaml`，会从示例文件创建一份并打开记事本，填写并保存后再次双击即可。程序异常退出时，脚本会保留窗口以便查看错误。
 
 `config.yaml` 包含本机凭据，SQLite 包含飞书绑定身份、Session 和消息映射，因此二者都不会放入 Release。升级时解压新版程序并替换 `opencode-handoff.exe`，同时保留原来的 `config.yaml` 和 `opencode-handoff.db`。
 
@@ -150,7 +153,7 @@ go run ./cmd/handoff -config ./config.yaml
 构建独立二进制：
 
 ```powershell
-go build -trimpath -ldflags "-s -w -X main.version=1.1.0" -o bin/opencode-handoff.exe ./cmd/handoff
+go build -trimpath -ldflags "-s -w -X main.version=1.1.1" -o bin/opencode-handoff.exe ./cmd/handoff
 ```
 
 正常闭环如下：
