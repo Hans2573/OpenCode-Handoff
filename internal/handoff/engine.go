@@ -422,15 +422,13 @@ func (e *Engine) handlePermissionReply(ctx context.Context, handoff domain.Hando
 	}
 	e.reconcilePermissionHandoffs(ctx, handoff, decision)
 	e.logger.Info("permission answered", "session_id", handoff.SessionID, "permission_id", handoff.PermissionID, "decision", decision)
-	if !reply.CardAction {
-		message := map[opencode.PermissionReply]string{
-			opencode.PermissionOnce:   "已允许本次操作，原 OpenCode Session 正在继续。",
-			opencode.PermissionAlways: "已设置始终允许，原 OpenCode Session 正在继续。",
-			opencode.PermissionReject: "已拒绝权限请求。",
-		}[decision]
-		if err := e.channel.Reply(ctx, reply.MessageID, message); err != nil {
-			e.logger.Warn("confirm permission response", "permission_id", handoff.PermissionID, "error", err)
-		}
+	message := map[opencode.PermissionReply]string{
+		opencode.PermissionOnce:   "已允许本次操作，原 OpenCode Session 正在继续。",
+		opencode.PermissionAlways: "已设置始终允许，原 OpenCode Session 正在继续。",
+		opencode.PermissionReject: "已拒绝权限请求。",
+	}[decision]
+	if err := e.channel.Reply(ctx, replyMessageID(reply), message); err != nil {
+		e.logger.Warn("confirm permission response", "permission_id", handoff.PermissionID, "error", err)
 	}
 	return nil
 }
@@ -506,16 +504,21 @@ func (e *Engine) handleQuestionReply(ctx context.Context, handoff domain.Handoff
 		return fmt.Errorf("submit OpenCode question response: %w", err)
 	}
 	e.logger.Info("question answered", "session_id", handoff.SessionID, "question_id", handoff.QuestionID, "rejected", reject)
-	if !reply.CardAction {
-		message := "答案已提交到原 OpenCode Session。"
-		if reject {
-			message = "已忽略该问题。"
-		}
-		if err := e.channel.Reply(ctx, reply.MessageID, message); err != nil {
-			e.logger.Warn("confirm question response", "question_id", handoff.QuestionID, "error", err)
-		}
+	message := "答案已提交到原 OpenCode Session，任务正在继续。"
+	if reject {
+		message = "已忽略该问题。"
+	}
+	if err := e.channel.Reply(ctx, replyMessageID(reply), message); err != nil {
+		e.logger.Warn("confirm question response", "question_id", handoff.QuestionID, "error", err)
 	}
 	return nil
+}
+
+func replyMessageID(reply domain.UserReply) string {
+	if reply.CardAction && reply.ParentMessageID != "" {
+		return reply.ParentMessageID
+	}
+	return reply.MessageID
 }
 
 func isQuestionReject(text string) bool {

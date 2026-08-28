@@ -140,6 +140,12 @@ func TestEngineRoutesPermissionDecisionWithoutSendingPrompt(t *testing.T) {
 	if len(adapter.permissionReplies) != 1 || adapter.permissionReplies[0].Decision != opencode.PermissionOnce || adapter.permissionReplies[0].ID != "per_1" {
 		t.Fatalf("permission replies = %+v", adapter.permissionReplies)
 	}
+	if len(channel.notices) != 1 || channel.notices[0] != "已允许本次操作，原 OpenCode Session 正在继续。" {
+		t.Fatalf("permission confirmation = %v", channel.notices)
+	}
+	if len(channel.replyIDs) != 1 || channel.replyIDs[0] != "om_handoff" {
+		t.Fatalf("permission confirmation target = %v", channel.replyIDs)
+	}
 	if len(adapter.prompts) != 0 {
 		t.Fatalf("permission decision sent as prompt: %v", adapter.prompts)
 	}
@@ -193,6 +199,9 @@ func TestEngineRoutesQuestionAnswerWithoutSendingPrompt(t *testing.T) {
 	}
 	if len(adapter.questionReplies) != 1 || adapter.questionReplies[0][0][0] != "Review MR" {
 		t.Fatalf("question replies = %v", adapter.questionReplies)
+	}
+	if len(channel.notices) != 1 || channel.notices[0] != "答案已提交到原 OpenCode Session，任务正在继续。" {
+		t.Fatalf("question confirmation = %v", channel.notices)
 	}
 	if len(adapter.prompts) != 0 {
 		t.Fatalf("question answer sent as prompt: %v", adapter.prompts)
@@ -445,10 +454,11 @@ func (f *fakeAdapter) WatchEvents(context.Context, func(opencode.Event)) error {
 }
 
 type fakeChannel struct {
-	sent    []domain.Handoff
-	replies chan domain.UserReply
-	notices []string
-	chatID  string
+	sent     []domain.Handoff
+	replies  chan domain.UserReply
+	notices  []string
+	replyIDs []string
+	chatID   string
 }
 
 func (f *fakeChannel) SendHandoff(_ context.Context, handoff domain.Handoff) (domain.MessageRef, error) {
@@ -460,7 +470,8 @@ func (f *fakeChannel) SendHandoff(_ context.Context, handoff domain.Handoff) (do
 	return domain.MessageRef{ChatID: chatID, MessageID: "om_handoff"}, nil
 }
 
-func (f *fakeChannel) Reply(_ context.Context, _ string, text string) error {
+func (f *fakeChannel) Reply(_ context.Context, messageID, text string) error {
+	f.replyIDs = append(f.replyIDs, messageID)
 	f.notices = append(f.notices, text)
 	return nil
 }
