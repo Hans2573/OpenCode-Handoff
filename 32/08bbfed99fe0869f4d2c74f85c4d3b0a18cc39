@@ -1,0 +1,21 @@
+internal/handoff/engine.go
+  s_7b9d596adc544c::t_f6222ad689b38b 425-431,507-512,517-523
+internal/handoff/engine_test.go
+  s_7b9d596adc544c::t_9a61b70ebadd34 143-148,203-205,457-461,473-474
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "3208bbfed99fe0869f4d2c74f85c4d3b0a18cc39",
+  "prompts": {},
+  "sessions": {
+    "s_7b9d596adc544c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0439e-6bbd-7e52-a8ee-9a21a5a8b2b2",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
