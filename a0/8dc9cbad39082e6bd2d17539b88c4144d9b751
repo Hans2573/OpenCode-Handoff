@@ -1,0 +1,41 @@
+README.md
+  s_82786486407294::t_904a6ee99565a9 193-196,199-202
+internal/channel/feishu/client.go
+  s_82786486407294::t_974c9e89eb4ecb 218-223,230,243-269
+internal/channel/feishu/client_test.go
+  s_82786486407294::t_6b9acc2338b84d 332-393
+internal/domain/handoff.go
+  s_7b9d596adc544c::t_8e559b967b55ab 85
+internal/handoff/engine.go
+  s_7b9d596adc544c::t_57d0a48fdbfe1d 331,345-350,378-380,407-423
+internal/handoff/engine_test.go
+  s_7b9d596adc544c::t_ca585f20950016 160-207,439-443,454,483-487
+internal/opencode/client.go
+  s_7b9d596adc544c::t_c9a88d42e82f8f 25,148-152
+internal/opencode/client_test.go
+  s_7b9d596adc544c::t_9c634703ec43cf 19,42-47,100-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "a08dc9cbad39082e6bd2d17539b88c4144d9b751",
+  "prompts": {},
+  "sessions": {
+    "s_7b9d596adc544c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0439e-6bbd-7e52-a8ee-9a21a5a8b2b2",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    },
+    "s_82786486407294": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fb9163b80ffe5Z7E0A9kSuW1q2",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
