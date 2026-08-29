@@ -24,6 +24,9 @@ type Store interface {
 	Reopen(context.Context, string) error
 	CloseResolvedPermissions(context.Context, string, []string) error
 	ClosePermission(context.Context, string) error
+	ClaimSessionCreate(context.Context, string) error
+	CompleteSessionCreate(context.Context, string, string) error
+	ReleaseSessionCreate(context.Context, string) error
 	GetChannelBinding(context.Context) (domain.ChannelBinding, error)
 	BindChannel(context.Context, domain.ChannelBinding) error
 	Close() error

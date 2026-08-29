@@ -16,8 +16,10 @@ import (
 )
 
 type Adapter interface {
+	ListProjects(context.Context) ([]Project, error)
 	ListDirectories(context.Context) ([]string, error)
 	ListSessions(context.Context, string) ([]Session, error)
+	CreateSession(context.Context, string, string) (Session, error)
 	GetSession(context.Context, string, string) (Session, error)
 	GetSessionStatuses(context.Context, string) (map[string]SessionStatus, error)
 	GetMessages(context.Context, string, string, int) ([]Message, error)
@@ -69,8 +71,8 @@ func (c *Client) ListDirectories(ctx context.Context) ([]string, error) {
 	if c.directory != "" {
 		return []string{c.directory}, nil
 	}
-	var projects []Project
-	if err := c.getJSON(ctx, "/project", nil, "", &projects); err != nil {
+	projects, err := c.ListProjects(ctx)
+	if err != nil {
 		return nil, err
 	}
 	seen := make(map[string]struct{})
@@ -92,6 +94,17 @@ func (c *Client) ListDirectories(ctx context.Context) ([]string, error) {
 	return directories, nil
 }
 
+func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
+	if c.directory != "" {
+		return []Project{{ID: "configured", Worktree: c.directory}}, nil
+	}
+	var projects []Project
+	if err := c.getJSON(ctx, "/project", nil, "", &projects); err != nil {
+		return nil, err
+	}
+	return projects, nil
+}
+
 func (c *Client) ListSessions(ctx context.Context, directory string) ([]Session, error) {
 	query := url.Values{"limit": []string{"1000"}}
 	var sessions []Session
@@ -104,6 +117,17 @@ func (c *Client) ListSessions(ctx context.Context, directory string) ([]Session,
 func (c *Client) GetSession(ctx context.Context, sessionID, directory string) (Session, error) {
 	var session Session
 	if err := c.getJSON(ctx, "/session/"+url.PathEscape(sessionID), nil, directory, &session); err != nil {
+		return Session{}, err
+	}
+	return session, nil
+}
+
+func (c *Client) CreateSession(ctx context.Context, directory, title string) (Session, error) {
+	body := struct {
+		Title string `json:"title,omitempty"`
+	}{Title: strings.TrimSpace(title)}
+	var session Session
+	if err := c.doJSON(ctx, http.MethodPost, "/session", nil, directory, body, &session); err != nil {
 		return Session{}, err
 	}
 	return session, nil

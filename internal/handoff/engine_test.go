@@ -189,6 +189,80 @@ func TestEngineReportsRemainingPermissionRequests(t *testing.T) {
 	}
 }
 
+func TestEngineListsProjectsCreatesSessionAndRoutesFirstPrompt(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	adapter := &fakeAdapter{projects: []opencode.Project{
+		{ID: "global", Worktree: `/`},
+		{ID: "project_1", Worktree: `/work/project`, Name: "Project One"},
+	}}
+	channel := &fakeChannel{}
+	engine := newTestEngine(adapter, channel, database, true, true)
+
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "om_project", ChatID: "oc_allowed", SenderID: "ou_allowed", ListProjects: true, ProjectPage: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.projectPages) != 1 || channel.projectPages[0].Total != 1 || channel.projectPages[0].Projects[0].Name != "Project One" {
+		t.Fatalf("project pages = %+v", channel.projectPages)
+	}
+
+	create := domain.UserReply{
+		MessageID: "evt_create", ParentMessageID: "om_project_card", ChatID: "oc_allowed", SenderID: "ou_allowed",
+		CreateSession: true, ProjectDirectory: `/work/project`, CardAction: true,
+	}
+	if err := engine.handleReply(ctx, create); err != nil {
+		t.Fatal(err)
+	}
+	if len(adapter.createdSessions) != 1 || !sameDirectory(adapter.createdSessions[0].Directory, `/work/project`) {
+		t.Fatalf("created sessions = %+v", adapter.createdSessions)
+	}
+	if len(channel.sent) != 1 || channel.sent[0].Type != domain.HandoffSession || channel.sent[0].SessionID != "ses_created_1" {
+		t.Fatalf("created session handoff = %+v", channel.sent)
+	}
+	if err := engine.handleReply(ctx, create); err == nil || !strings.Contains(err.Error(), "重复") {
+		t.Fatalf("duplicate create error = %v", err)
+	}
+	if len(adapter.createdSessions) != 1 {
+		t.Fatalf("duplicate callback created %d sessions", len(adapter.createdSessions))
+	}
+
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "om_first_prompt", ParentMessageID: "om_handoff", ChatID: "oc_allowed", SenderID: "ou_allowed", Text: "开始分析项目",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(adapter.prompts) != 1 || adapter.prompts[0].SessionID != "ses_created_1" || adapter.prompts[0].Text != "开始分析项目" {
+		t.Fatalf("created session prompts = %+v", adapter.prompts)
+	}
+}
+
+func TestEngineRejectsSessionCreationOutsideListedProjects(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	adapter := &fakeAdapter{projects: []opencode.Project{{ID: "project_1", Worktree: `/work/project`}}}
+	engine := newTestEngine(adapter, &fakeChannel{}, database, true, true)
+	err = engine.handleReply(ctx, domain.UserReply{
+		MessageID: "evt_create", ChatID: "oc_allowed", SenderID: "ou_allowed",
+		CreateSession: true, ProjectDirectory: `/work/not-listed`, CardAction: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "不允许") {
+		t.Fatalf("unlisted project error = %v", err)
+	}
+	if len(adapter.createdSessions) != 0 {
+		t.Fatalf("created sessions = %+v", adapter.createdSessions)
+	}
+}
+
 func TestEngineAbortsSessionFromQuotedHandoff(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
@@ -475,6 +549,8 @@ type abortCall struct {
 
 type fakeAdapter struct {
 	session           opencode.Session
+	projects          []opencode.Project
+	createdSessions   []opencode.Session
 	messages          []opencode.Message
 	prompts           []promptCall
 	messageCalls      int
@@ -486,12 +562,25 @@ type fakeAdapter struct {
 	aborts            []abortCall
 }
 
+func (f *fakeAdapter) ListProjects(context.Context) ([]opencode.Project, error) {
+	if f.projects != nil {
+		return f.projects, nil
+	}
+	return []opencode.Project{{ID: "project", Worktree: f.session.Directory}}, nil
+}
+
 func (f *fakeAdapter) ListDirectories(context.Context) ([]string, error) {
 	return []string{f.session.Directory}, nil
 }
 
 func (f *fakeAdapter) ListSessions(context.Context, string) ([]opencode.Session, error) {
 	return []opencode.Session{f.session}, nil
+}
+
+func (f *fakeAdapter) CreateSession(_ context.Context, directory, title string) (opencode.Session, error) {
+	session := opencode.Session{ID: fmt.Sprintf("ses_created_%d", len(f.createdSessions)+1), Directory: directory, Title: title}
+	f.createdSessions = append(f.createdSessions, session)
+	return session, nil
 }
 
 func (f *fakeAdapter) GetSession(context.Context, string, string) (opencode.Session, error) {
@@ -552,11 +641,12 @@ func (f *fakeAdapter) WatchEvents(context.Context, func(opencode.Event)) error {
 }
 
 type fakeChannel struct {
-	sent     []domain.Handoff
-	replies  chan domain.UserReply
-	notices  []string
-	replyIDs []string
-	chatID   string
+	sent         []domain.Handoff
+	replies      chan domain.UserReply
+	notices      []string
+	replyIDs     []string
+	chatID       string
+	projectPages []domain.ProjectPage
 }
 
 func (f *fakeChannel) SendHandoff(_ context.Context, handoff domain.Handoff) (domain.MessageRef, error) {
@@ -571,6 +661,11 @@ func (f *fakeChannel) SendHandoff(_ context.Context, handoff domain.Handoff) (do
 func (f *fakeChannel) Reply(_ context.Context, messageID, text string) error {
 	f.replyIDs = append(f.replyIDs, messageID)
 	f.notices = append(f.notices, text)
+	return nil
+}
+
+func (f *fakeChannel) ReplyProjects(_ context.Context, _ string, page domain.ProjectPage) error {
+	f.projectPages = append(f.projectPages, page)
 	return nil
 }
 

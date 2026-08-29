@@ -219,6 +219,41 @@ func TestFormatPermissionHandoff(t *testing.T) {
 	}
 }
 
+func TestFormatProjectAndCreatedSessionCards(t *testing.T) {
+	content, err := formatProjectCard(domain.ProjectPage{
+		Projects: []domain.Project{{ID: "project_1", Name: "opsloop-sdd", Directory: `D:\work\opsloop-sdd`}},
+		Page:     1, TotalPages: 2, Total: 9,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := decodeHandoffCard(t, content)
+	message := cardContents(card.Body.Elements)
+	for _, expected := range []string{"OpenCode Projects", "第 1/2 页", "opsloop-sdd", `D:\work\opsloop-sdd`, "新建 Session", "下一页"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("project card %q does not contain %q", message, expected)
+		}
+	}
+	buttons := findCardElements(card.Body.Elements, "button")
+	if len(buttons) != 2 || buttons[0].Behaviors[0].Value["action"] != "project_create" || buttons[1].Behaviors[0].Value["action"] != "project_page" {
+		t.Fatalf("project buttons = %+v", buttons)
+	}
+
+	content, err = formatHandoffCard(domain.Handoff{
+		SessionID: "ses_created", SessionName: "Feishu · opsloop-sdd", ProjectName: "opsloop-sdd",
+		Directory: `D:\work\opsloop-sdd`, Type: domain.HandoffSession,
+	}, 3000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message = cardContents(decodeHandoffCard(t, content).Body.Elements)
+	for _, expected := range []string{"Session Created", "ses_created", "opsloop-sdd", "引用回复本消息"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("created session card %q does not contain %q", message, expected)
+		}
+	}
+}
+
 func decodeHandoffCard(t *testing.T, content string) handoffCard {
 	t.Helper()
 	var card handoffCard
@@ -330,6 +365,34 @@ func TestOnCardActionRoutesPermissionDecision(t *testing.T) {
 	}
 }
 
+func TestOnCardActionRoutesProjectCreate(t *testing.T) {
+	client := &Client{replies: make(chan domain.UserReply, 1)}
+	event := &callback.CardActionTriggerEvent{
+		EventV2Base: &larkevent.EventV2Base{Header: &larkevent.EventHeader{EventID: "evt_create"}},
+		Event: &callback.CardActionTriggerRequest{
+			Operator: &callback.Operator{OpenID: "ou_1"},
+			Context:  &callback.Context{OpenMessageID: "om_projects", OpenChatID: "oc_chat"},
+			Action: &callback.CallBackAction{Value: map[string]any{
+				"action": "project_create", "directory": `D:\work\project`,
+			}},
+		},
+	}
+	go func() {
+		reply := <-client.replies
+		if !reply.CreateSession || reply.ProjectDirectory != `D:\work\project` || reply.MessageID != "evt_create" {
+			t.Errorf("project create reply = %+v", reply)
+		}
+		reply.Result <- nil
+	}()
+	response, err := client.onCardAction(context.Background(), event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Toast == nil || response.Toast.Type != "success" || !strings.Contains(response.Toast.Content, "Session") {
+		t.Fatalf("project create response = %+v", response)
+	}
+}
+
 func TestIsAbortCommand(t *testing.T) {
 	for _, input := range []string{"/stop", " /stop ", "/STOP"} {
 		if !isAbortCommand(input) {
@@ -353,6 +416,18 @@ func TestIsHelpCommand(t *testing.T) {
 		if isHelpCommand(input) {
 			t.Fatalf("isHelpCommand(%q) = true", input)
 		}
+	}
+}
+
+func TestParseProjectCommand(t *testing.T) {
+	for input, expectedPage := range map[string]int{"/project": 1, " /PROJECT 2 ": 2, "/project invalid": 1} {
+		page, ok := parseProjectCommand(input)
+		if !ok || page != expectedPage {
+			t.Fatalf("parseProjectCommand(%q) = %d, %v", input, page, ok)
+		}
+	}
+	if _, ok := parseProjectCommand("project"); ok {
+		t.Fatal("plain project text was parsed as a command")
 	}
 }
 
@@ -489,6 +564,26 @@ func TestOnMessageExtractsReplyRouteAndAllUserIDs(t *testing.T) {
 	reply := <-client.replies
 	if reply.ParentMessageID != "" || reply.Text != "continue" || len(reply.SenderIDs) != 2 {
 		t.Fatalf("reply = %+v", reply)
+	}
+}
+
+func TestOnMessageRoutesProjectCommand(t *testing.T) {
+	client := &Client{replies: make(chan domain.UserReply, 1), logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	messageID := "om_project"
+	chatID := "oc_chat"
+	messageType := "text"
+	content := `{"text":"/project 2"}`
+	openID := "ou_open"
+	event := &larkim.P2MessageReceiveV1{Event: &larkim.P2MessageReceiveV1Data{
+		Sender:  &larkim.EventSender{SenderId: &larkim.UserId{OpenId: &openID}},
+		Message: &larkim.EventMessage{MessageId: &messageID, ChatId: &chatID, MessageType: &messageType, Content: &content},
+	}}
+	if err := client.onMessage(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	reply := <-client.replies
+	if !reply.ListProjects || reply.ProjectPage != 2 {
+		t.Fatalf("project command reply = %+v", reply)
 	}
 }
 

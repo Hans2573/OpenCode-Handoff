@@ -21,6 +21,7 @@ type Project struct {
 	ID        string   `json:"id"`
 	Worktree  string   `json:"worktree"`
 	Sandboxes []string `json:"sandboxes"`
+	Name      string   `json:"name,omitempty"`
 }
 
 type SessionStatus struct {

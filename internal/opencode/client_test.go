@@ -18,6 +18,8 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 	var rejected bool
 	var aborted bool
 	var permissionReply PermissionReply
+	var createdSessionTitle string
+	var createdSessionDirectory string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {
 		case request.Method == http.MethodGet && request.URL.Path == "/project":
@@ -27,6 +29,16 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 				t.Errorf("directory query = %q", request.URL.Query().Get("directory"))
 			}
 			writeJSON(t, writer, map[string]SessionStatus{"ses_1": {Type: "busy"}})
+		case request.Method == http.MethodPost && request.URL.Path == "/session":
+			createdSessionDirectory = request.URL.Query().Get("directory")
+			var body struct {
+				Title string `json:"title"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Errorf("decode create session: %v", err)
+			}
+			createdSessionTitle = body.Title
+			writeJSON(t, writer, Session{ID: "ses_created", Directory: createdSessionDirectory, Title: body.Title})
 		case request.Method == http.MethodPost && request.URL.Path == "/session/ses_1/prompt_async":
 			promptDirectory = request.URL.Query().Get("directory")
 			var body struct {
@@ -86,6 +98,17 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 	directories, err := client.ListDirectories(context.Background())
 	if err != nil || len(directories) != 2 {
 		t.Fatalf("ListDirectories() = %v, %v", directories, err)
+	}
+	projects, err := client.ListProjects(context.Background())
+	if err != nil || len(projects) != 1 || projects[0].ID != "p1" {
+		t.Fatalf("ListProjects() = %v, %v", projects, err)
+	}
+	created, err := client.CreateSession(context.Background(), "/work/a", "Feishu · a")
+	if err != nil || created.ID != "ses_created" {
+		t.Fatalf("CreateSession() = %+v, %v", created, err)
+	}
+	if createdSessionDirectory != "/work/a" || createdSessionTitle != "Feishu · a" {
+		t.Fatalf("created session directory=%q title=%q", createdSessionDirectory, createdSessionTitle)
 	}
 	statuses, err := client.GetSessionStatuses(context.Background(), "/work/a")
 	if err != nil || statuses["ses_1"].Type != "busy" {

@@ -8,6 +8,7 @@ const (
 	HandoffFinished   HandoffType = "FINISHED"
 	HandoffQuestion   HandoffType = "QUESTION"
 	HandoffPermission HandoffType = "PERMISSION"
+	HandoffSession    HandoffType = "SESSION_CREATED"
 	HandoffError      HandoffType = "ERROR"
 	HandoffStalled    HandoffType = "STALLED"
 )
@@ -72,19 +73,36 @@ type MessageRef struct {
 	MessageID string
 }
 
+type Project struct {
+	ID        string
+	Name      string
+	Directory string
+}
+
+type ProjectPage struct {
+	Projects   []Project
+	Page       int
+	TotalPages int
+	Total      int
+}
+
 type UserReply struct {
-	MessageID       string
-	ParentMessageID string
-	ChatID          string
-	SenderID        string
-	SenderIDs       []string
-	Text            string
-	QuestionAnswers [][]string
-	RejectQuestion  bool
-	PermissionReply string
-	AbortSession    bool
-	CardAction      bool
-	Result          chan error
+	MessageID        string
+	ParentMessageID  string
+	ChatID           string
+	SenderID         string
+	SenderIDs        []string
+	Text             string
+	QuestionAnswers  [][]string
+	RejectQuestion   bool
+	PermissionReply  string
+	AbortSession     bool
+	ListProjects     bool
+	ProjectPage      int
+	CreateSession    bool
+	ProjectDirectory string
+	CardAction       bool
+	Result           chan error
 }
 
 type ChannelBinding struct {

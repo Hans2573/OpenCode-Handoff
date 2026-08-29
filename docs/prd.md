@@ -216,7 +216,7 @@ Token Stream
 
 ---
 
-## 5.4 不创建新的 Agent Session
+## 5.4 普通 Handoff 回复不创建新的 Agent Session
 
 用户在飞书回复：
 
@@ -231,6 +231,8 @@ Token Stream
 ```
 
 不能创建新的 Session。
+
+项目启动器是显式例外：只有用户发送 `/project` 并点击项目卡片中的“新建 Session”时，才允许通过 OpenCode 原生 `POST /session` 创建 Session。创建结果必须持久映射到飞书消息，后续引用回复仍精确写入该 `session_id`；普通文本、历史 Handoff 回复和事件重投都不得隐式创建 Session。
 
 ---
 

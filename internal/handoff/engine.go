@@ -328,7 +328,7 @@ func (e *Engine) sendWithRetry(ctx context.Context, handoff domain.Handoff) (dom
 
 func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error {
 	text := strings.TrimSpace(reply.Text)
-	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion && reply.PermissionReply == "" && !reply.AbortSession {
+	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion && reply.PermissionReply == "" && !reply.AbortSession && !reply.ListProjects && !reply.CreateSession {
 		return nil
 	}
 	allowed, err := e.isAllowed(ctx, reply)
@@ -341,6 +341,12 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 			return errors.New("当前用户无权操作这条消息")
 		}
 		return nil
+	}
+	if reply.ListProjects {
+		return e.handleProjectList(ctx, reply)
+	}
+	if reply.CreateSession {
+		return e.handleCreateSession(ctx, reply)
 	}
 	if reply.AbortSession && reply.ParentMessageID == "" {
 		if err := e.channel.Reply(ctx, reply.MessageID, "请引用对应的 OpenCode Handoff 通知后回复 /stop。"); err != nil {
@@ -402,6 +408,142 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 		}
 	}
 	return nil
+}
+
+const projectPageSize = 8
+
+func (e *Engine) handleProjectList(ctx context.Context, reply domain.UserReply) error {
+	projects, err := e.availableProjects(ctx)
+	if err != nil {
+		return fmt.Errorf("list OpenCode projects: %w", err)
+	}
+	if len(projects) == 0 {
+		return e.channel.Reply(ctx, reply.MessageID, "OpenCode 当前没有可用于创建 Session 的项目。")
+	}
+	page := reply.ProjectPage
+	if page < 1 {
+		page = 1
+	}
+	totalPages := (len(projects) + projectPageSize - 1) / projectPageSize
+	if page > totalPages {
+		return e.channel.Reply(ctx, reply.MessageID, fmt.Sprintf("项目列表只有 %d 页，请发送 /project 1。", totalPages))
+	}
+	start := (page - 1) * projectPageSize
+	end := min(start+projectPageSize, len(projects))
+	messageID := reply.MessageID
+	if reply.CardAction && reply.ParentMessageID != "" {
+		messageID = reply.ParentMessageID
+	}
+	return e.channel.ReplyProjects(ctx, messageID, domain.ProjectPage{
+		Projects: projects[start:end], Page: page, TotalPages: totalPages, Total: len(projects),
+	})
+}
+
+func (e *Engine) handleCreateSession(ctx context.Context, reply domain.UserReply) error {
+	projects, err := e.availableProjects(ctx)
+	if err != nil {
+		return fmt.Errorf("validate OpenCode project: %w", err)
+	}
+	directory := filepath.Clean(strings.TrimSpace(reply.ProjectDirectory))
+	var selected domain.Project
+	for _, project := range projects {
+		if sameDirectory(project.Directory, directory) {
+			selected = project
+			break
+		}
+	}
+	if selected.Directory == "" {
+		return errors.New("该项目已不存在或不允许创建 Session，请重新发送 /project")
+	}
+	if err := e.store.ClaimSessionCreate(ctx, reply.MessageID); errors.Is(err, store.ErrDuplicateReply) {
+		return errors.New("该操作已处理，请勿重复点击")
+	} else if err != nil {
+		return err
+	}
+	completed := false
+	defer func() {
+		if !completed {
+			if err := e.store.ReleaseSessionCreate(context.WithoutCancel(ctx), reply.MessageID); err != nil {
+				e.logger.Error("release failed session creation claim", "message_id", reply.MessageID, "error", err)
+			}
+		}
+	}()
+
+	title := "Feishu · " + selected.Name
+	session, err := e.opencode.CreateSession(ctx, selected.Directory, title)
+	if err != nil {
+		return fmt.Errorf("create OpenCode session: %w", err)
+	}
+	if session.ID == "" {
+		return errors.New("OpenCode 创建 Session 后未返回 session_id")
+	}
+	if session.Directory == "" {
+		session.Directory = selected.Directory
+	}
+	if session.Title == "" {
+		session.Title = title
+	}
+	if err := e.store.CompleteSessionCreate(context.WithoutCancel(ctx), reply.MessageID, session.ID); err != nil {
+		completed = true
+		return fmt.Errorf("persist created session receipt: %w", err)
+	}
+	completed = true
+
+	handoff := domain.Handoff{
+		ID:                     newID(),
+		SessionID:              session.ID,
+		SessionName:            sessionName(session),
+		Directory:              session.Directory,
+		ProjectName:            selected.Name,
+		Type:                   domain.HandoffSession,
+		LastAssistantMessageID: "session-created:" + session.ID,
+		Status:                 domain.StatusOpen,
+		CreatedAt:              time.Now().UTC(),
+	}
+	if err := e.persistAndSend(ctx, handoff); err != nil {
+		return fmt.Errorf("send created session notification for %s: %w", session.ID, err)
+	}
+	e.logger.Info("session created from channel", "session_id", session.ID, "directory", session.Directory, "sender_id", reply.SenderID)
+	return nil
+}
+
+func (e *Engine) availableProjects(ctx context.Context) ([]domain.Project, error) {
+	projects, err := e.opencode.ListProjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(projects))
+	result := make([]domain.Project, 0, len(projects))
+	for _, project := range projects {
+		directory := filepath.Clean(strings.TrimSpace(project.Worktree))
+		if project.ID == "global" || isRootDirectory(directory) || directory == "." || directory == "" {
+			continue
+		}
+		key := strings.ToLower(directory)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		name := strings.TrimSpace(project.Name)
+		if name == "" {
+			name = filepath.Base(directory)
+		}
+		result = append(result, domain.Project{ID: project.ID, Name: name, Directory: directory})
+	}
+	return result, nil
+}
+
+func sameDirectory(left, right string) bool {
+	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+}
+
+func isRootDirectory(directory string) bool {
+	directory = filepath.Clean(strings.TrimSpace(directory))
+	if directory == string(filepath.Separator) {
+		return true
+	}
+	volume := filepath.VolumeName(directory)
+	return volume != "" && strings.EqualFold(directory, volume+string(filepath.Separator))
 }
 
 func (e *Engine) handleAbortReply(ctx context.Context, handoff domain.Handoff, reply domain.UserReply) error {

@@ -73,6 +73,11 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			created_at INTEGER NOT NULL,
 			FOREIGN KEY (handoff_id) REFERENCES handoff_records(id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS session_create_receipts (
+			message_id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL
+		)`,
 	}
 	for _, statement := range statements {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
@@ -342,6 +347,40 @@ func (s *SQLite) ClosePermission(ctx context.Context, permissionID string) error
 		WHERE permission_id = ? AND handoff_type = ? AND status = ?`,
 		domain.StatusClosed, time.Now().UTC().UnixMilli(), permissionID, domain.HandoffPermission, domain.StatusOpen); err != nil {
 		return fmt.Errorf("close permission handoff: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLite) ClaimSessionCreate(ctx context.Context, messageID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO session_create_receipts (message_id, created_at)
+		VALUES (?, ?)`, messageID, time.Now().UTC().UnixMilli())
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "unique constraint") {
+		return ErrDuplicateReply
+	}
+	return fmt.Errorf("claim session creation: %w", err)
+}
+
+func (s *SQLite) CompleteSessionCreate(ctx context.Context, messageID, sessionID string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE session_create_receipts
+		SET session_id = ?
+		WHERE message_id = ? AND session_id = ''`, sessionID, messageID)
+	if err != nil {
+		return fmt.Errorf("complete session creation: %w", err)
+	}
+	return expectOne(result)
+}
+
+func (s *SQLite) ReleaseSessionCreate(ctx context.Context, messageID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM session_create_receipts
+		WHERE message_id = ? AND session_id = ''`, messageID)
+	if err != nil {
+		return fmt.Errorf("release session creation: %w", err)
 	}
 	return nil
 }

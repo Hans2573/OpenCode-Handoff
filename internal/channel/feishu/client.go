@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -195,6 +196,14 @@ func (c *Client) Reply(ctx context.Context, messageID, text string) error {
 	return c.sendTextReply(ctx, messageID, text)
 }
 
+func (c *Client) ReplyProjects(ctx context.Context, messageID string, page domain.ProjectPage) error {
+	content, err := formatProjectCard(page)
+	if err != nil {
+		return fmt.Errorf("encode project card: %w", err)
+	}
+	return c.sendCardReply(ctx, messageID, content)
+}
+
 func (c *Client) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
 	if event == nil || event.Event == nil || event.Event.Message == nil || event.Event.Sender == nil {
 		return nil
@@ -229,6 +238,10 @@ func (c *Client) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1
 		SenderIDs:       senderIDs,
 		AbortSession:    isAbortCommand(text),
 	}
+	if page, ok := parseProjectCommand(text); ok {
+		reply.ListProjects = true
+		reply.ProjectPage = page
+	}
 	if len(senderIDs) > 0 {
 		reply.SenderID = senderIDs[0]
 	}
@@ -253,6 +266,24 @@ func isAbortCommand(text string) bool {
 	}
 }
 
+func parseProjectCommand(text string) (int, bool) {
+	fields := strings.Fields(strings.TrimSpace(text))
+	if len(fields) == 0 || !strings.EqualFold(fields[0], "/project") {
+		return 0, false
+	}
+	if len(fields) == 1 {
+		return 1, true
+	}
+	if len(fields) != 2 {
+		return 1, true
+	}
+	page, err := strconv.Atoi(fields[1])
+	if err != nil || page < 1 {
+		return 1, true
+	}
+	return page, true
+}
+
 const helpMessage = `OpenCode Handoff 使用说明
 
 1. 继续任务
@@ -264,7 +295,10 @@ const helpMessage = `OpenCode Handoff 使用说明
 3. 绑定会话
 首次使用时，按服务日志中的提示发送 /bind <配对码>。
 
-4. 获取帮助
+4. 项目与新 Session
+发送 /project 查看 OpenCode 已存在的项目，点击“新建 Session”。
+
+5. 获取帮助
 发送 /help。`
 
 func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
@@ -272,7 +306,7 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		return cardToast("error", "无效的卡片操作"), nil
 	}
 	action := stringMapValue(event.Event.Action.Value, "action")
-	if action != "question_reply" && action != "question_custom_reply" && action != "question_reject" && action != "permission_reply" {
+	if action != "question_reply" && action != "question_custom_reply" && action != "question_reject" && action != "permission_reply" && action != "project_page" && action != "project_create" {
 		return cardToast("error", "不支持的卡片操作"), nil
 	}
 	messageID := ""
@@ -313,6 +347,18 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 			return cardToast("error", "权限决定无效"), nil
 		}
 		reply.PermissionReply = decision
+	} else if action == "project_page" {
+		reply.ListProjects = true
+		reply.ProjectPage = intMapValue(event.Event.Action.Value, "page")
+		if reply.ProjectPage < 1 {
+			return cardToast("error", "项目页码无效"), nil
+		}
+	} else if action == "project_create" {
+		reply.CreateSession = true
+		reply.ProjectDirectory = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "directory"))
+		if reply.ProjectDirectory == "" {
+			return cardToast("error", "项目目录无效"), nil
+		}
 	}
 	select {
 	case <-ctx.Done():
@@ -335,6 +381,12 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		case "reject":
 			return cardToast("success", "已拒绝权限请求"), nil
 		}
+		if reply.ListProjects {
+			return cardToast("success", "项目列表已发送"), nil
+		}
+		if reply.CreateSession {
+			return cardToast("success", "OpenCode Session 已创建"), nil
+		}
 		return cardToast("success", "答案已提交到原 Session"), nil
 	case <-ctx.Done():
 		return cardToast("warning", "答案正在提交，请稍后查看 OpenCode"), nil
@@ -350,6 +402,20 @@ func cardToast(kind, content string) *callback.CardActionTriggerResponse {
 func stringMapValue(values map[string]any, key string) string {
 	value, _ := values[key].(string)
 	return value
+}
+
+func intMapValue(values map[string]any, key string) int {
+	switch value := values[key].(type) {
+	case float64:
+		return int(value)
+	case int:
+		return value
+	case string:
+		parsed, _ := strconv.Atoi(value)
+		return parsed
+	default:
+		return 0
+	}
 }
 
 func compactStrings(values []string) []string {
@@ -433,6 +499,24 @@ func (c *Client) sendTextReply(ctx context.Context, messageID, text string) erro
 	}
 	if !response.Success() {
 		return fmt.Errorf("reply to Feishu message: code=%d message=%s request_id=%s", response.Code, response.Msg, response.RequestId())
+	}
+	return nil
+}
+
+func (c *Client) sendCardReply(ctx context.Context, messageID, content string) error {
+	request := larkim.NewReplyMessageReqBuilder().
+		MessageId(messageID).
+		Body(larkim.NewReplyMessageReqBodyBuilder().
+			MsgType("interactive").
+			Content(content).
+			Build()).
+		Build()
+	response, err := c.api.Im.V1.Message.Reply(ctx, request)
+	if err != nil {
+		return fmt.Errorf("reply project card to Feishu message: %w", err)
+	}
+	if !response.Success() {
+		return fmt.Errorf("reply project card to Feishu message: code=%d message=%s request_id=%s", response.Code, response.Msg, response.RequestId())
 	}
 	return nil
 }
@@ -536,6 +620,9 @@ func formatHandoffCard(handoff domain.Handoff, maxOutputChars int) (string, erro
 	if handoff.Type == domain.HandoffPermission {
 		return formatPermissionCard(handoff)
 	}
+	if handoff.Type == domain.HandoffSession {
+		return formatCreatedSessionCard(handoff)
+	}
 	title := "✅ OpenCode · Task Finished"
 	if handoff.Type == domain.HandoffError {
 		title = "🚨 OpenCode · Interrupted"
@@ -604,6 +691,62 @@ func formatHandoffCard(handoff domain.Handoff, maxOutputChars int) (string, erro
 			Padding:   "12px 12px 12px 12px",
 			Elements:  elements,
 		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func formatProjectCard(page domain.ProjectPage) (string, error) {
+	elements := []handoffCardElement{{
+		Tag: "markdown", Content: fmt.Sprintf("📂 **OpenCode Projects**\n共 %d 个项目 · 第 %d/%d 页", page.Total, page.Page, page.TotalPages),
+	}}
+	for _, project := range page.Projects {
+		elements = append(elements,
+			handoffCardElement{Tag: "hr"},
+			handoffCardElement{Tag: "markdown", Content: fmt.Sprintf("**%s**\n`%s`", project.Name, sanitizeInlineCode(project.Directory))},
+			permissionButtonRow(callbackButton("➕ 新建 Session", map[string]any{
+				"action": "project_create", "directory": project.Directory,
+			}, "primary")),
+		)
+	}
+	if page.TotalPages > 1 {
+		var buttons []handoffCardElement
+		if page.Page > 1 {
+			buttons = append(buttons, callbackButton("← 上一页", map[string]any{"action": "project_page", "page": page.Page - 1}, "default"))
+		}
+		if page.Page < page.TotalPages {
+			buttons = append(buttons, callbackButton("下一页 →", map[string]any{"action": "project_page", "page": page.Page + 1}, "default"))
+		}
+		elements = append(elements, handoffCardElement{Tag: "hr"}, permissionButtonRow(buttons...))
+	}
+	content, err := json.Marshal(handoffCard{
+		Schema: "2.0",
+		Config: handoffCardConfig{UpdateMulti: true, WidthMode: "fill"},
+		Body:   handoffCardBody{Direction: "vertical", Padding: "12px 12px 12px 12px", Elements: elements},
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func formatCreatedSessionCard(handoff domain.Handoff) (string, error) {
+	sessionName := strings.TrimSpace(handoff.SessionName)
+	if sessionName == "" {
+		sessionName = "Untitled Session"
+	}
+	elements := []handoffCardElement{
+		{Tag: "markdown", Content: fmt.Sprintf("🆔 Session ID: %s\n🏷️ Session Name: %s", handoff.SessionID, sessionName)},
+		{Tag: "hr"},
+		{Tag: "markdown", Content: fmt.Sprintf("✅ **OpenCode · Session Created**\n📁 Project: %s\n📂 Directory: `%s`", handoff.ProjectName, sanitizeInlineCode(handoff.Directory))},
+		{Tag: "markdown", Content: "↩️ 引用回复本消息并输入任务，即可启动这个 Session。"},
+	}
+	content, err := json.Marshal(handoffCard{
+		Schema: "2.0",
+		Config: handoffCardConfig{UpdateMulti: true, WidthMode: "fill"},
+		Body:   handoffCardBody{Direction: "vertical", Padding: "12px 12px 12px 12px", Elements: elements},
 	})
 	if err != nil {
 		return "", err

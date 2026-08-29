@@ -90,6 +90,41 @@ func TestSQLiteChannelBinding(t *testing.T) {
 	}
 }
 
+func TestSQLiteSessionCreateReceipt(t *testing.T) {
+	ctx := context.Background()
+	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	if err := database.ClaimSessionCreate(ctx, "evt_1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ClaimSessionCreate(ctx, "evt_1"); !errors.Is(err, ErrDuplicateReply) {
+		t.Fatalf("duplicate session create claim error = %v", err)
+	}
+	if err := database.CompleteSessionCreate(ctx, "evt_1", "ses_1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ReleaseSessionCreate(ctx, "evt_1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ClaimSessionCreate(ctx, "evt_1"); !errors.Is(err, ErrDuplicateReply) {
+		t.Fatalf("completed receipt was released: %v", err)
+	}
+
+	if err := database.ClaimSessionCreate(ctx, "evt_retry"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ReleaseSessionCreate(ctx, "evt_retry"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ClaimSessionCreate(ctx, "evt_retry"); err != nil {
+		t.Fatalf("released receipt cannot be retried: %v", err)
+	}
+}
+
 func TestSQLitePersistsQuestionAndPreventsSecondAnswer(t *testing.T) {
 	ctx := context.Background()
 	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))

@@ -18,6 +18,8 @@ V1.0 已实现：
 
 V1.1 已支持 Question Tool、Permission Approval 和飞书交互卡片。
 
+项目启动器支持在飞书发送 `/project`，分页查看 OpenCode 已打开的项目并创建原生 Session。创建结果会形成一条带 Session 映射的卡片；引用回复该卡片即可发送第一条任务。配置了固定 `opencode.directory` 时只展示该目录，OpenCode 的 `global /` 项目不会作为可创建目标。
+
 ## 前置条件
 
 1. 使用同一个 OpenCode Server 承载 Desktop/TUI 和 Handoff。示例：
@@ -180,6 +182,20 @@ OpenCode permission.asked -> 飞书授权卡片 -> /permission/{id}/reply
                                                   once / always / reject
 ```
 
+从飞书创建 Session：
+
+```text
+/project -> 飞书项目卡片 -> 新建 Session -> POST /session?directory=...
+                                                   |
+                                      Session Created 卡片
+                                                   |
+                                     引用回复首条任务
+                                                   |
+                             /session/{id}/prompt_async
+```
+
+`/project` 每页显示 8 个 OpenCode 已打开项目，可使用卡片的上一页/下一页按钮，也可发送 `/project 2` 直接查看指定页。创建按钮的目录会在执行前重新与 OpenCode 项目列表核对；飞书回调事件会持久化去重，避免事件重投创建重复 Session。
+
 单题单选可以直接点击飞书按钮。自定义答案可引用回复卡片并输入文本；多选用逗号分隔序号，多题时每题一行。回复“忽略”“拒绝”或 `reject` 会拒绝 Question。Question 记录只允许成功处理一次，并继续使用原 `session_id`；子 agent 的 Question 与结束/中断一样不会通知。
 
 Permission 卡片会显示权限类型、本次请求范围、具体文件目标（OpenCode 提供时）和“始终允许”范围。可点击“允许一次”“始终允许”或“拒绝”，也可引用回复对应中文、`once`、`always`、`reject`。同一 Session 并发产生多条 Permission 时会分别发送卡片；“允许一次”只处理当前卡片，确认消息会提示剩余待处理数量。选择“拒绝”会按 OpenCode 语义同时拒绝该 Session 中其他待处理权限；“始终允许”会放行后续匹配范围，操作前应核对卡片中的 pattern。Permission 只允许处理一次，子 agent 的 Permission 不会通知。
@@ -198,7 +214,7 @@ Permission 卡片会显示权限类型、本次请求范围、具体文件目标
 
 中断命令仅支持 `/stop`，其他文本不会触发中断。
 
-在飞书中发送 `/help` 可随时查看上述使用说明；该命令不会发送到 OpenCode Session。
+在飞书中发送 `/project` 可查看项目并创建 Session；发送 `/help` 可随时查看上述使用说明。这些命令不会发送到 OpenCode Session。
 
 ## 开发验证
 
