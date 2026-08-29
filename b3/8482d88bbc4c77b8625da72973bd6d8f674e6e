@@ -1,0 +1,27 @@
+README.md
+  s_e829e1cd99eb2b::t_d66fc8837a9d0c 185
+internal/channel/feishu/client.go
+  s_e829e1cd99eb2b::t_435273ab396a89 627-632,645,664-668
+internal/channel/feishu/client_test.go
+  s_e829e1cd99eb2b::t_1f73c05c49c582 183,193-194
+internal/handoff/engine.go
+  s_e829e1cd99eb2b::t_d49fdde22b3704 449,451,458,463,469,476-502
+internal/handoff/engine_test.go
+  s_e829e1cd99eb2b::t_f249e6f986ee40 160-191,540-546
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b38482d88bbc4c77b8625da72973bd6d8f674e6e",
+  "prompts": {},
+  "sessions": {
+    "s_e829e1cd99eb2b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d5c-8bb1-72d2-bad8-945ee13db8eb",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
