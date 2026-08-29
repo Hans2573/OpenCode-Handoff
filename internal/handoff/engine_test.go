@@ -263,6 +263,41 @@ func TestEngineRejectsSessionCreationOutsideListedProjects(t *testing.T) {
 	}
 }
 
+func TestEngineListsRunningSessionsWithLastUserElapsedTime(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	lastInput := strings.Repeat("运行部署检查", 40) + "完整输入结尾"
+	userMessage := opencode.Message{Info: opencode.MessageInfo{ID: "msg_user", SessionID: "ses_run", Role: "user"}, Parts: []opencode.Part{{Type: "text", Text: lastInput}}}
+	userMessage.Info.Time.Created = time.Now().Add(-95 * time.Second).UnixMilli()
+	adapter := &fakeAdapter{
+		session:     opencode.Session{ID: "ses_run", Directory: "/work/project", Title: "Deploy checks"},
+		messages:    []opencode.Message{userMessage},
+		statuses:    map[string]opencode.SessionStatus{"ses_run": {Type: "busy"}},
+		permissions: []opencode.PermissionRequest{testPermission("per_run", "ses_run")},
+	}
+	channel := &fakeChannel{}
+	engine := newTestEngine(adapter, channel, database, true, true)
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "om_running", ChatID: "oc_allowed", SenderID: "ou_allowed", ListRunning: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.runningSessions) != 1 || len(channel.runningSessions[0].Items) != 1 {
+		t.Fatalf("running sessions = %+v", channel.runningSessions)
+	}
+	item := channel.runningSessions[0].Items[0]
+	if item.SessionID != "ses_run" || item.State != "waiting_permission" || item.LastUserText != lastInput {
+		t.Fatalf("running session = %+v", item)
+	}
+	if item.RunningFor < 94*time.Second || item.RunningFor > 100*time.Second {
+		t.Fatalf("running duration = %v", item.RunningFor)
+	}
+}
+
 func TestEngineAbortsSessionFromQuotedHandoff(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
@@ -558,6 +593,7 @@ type fakeAdapter struct {
 	questionReplies   [][][]string
 	rejectedQuestions []string
 	permissions       []opencode.PermissionRequest
+	statuses          map[string]opencode.SessionStatus
 	permissionReplies []permissionReplyCall
 	aborts            []abortCall
 }
@@ -588,7 +624,7 @@ func (f *fakeAdapter) GetSession(context.Context, string, string) (opencode.Sess
 }
 
 func (f *fakeAdapter) GetSessionStatuses(context.Context, string) (map[string]opencode.SessionStatus, error) {
-	return nil, nil
+	return f.statuses, nil
 }
 
 func (f *fakeAdapter) GetMessages(context.Context, string, string, int) ([]opencode.Message, error) {
@@ -641,12 +677,13 @@ func (f *fakeAdapter) WatchEvents(context.Context, func(opencode.Event)) error {
 }
 
 type fakeChannel struct {
-	sent         []domain.Handoff
-	replies      chan domain.UserReply
-	notices      []string
-	replyIDs     []string
-	chatID       string
-	projectPages []domain.ProjectPage
+	sent            []domain.Handoff
+	replies         chan domain.UserReply
+	notices         []string
+	replyIDs        []string
+	chatID          string
+	projectPages    []domain.ProjectPage
+	runningSessions []domain.RunningSessions
 }
 
 func (f *fakeChannel) SendHandoff(_ context.Context, handoff domain.Handoff) (domain.MessageRef, error) {
@@ -666,6 +703,11 @@ func (f *fakeChannel) Reply(_ context.Context, messageID, text string) error {
 
 func (f *fakeChannel) ReplyProjects(_ context.Context, _ string, page domain.ProjectPage) error {
 	f.projectPages = append(f.projectPages, page)
+	return nil
+}
+
+func (f *fakeChannel) ReplyRunningSessions(_ context.Context, _ string, running domain.RunningSessions) error {
+	f.runningSessions = append(f.runningSessions, running)
 	return nil
 }
 

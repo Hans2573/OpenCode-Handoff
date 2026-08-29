@@ -204,6 +204,14 @@ func (c *Client) ReplyProjects(ctx context.Context, messageID string, page domai
 	return c.sendCardReply(ctx, messageID, content)
 }
 
+func (c *Client) ReplyRunningSessions(ctx context.Context, messageID string, running domain.RunningSessions) error {
+	content, err := formatRunningSessionsCard(running)
+	if err != nil {
+		return fmt.Errorf("encode running sessions card: %w", err)
+	}
+	return c.sendCardReply(ctx, messageID, content)
+}
+
 func (c *Client) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
 	if event == nil || event.Event == nil || event.Event.Message == nil || event.Event.Sender == nil {
 		return nil
@@ -241,6 +249,9 @@ func (c *Client) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1
 	if page, ok := parseProjectCommand(text); ok {
 		reply.ListProjects = true
 		reply.ProjectPage = page
+	}
+	if isRunningCommand(text) {
+		reply.ListRunning = true
 	}
 	if len(senderIDs) > 0 {
 		reply.SenderID = senderIDs[0]
@@ -284,6 +295,15 @@ func parseProjectCommand(text string) (int, bool) {
 	return page, true
 }
 
+func isRunningCommand(text string) bool {
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "/running", "/r":
+		return true
+	default:
+		return false
+	}
+}
+
 const helpMessage = `OpenCode Handoff 使用说明
 
 1. 继续任务
@@ -298,7 +318,10 @@ const helpMessage = `OpenCode Handoff 使用说明
 4. 项目与新 Session
 发送 /project 查看 OpenCode 已存在的项目，点击“新建 Session”。
 
-5. 获取帮助
+5. 查看运行中的 Session
+发送 /running（或 /r），查看当前运行状态和距离上次用户输入的时长。
+
+6. 获取帮助
 发送 /help。`
 
 func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
@@ -752,6 +775,87 @@ func formatCreatedSessionCard(handoff domain.Handoff) (string, error) {
 		return "", err
 	}
 	return string(content), nil
+}
+
+func formatRunningSessionsCard(running domain.RunningSessions) (string, error) {
+	elements := []handoffCardElement{{
+		Tag: "markdown", Content: fmt.Sprintf("🏃 **OpenCode · Running Sessions**\n共 %d 个运行中 Session · 已扫描 %d 个项目", running.Total, running.ScannedProjects),
+	}}
+	for _, session := range running.Items {
+		stateIcon, stateText := runningStateDisplay(session.State)
+		elapsed := "未知（未找到用户消息）"
+		if session.HasLastUserInput {
+			elapsed = formatElapsed(session.RunningFor)
+		}
+		lastInput := session.LastUserText
+		if lastInput == "" && session.HasLastUserInput {
+			lastInput = "（非文本输入）"
+		}
+		content := fmt.Sprintf("%s **%s**\n📁 Project: %s\n🆔 `%s`\n⏱️ 距上次用户输入：%s", stateIcon+" "+stateText, session.SessionName, session.ProjectName, sanitizeInlineCode(session.SessionID), elapsed)
+		elements = append(elements, handoffCardElement{Tag: "hr"}, handoffCardElement{Tag: "markdown", Content: content})
+		if lastInput != "" {
+			expanded := false
+			elements = append(elements, handoffCardElement{
+				Tag:      "collapsible_panel",
+				Expanded: &expanded,
+				Header: &handoffCardPanelHeader{Title: handoffCardText{
+					Tag: "plain_text", Content: "💬 最后一次用户输入",
+				}},
+				Border:          &handoffCardBorder{Color: "grey", CornerRadius: "5px"},
+				VerticalSpacing: "8px",
+				Padding:         "8px 8px 8px 8px",
+				Elements:        []handoffCardElement{{Tag: "markdown", Content: lastInput}},
+			})
+		}
+	}
+	if running.Total > len(running.Items) {
+		elements = append(elements, handoffCardElement{Tag: "markdown", Content: fmt.Sprintf("ℹ️ 卡片仅显示前 %d 条，共 %d 条运行中 Session。", len(running.Items), running.Total)})
+	}
+	if running.FailedProjects > 0 {
+		elements = append(elements, handoffCardElement{Tag: "markdown", Content: fmt.Sprintf("⚠️ 另有 %d 个项目读取失败，请检查 Handoff 日志。", running.FailedProjects)})
+	}
+	content, err := json.Marshal(handoffCard{
+		Schema: "2.0",
+		Config: handoffCardConfig{UpdateMulti: true, WidthMode: "fill"},
+		Body:   handoffCardBody{Direction: "vertical", Padding: "12px 12px 12px 12px", Elements: elements},
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func runningStateDisplay(state string) (string, string) {
+	switch state {
+	case "waiting_permission":
+		return "🟠", "等待授权"
+	case "waiting_question":
+		return "🟡", "等待回答"
+	case "retry":
+		return "🟣", "重试中"
+	default:
+		return "🟢", "执行中"
+	}
+}
+
+func formatElapsed(duration time.Duration) string {
+	if duration < 0 {
+		duration = 0
+	}
+	seconds := int64(duration / time.Second)
+	if seconds < 60 {
+		return fmt.Sprintf("%d 秒", seconds)
+	}
+	minutes := seconds / 60
+	if minutes < 60 {
+		return fmt.Sprintf("%d 分 %d 秒", minutes, seconds%60)
+	}
+	hours := minutes / 60
+	if hours < 24 {
+		return fmt.Sprintf("%d 小时 %d 分", hours, minutes%60)
+	}
+	days := hours / 24
+	return fmt.Sprintf("%d 天 %d 小时", days, hours%24)
 }
 
 func formatPermissionCard(handoff domain.Handoff) (string, error) {

@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -328,7 +330,7 @@ func (e *Engine) sendWithRetry(ctx context.Context, handoff domain.Handoff) (dom
 
 func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error {
 	text := strings.TrimSpace(reply.Text)
-	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion && reply.PermissionReply == "" && !reply.AbortSession && !reply.ListProjects && !reply.CreateSession {
+	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion && reply.PermissionReply == "" && !reply.AbortSession && !reply.ListProjects && !reply.CreateSession && !reply.ListRunning {
 		return nil
 	}
 	allowed, err := e.isAllowed(ctx, reply)
@@ -347,6 +349,9 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 	}
 	if reply.CreateSession {
 		return e.handleCreateSession(ctx, reply)
+	}
+	if reply.ListRunning {
+		return e.handleRunningSessions(ctx, reply)
 	}
 	if reply.AbortSession && reply.ParentMessageID == "" {
 		if err := e.channel.Reply(ctx, reply.MessageID, "请引用对应的 OpenCode Handoff 通知后回复 /stop。"); err != nil {
@@ -531,6 +536,173 @@ func (e *Engine) availableProjects(ctx context.Context) ([]domain.Project, error
 		result = append(result, domain.Project{ID: project.ID, Name: name, Directory: directory})
 	}
 	return result, nil
+}
+
+const maxRunningSessionsInCard = 20
+
+func (e *Engine) handleRunningSessions(ctx context.Context, reply domain.UserReply) error {
+	directories, err := e.opencode.ListDirectories(ctx)
+	if err != nil {
+		return fmt.Errorf("list OpenCode project directories: %w", err)
+	}
+	type scanResult struct {
+		items []domain.RunningSession
+		err   error
+	}
+	results := make(chan scanResult, len(directories))
+	semaphore := make(chan struct{}, 8)
+	var group sync.WaitGroup
+	for _, directory := range directories {
+		directory := directory
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			select {
+			case <-ctx.Done():
+				results <- scanResult{err: ctx.Err()}
+				return
+			case semaphore <- struct{}{}:
+			}
+			defer func() { <-semaphore }()
+			items, err := e.scanRunningDirectory(ctx, directory)
+			results <- scanResult{items: items, err: err}
+		}()
+	}
+	go func() {
+		group.Wait()
+		close(results)
+	}()
+
+	var running []domain.RunningSession
+	failed := 0
+	for result := range results {
+		if result.err != nil {
+			failed++
+			if !errors.Is(result.err, context.Canceled) {
+				e.logger.Warn("scan running sessions", "error", result.err)
+			}
+			continue
+		}
+		running = append(running, result.items...)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	sort.SliceStable(running, func(left, right int) bool {
+		if running[left].HasLastUserInput != running[right].HasLastUserInput {
+			return running[left].HasLastUserInput
+		}
+		return running[left].RunningFor > running[right].RunningFor
+	})
+	if len(running) == 0 {
+		message := "当前没有运行中的 OpenCode Session。"
+		if failed > 0 {
+			message += fmt.Sprintf("（另有 %d 个项目读取失败，请检查服务日志。）", failed)
+		}
+		return e.channel.Reply(ctx, reply.MessageID, message)
+	}
+	total := len(running)
+	if len(running) > maxRunningSessionsInCard {
+		running = running[:maxRunningSessionsInCard]
+	}
+	return e.channel.ReplyRunningSessions(ctx, reply.MessageID, domain.RunningSessions{
+		Items: running, Total: total, ScannedProjects: len(directories), FailedProjects: failed,
+	})
+}
+
+func (e *Engine) scanRunningDirectory(ctx context.Context, directory string) ([]domain.RunningSession, error) {
+	statuses, err := e.opencode.GetSessionStatuses(ctx, directory)
+	if err != nil {
+		return nil, fmt.Errorf("get statuses for %s: %w", directory, err)
+	}
+	runningStatuses := make(map[string]opencode.SessionStatus)
+	for sessionID, status := range statuses {
+		if status.Type == "busy" || status.Type == "retry" {
+			runningStatuses[sessionID] = status
+		}
+	}
+	if len(runningStatuses) == 0 {
+		return nil, nil
+	}
+	sessions, err := e.opencode.ListSessions(ctx, directory)
+	if err != nil {
+		return nil, fmt.Errorf("list sessions for %s: %w", directory, err)
+	}
+	byID := make(map[string]opencode.Session, len(sessions))
+	for _, session := range sessions {
+		byID[session.ID] = session
+	}
+	waitingQuestions := make(map[string]struct{})
+	if questions, err := e.opencode.ListQuestions(ctx, directory); err == nil {
+		for _, question := range questions {
+			waitingQuestions[question.SessionID] = struct{}{}
+		}
+	}
+	waitingPermissions := make(map[string]struct{})
+	if permissions, err := e.opencode.ListPermissions(ctx, directory); err == nil {
+		for _, permission := range permissions {
+			waitingPermissions[permission.SessionID] = struct{}{}
+		}
+	}
+
+	now := time.Now()
+	result := make([]domain.RunningSession, 0, len(runningStatuses))
+	for sessionID, status := range runningStatuses {
+		session := byID[sessionID]
+		if session.ID == "" {
+			session = opencode.Session{ID: sessionID, Directory: directory}
+		}
+		state := status.Type
+		if _, ok := waitingPermissions[sessionID]; ok {
+			state = "waiting_permission"
+		} else if _, ok := waitingQuestions[sessionID]; ok {
+			state = "waiting_question"
+		}
+		item := domain.RunningSession{
+			SessionID: sessionID, SessionName: sessionName(session), ProjectName: projectName(session),
+			Directory: directory, State: state,
+		}
+		messages, err := e.opencode.GetMessages(ctx, sessionID, directory, 100)
+		if err != nil {
+			e.logger.Warn("get running session messages", "session_id", sessionID, "error", err)
+			result = append(result, item)
+			continue
+		}
+		if createdAt, text, ok := lastUserInput(messages); ok {
+			item.HasLastUserInput = true
+			item.LastUserInputAt = createdAt
+			item.LastUserText = strings.TrimSpace(text)
+			item.RunningFor = now.Sub(createdAt)
+			if item.RunningFor < 0 {
+				item.RunningFor = 0
+			}
+		}
+		result = append(result, item)
+	}
+	return result, nil
+}
+
+func lastUserInput(messages []opencode.Message) (time.Time, string, bool) {
+	var latest time.Time
+	var text string
+	for _, message := range messages {
+		if message.Info.Role != "user" || message.Info.Time.Created == 0 {
+			continue
+		}
+		createdAt := time.UnixMilli(message.Info.Time.Created)
+		if !latest.IsZero() && !createdAt.After(latest) {
+			continue
+		}
+		var parts []string
+		for _, part := range message.Parts {
+			if value := strings.TrimSpace(part.Text); value != "" {
+				parts = append(parts, value)
+			}
+		}
+		latest = createdAt
+		text = strings.Join(parts, " ")
+	}
+	return latest, text, !latest.IsZero()
 }
 
 func sameDirectory(left, right string) bool {

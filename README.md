@@ -20,6 +20,8 @@ V1.1 已支持 Question Tool、Permission Approval 和飞书交互卡片。
 
 项目启动器支持在飞书发送 `/project`，分页查看 OpenCode 已打开的项目并创建原生 Session。创建结果会形成一条带 Session 映射的卡片；引用回复该卡片即可发送第一条任务。配置了固定 `opencode.directory` 时只展示该目录，OpenCode 的 `global /` 项目不会作为可创建目标。
 
+运行状态快捷命令 `/running`（简写 `/r`）会跨项目汇总当前 `busy/retry` Session，显示执行中、重试、等待授权或等待回答状态，并计算距离最后一条用户消息已经过了多久。最后一次用户输入会完整保留在默认收起的折叠块中。
+
 ## 前置条件
 
 1. 使用同一个 OpenCode Server 承载 Desktop/TUI 和 Handoff。示例：
@@ -214,7 +216,7 @@ Permission 卡片会显示权限类型、本次请求范围、具体文件目标
 
 中断命令仅支持 `/stop`，其他文本不会触发中断。
 
-在飞书中发送 `/project` 可查看项目并创建 Session；发送 `/help` 可随时查看上述使用说明。这些命令不会发送到 OpenCode Session。
+在飞书中发送 `/project` 可查看项目并创建 Session；发送 `/running` 或 `/r` 可查看当前运行中的 Session 及其持续时间；发送 `/help` 可随时查看上述使用说明。这些命令不会发送到 OpenCode Session。
 
 ## 开发验证
 

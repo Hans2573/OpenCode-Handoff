@@ -234,6 +234,8 @@ Token Stream
 
 项目启动器是显式例外：只有用户发送 `/project` 并点击项目卡片中的“新建 Session”时，才允许通过 OpenCode 原生 `POST /session` 创建 Session。创建结果必须持久映射到飞书消息，后续引用回复仍精确写入该 `session_id`；普通文本、历史 Handoff 回复和事件重投都不得隐式创建 Session。
 
+`/running`（简写 `/r`）是只读状态命令。它可以跨项目列出 `busy/retry` Session，并用待处理 Question/Permission 修正显示状态；运行时长定义为“当前时间减去该 Session 最后一条用户消息的创建时间”。最后一次用户输入必须完整显示在默认收起的折叠块中。该命令不得创建、恢复或中断 Session。
+
 ---
 
 # 6. 用户场景

@@ -86,6 +86,25 @@ type ProjectPage struct {
 	Total      int
 }
 
+type RunningSession struct {
+	SessionID        string
+	SessionName      string
+	ProjectName      string
+	Directory        string
+	State            string
+	LastUserText     string
+	LastUserInputAt  time.Time
+	RunningFor       time.Duration
+	HasLastUserInput bool
+}
+
+type RunningSessions struct {
+	Items           []RunningSession
+	Total           int
+	ScannedProjects int
+	FailedProjects  int
+}
+
 type UserReply struct {
 	MessageID        string
 	ParentMessageID  string
@@ -101,6 +120,7 @@ type UserReply struct {
 	ProjectPage      int
 	CreateSession    bool
 	ProjectDirectory string
+	ListRunning      bool
 	CardAction       bool
 	Result           chan error
 }

@@ -254,6 +254,33 @@ func TestFormatProjectAndCreatedSessionCards(t *testing.T) {
 	}
 }
 
+func TestFormatRunningSessionsCard(t *testing.T) {
+	lastInput := strings.Repeat("检查部署状态", 40) + "完整输入结尾"
+	content, err := formatRunningSessionsCard(domain.RunningSessions{
+		Items: []domain.RunningSession{{
+			SessionID: "ses_run", SessionName: "Deploy checks", ProjectName: "opsloop",
+			State: "waiting_permission", LastUserText: lastInput, RunningFor: 95 * time.Second, HasLastUserInput: true,
+		}},
+		Total: 1, ScannedProjects: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := cardContents(decodeHandoffCard(t, content).Body.Elements)
+	for _, expected := range []string{"Running Sessions", "等待授权", "Deploy checks", "opsloop", "ses_run", "1 分 35 秒", "完整输入结尾"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("running sessions card %q does not contain %q", message, expected)
+		}
+	}
+	panel := findCardElement(decodeHandoffCard(t, content).Body.Elements, "collapsible_panel")
+	if panel == nil || panel.Expanded == nil || *panel.Expanded || panel.Header == nil || panel.Header.Title.Content != "💬 最后一次用户输入" {
+		t.Fatalf("last input panel = %+v", panel)
+	}
+	if !strings.Contains(cardContents(panel.Elements), lastInput) {
+		t.Fatal("last input panel truncated the user input")
+	}
+}
+
 func decodeHandoffCard(t *testing.T, content string) handoffCard {
 	t.Helper()
 	var card handoffCard
@@ -431,6 +458,19 @@ func TestParseProjectCommand(t *testing.T) {
 	}
 }
 
+func TestIsRunningCommand(t *testing.T) {
+	for _, input := range []string{"/running", " /RUNNING ", "/r"} {
+		if !isRunningCommand(input) {
+			t.Fatalf("isRunningCommand(%q) = false", input)
+		}
+	}
+	for _, input := range []string{"running", "/run", "/r now", ""} {
+		if isRunningCommand(input) {
+			t.Fatalf("isRunningCommand(%q) = true", input)
+		}
+	}
+}
+
 func TestOnMessageRepliesHelpWithoutRouting(t *testing.T) {
 	var response string
 	client := &Client{
@@ -584,6 +624,26 @@ func TestOnMessageRoutesProjectCommand(t *testing.T) {
 	reply := <-client.replies
 	if !reply.ListProjects || reply.ProjectPage != 2 {
 		t.Fatalf("project command reply = %+v", reply)
+	}
+}
+
+func TestOnMessageRoutesRunningCommand(t *testing.T) {
+	client := &Client{replies: make(chan domain.UserReply, 1), logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	messageID := "om_running"
+	chatID := "oc_chat"
+	messageType := "text"
+	content := `{"text":"/r"}`
+	openID := "ou_open"
+	event := &larkim.P2MessageReceiveV1{Event: &larkim.P2MessageReceiveV1Data{
+		Sender:  &larkim.EventSender{SenderId: &larkim.UserId{OpenId: &openID}},
+		Message: &larkim.EventMessage{MessageId: &messageID, ChatId: &chatID, MessageType: &messageType, Content: &content},
+	}}
+	if err := client.onMessage(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	reply := <-client.replies
+	if !reply.ListRunning {
+		t.Fatalf("running command reply = %+v", reply)
 	}
 }
 
