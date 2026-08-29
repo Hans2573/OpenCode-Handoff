@@ -446,37 +446,60 @@ func (e *Engine) handlePermissionReply(ctx context.Context, handoff domain.Hando
 		}
 		return fmt.Errorf("submit OpenCode permission response: %w", err)
 	}
-	e.reconcilePermissionHandoffs(ctx, handoff, decision)
+	pendingPermissions, pendingKnown := e.reconcilePermissionHandoffs(ctx, handoff, decision)
 	e.logger.Info("permission answered", "session_id", handoff.SessionID, "permission_id", handoff.PermissionID, "decision", decision)
-	message := map[opencode.PermissionReply]string{
-		opencode.PermissionOnce:   "已允许本次操作，原 OpenCode Session 正在继续。",
-		opencode.PermissionAlways: "已设置始终允许，原 OpenCode Session 正在继续。",
-		opencode.PermissionReject: "已拒绝权限请求。",
-	}[decision]
+	message := permissionConfirmation(decision, pendingPermissions, pendingKnown)
 	if err := e.channel.Reply(ctx, replyMessageID(reply), message); err != nil {
 		e.logger.Warn("confirm permission response", "permission_id", handoff.PermissionID, "error", err)
 	}
 	return nil
 }
 
-func (e *Engine) reconcilePermissionHandoffs(ctx context.Context, handoff domain.Handoff, decision opencode.PermissionReply) {
+func (e *Engine) reconcilePermissionHandoffs(ctx context.Context, handoff domain.Handoff, decision opencode.PermissionReply) (int, bool) {
 	permissions, err := e.opencode.ListPermissions(ctx, handoff.Directory)
 	if err != nil {
 		if decision != opencode.PermissionReject {
 			e.logger.Warn("could not reconcile pending permissions", "session_id", handoff.SessionID, "error", err)
-			return
+			return 0, false
 		}
 		permissions = nil
 	}
 	var pendingIDs []string
 	for _, permission := range permissions {
-		if permission.SessionID == handoff.SessionID {
+		if permission.SessionID == handoff.SessionID && permission.ID != handoff.PermissionID {
 			pendingIDs = append(pendingIDs, permission.ID)
 		}
 	}
 	if err := e.store.CloseResolvedPermissions(context.WithoutCancel(ctx), handoff.SessionID, pendingIDs); err != nil {
 		e.logger.Warn("close resolved permission handoffs", "session_id", handoff.SessionID, "error", err)
 	}
+	return len(pendingIDs), true
+}
+
+func permissionConfirmation(decision opencode.PermissionReply, pending int, pendingKnown bool) string {
+	if pendingKnown && pending > 0 {
+		switch decision {
+		case opencode.PermissionOnce:
+			return fmt.Sprintf("已允许本次操作，但原 OpenCode Session 仍有 %d 条权限请求等待处理。请继续处理对应的飞书卡片。", pending)
+		case opencode.PermissionAlways:
+			return fmt.Sprintf("已设置始终允许，但原 OpenCode Session 仍有 %d 条权限请求等待处理。请继续处理对应的飞书卡片。", pending)
+		case opencode.PermissionReject:
+			return fmt.Sprintf("已拒绝权限请求，但原 OpenCode Session 仍有 %d 条权限请求等待处理。", pending)
+		}
+	}
+	if !pendingKnown {
+		switch decision {
+		case opencode.PermissionOnce:
+			return "已允许本次操作，OpenCode 已接收；暂时无法确认该 Session 是否还有其他待处理权限。"
+		case opencode.PermissionAlways:
+			return "已设置始终允许，OpenCode 已接收；暂时无法确认该 Session 是否还有其他待处理权限。"
+		}
+	}
+	return map[opencode.PermissionReply]string{
+		opencode.PermissionOnce:   "已允许本次操作，原 OpenCode Session 正在继续。",
+		opencode.PermissionAlways: "已设置始终允许，原 OpenCode Session 正在继续。",
+		opencode.PermissionReject: "已拒绝权限请求。",
+	}[decision]
 }
 
 func parsePermissionReply(text string) opencode.PermissionReply {

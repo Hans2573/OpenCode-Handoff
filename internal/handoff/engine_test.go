@@ -157,6 +157,38 @@ func TestEngineRoutesPermissionDecisionWithoutSendingPrompt(t *testing.T) {
 	}
 }
 
+func TestEngineReportsRemainingPermissionRequests(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	first := testPermission("per_1", "ses_1")
+	second := testPermission("per_2", "ses_1")
+	second.Metadata = map[string]any{"filepath": `/work/AGENTS.md`}
+	adapter := &fakeAdapter{
+		session:     opencode.Session{ID: "ses_1", Directory: "/work/project", Title: "inspect preview"},
+		permissions: []opencode.PermissionRequest{first, second},
+	}
+	channel := &fakeChannel{}
+	engine := NewEngine(adapter, channel, database, EngineOptions{
+		MaxOutputChars: 3000, NotifyPermission: true, AllowedUsers: []string{"ou_allowed"}, ChatID: "oc_allowed",
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := engine.handleSignal(ctx, Signal{SessionID: "ses_1", Directory: "/work/project", Kind: SignalPermission, Permission: first}); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "evt_permission", ParentMessageID: "om_handoff", ChatID: "oc_allowed",
+		SenderID: "ou_allowed", PermissionReply: "once", CardAction: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.notices) != 1 || !strings.Contains(channel.notices[0], "仍有 1 条权限请求等待处理") {
+		t.Fatalf("permission confirmation = %v", channel.notices)
+	}
+}
+
 func TestEngineAbortsSessionFromQuotedHandoff(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
@@ -505,6 +537,13 @@ func (f *fakeAdapter) ListPermissions(context.Context, string) ([]opencode.Permi
 
 func (f *fakeAdapter) ReplyPermission(_ context.Context, requestID, directory string, decision opencode.PermissionReply) error {
 	f.permissionReplies = append(f.permissionReplies, permissionReplyCall{ID: requestID, Directory: directory, Decision: decision})
+	remaining := f.permissions[:0]
+	for _, permission := range f.permissions {
+		if permission.ID != requestID {
+			remaining = append(remaining, permission)
+		}
+	}
+	f.permissions = remaining
 	return nil
 }
 

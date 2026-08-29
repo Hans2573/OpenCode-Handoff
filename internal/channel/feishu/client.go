@@ -624,6 +624,12 @@ func formatPermissionCard(handoff domain.Handoff) (string, error) {
 		{Tag: "markdown", Content: fmt.Sprintf("**权限类型**\n%s (`%s`)", permissionDisplayName(permissionName), sanitizeInlineCode(permissionName))},
 		{Tag: "markdown", Content: "**本次请求范围**\n" + permissionValues(handoff.Permission.Patterns)},
 	}
+	if target := permissionMetadataString(handoff.Permission.Metadata, "filepath"); target != "" {
+		elements = append(elements, handoffCardElement{
+			Tag:     "markdown",
+			Content: "**具体目标**\n- `" + sanitizeInlineCode(target) + "`",
+		})
+	}
 	if len(handoff.Permission.Always) > 0 {
 		elements = append(elements, handoffCardElement{
 			Tag:     "markdown",
@@ -636,7 +642,7 @@ func formatPermissionCard(handoff domain.Handoff) (string, error) {
 		})
 	}
 	elements = append(elements,
-		handoffCardElement{Tag: "markdown", Content: "⚠️ “始终允许”会放行后续匹配操作；“拒绝”还会拒绝该 Session 中其他待处理权限。"},
+		handoffCardElement{Tag: "markdown", Content: "⚠️ “允许一次”仅处理当前这条请求，其他待处理卡片仍需分别处理；“始终允许”会放行后续匹配操作；“拒绝”还会拒绝该 Session 中其他待处理权限。"},
 		permissionButtonRow(
 			callbackButton("✅ 允许一次", map[string]any{"action": "permission_reply", "decision": "once"}, "primary"),
 			callbackButton("🔓 始终允许", map[string]any{"action": "permission_reply", "decision": "always"}, "default"),
@@ -653,6 +659,11 @@ func formatPermissionCard(handoff domain.Handoff) (string, error) {
 		return "", err
 	}
 	return string(content), nil
+}
+
+func permissionMetadataString(metadata map[string]any, key string) string {
+	value, _ := metadata[key].(string)
+	return strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(value, "\r", " "), "\n", " "))
 }
 
 func permissionDisplayName(permission string) string {

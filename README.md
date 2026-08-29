@@ -182,7 +182,7 @@ OpenCode permission.asked -> 飞书授权卡片 -> /permission/{id}/reply
 
 单题单选可以直接点击飞书按钮。自定义答案可引用回复卡片并输入文本；多选用逗号分隔序号，多题时每题一行。回复“忽略”“拒绝”或 `reject` 会拒绝 Question。Question 记录只允许成功处理一次，并继续使用原 `session_id`；子 agent 的 Question 与结束/中断一样不会通知。
 
-Permission 卡片会显示权限类型、本次请求范围和 OpenCode 提供的“始终允许”范围。可点击“允许一次”“始终允许”或“拒绝”，也可引用回复对应中文、`once`、`always`、`reject`。选择“拒绝”会按 OpenCode 语义同时拒绝该 Session 中其他待处理权限；“始终允许”会放行后续匹配范围，操作前应核对卡片中的 pattern。Permission 只允许处理一次，子 agent 的 Permission 不会通知。
+Permission 卡片会显示权限类型、本次请求范围、具体文件目标（OpenCode 提供时）和“始终允许”范围。可点击“允许一次”“始终允许”或“拒绝”，也可引用回复对应中文、`once`、`always`、`reject`。同一 Session 并发产生多条 Permission 时会分别发送卡片；“允许一次”只处理当前卡片，确认消息会提示剩余待处理数量。选择“拒绝”会按 OpenCode 语义同时拒绝该 Session 中其他待处理权限；“始终允许”会放行后续匹配范围，操作前应核对卡片中的 pattern。Permission 只允许处理一次，子 agent 的 Permission 不会通知。
 
 服务启动时已处于 idle 的历史 Session 不会触发完成通知；但仍处于 pending 的 Question 和 Permission 会由轮询兜底发现。唯一键为 `session_id + last_assistant_message_id + handoff_type`，SSE 与轮询同时命中也只发送一次。
 

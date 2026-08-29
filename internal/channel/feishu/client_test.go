@@ -180,6 +180,7 @@ func TestFormatPermissionHandoff(t *testing.T) {
 			Name:     "external_directory",
 			Patterns: []string{`C:\Users\test\Desktop\preview.html`},
 			Always:   []string{`C:\Users\test\Desktop\*`},
+			Metadata: map[string]any{"filepath": `C:\Users\test\Desktop\README.md`},
 		},
 	}, 3000)
 	if err != nil {
@@ -189,8 +190,8 @@ func TestFormatPermissionHandoff(t *testing.T) {
 	message := cardContents(card.Body.Elements)
 	for _, expected := range []string{
 		"ses_permission", "Inspect preview", "等待授权", "访问项目目录外文件",
-		`C:\Users\test\Desktop\preview.html`, `C:\Users\test\Desktop\*`,
-		"允许一次", "始终允许", "拒绝", "其他待处理权限",
+		`C:\Users\test\Desktop\preview.html`, `C:\Users\test\Desktop\*`, `C:\Users\test\Desktop\README.md`,
+		"允许一次", "仅处理当前这条请求", "始终允许", "拒绝", "其他待处理权限",
 	} {
 		if !strings.Contains(message, expected) {
 			t.Fatalf("permission card %q does not contain %q", message, expected)
