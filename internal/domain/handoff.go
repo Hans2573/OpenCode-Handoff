@@ -28,6 +28,10 @@ type Handoff struct {
 	SessionName            string
 	Directory              string
 	ProjectName            string
+	ModelName              string
+	ModelProviderID        string
+	ModelID                string
+	ModelVariant           string
 	FeishuChatID           string
 	FeishuMessageID        string
 	Type                   HandoffType
@@ -86,6 +90,53 @@ type ProjectPage struct {
 	Total      int
 }
 
+type ModelTarget string
+
+const (
+	ModelTargetBrowse ModelTarget = "browse"
+	ModelTargetCreate ModelTarget = "create"
+	ModelTargetSwitch ModelTarget = "switch"
+)
+
+type Model struct {
+	ProviderID   string
+	ProviderName string
+	ID           string
+	Name         string
+	Status       string
+	Variants     []string
+	Reasoning    bool
+	Attachment   bool
+	ContextLimit int64
+}
+
+type ModelContext struct {
+	Target           ModelTarget
+	ProjectDirectory string
+	SessionID        string
+	SessionName      string
+}
+
+type ModelPage struct {
+	Models     []Model
+	Page       int
+	TotalPages int
+	Total      int
+	Context    ModelContext
+}
+
+type ModelVariantPage struct {
+	Model   Model
+	Context ModelContext
+}
+
+type SessionModel struct {
+	ProviderID string
+	ModelID    string
+	ModelName  string
+	Variant    string
+}
+
 type RunningSession struct {
 	SessionID        string
 	SessionName      string
@@ -96,6 +147,8 @@ type RunningSession struct {
 	LastUserInputAt  time.Time
 	RunningFor       time.Duration
 	HasLastUserInput bool
+	CurrentModel     string
+	CurrentVariant   string
 }
 
 type RunningSessions struct {
@@ -106,23 +159,32 @@ type RunningSessions struct {
 }
 
 type UserReply struct {
-	MessageID        string
-	ParentMessageID  string
-	ChatID           string
-	SenderID         string
-	SenderIDs        []string
-	Text             string
-	QuestionAnswers  [][]string
-	RejectQuestion   bool
-	PermissionReply  string
-	AbortSession     bool
-	ListProjects     bool
-	ProjectPage      int
-	CreateSession    bool
-	ProjectDirectory string
-	ListRunning      bool
-	CardAction       bool
-	Result           chan error
+	MessageID         string
+	ParentMessageID   string
+	ChatID            string
+	SenderID          string
+	SenderIDs         []string
+	Text              string
+	QuestionAnswers   [][]string
+	RejectQuestion    bool
+	PermissionReply   string
+	AbortSession      bool
+	ListProjects      bool
+	ProjectPage       int
+	CreateSession     bool
+	ProjectDirectory  string
+	ListRunning       bool
+	ListModels        bool
+	ModelPage         int
+	ModelContext      ModelContext
+	ListModelVariants bool
+	ApplyModel        bool
+	ProviderID        string
+	ModelID           string
+	ModelName         string
+	ModelVariant      string
+	CardAction        bool
+	Result            chan error
 }
 
 type ChannelBinding struct {

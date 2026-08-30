@@ -78,6 +78,14 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			session_id TEXT NOT NULL DEFAULT '',
 			created_at INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS session_model_overrides (
+			session_id TEXT PRIMARY KEY,
+			provider_id TEXT NOT NULL,
+			model_id TEXT NOT NULL,
+			model_name TEXT NOT NULL DEFAULT '',
+			variant TEXT NOT NULL DEFAULT '',
+			updated_at INTEGER NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS agent_instances (
 			id TEXT PRIMARY KEY,
 			type TEXT NOT NULL,

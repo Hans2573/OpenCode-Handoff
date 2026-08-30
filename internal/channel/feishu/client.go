@@ -233,6 +233,22 @@ func (c *Client) ReplyProjects(ctx context.Context, messageID string, page domai
 	return c.sendCardReply(ctx, messageID, content)
 }
 
+func (c *Client) ReplyModels(ctx context.Context, messageID string, page domain.ModelPage) error {
+	content, err := formatModelCard(page)
+	if err != nil {
+		return fmt.Errorf("encode model card: %w", err)
+	}
+	return c.sendCardReply(ctx, messageID, content)
+}
+
+func (c *Client) ReplyModelVariants(ctx context.Context, messageID string, page domain.ModelVariantPage) error {
+	content, err := formatModelVariantCard(page)
+	if err != nil {
+		return fmt.Errorf("encode model variant card: %w", err)
+	}
+	return c.sendCardReply(ctx, messageID, content)
+}
+
 func (c *Client) ReplyRunningSessions(ctx context.Context, messageID string, running domain.RunningSessions) error {
 	content, err := formatRunningSessionsCard(running)
 	if err != nil {
@@ -281,6 +297,11 @@ func (c *Client) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1
 	}
 	if isRunningCommand(text) {
 		reply.ListRunning = true
+	}
+	if page, ok := parseModelsCommand(text); ok {
+		reply.ListModels = true
+		reply.ModelPage = page
+		reply.ModelContext = domain.ModelContext{Target: domain.ModelTargetBrowse}
 	}
 	if len(senderIDs) > 0 {
 		reply.SenderID = senderIDs[0]
@@ -333,6 +354,21 @@ func isRunningCommand(text string) bool {
 	}
 }
 
+func parseModelsCommand(text string) (int, bool) {
+	fields := strings.Fields(strings.TrimSpace(text))
+	if len(fields) == 0 || !strings.EqualFold(fields[0], "/models") {
+		return 0, false
+	}
+	if len(fields) == 1 {
+		return 1, true
+	}
+	page, err := strconv.Atoi(fields[1])
+	if err != nil || page < 1 {
+		return 1, true
+	}
+	return page, true
+}
+
 const helpMessage = `OpenCode Handoff 使用说明
 
 1. 继续任务
@@ -345,12 +381,15 @@ const helpMessage = `OpenCode Handoff 使用说明
 首次使用时，按服务日志中的提示发送 /bind <配对码>。
 
 4. 项目与新 Session
-发送 /project 查看 OpenCode 已存在的项目，点击“新建 Session”。
+发送 /project 查看项目；点击“新建 Session”后先选择模型。模型会在第一次引用回复任务时生效。
 
 5. 查看运行中的 Session
-发送 /running（或 /r），查看当前运行状态和距离上次用户输入的时长。
+发送 /running（或 /r），查看状态、当前模型和距离上次用户输入的时长；可选择模型，从下一条飞书任务起生效。
 
-6. 获取帮助
+6. 查看可用模型
+发送 /models，可查看 OpenCode 当前返回的脱敏模型目录。
+
+7. 获取帮助
 发送 /help。`
 
 func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
@@ -358,7 +397,7 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		return cardToast("error", "无效的卡片操作"), nil
 	}
 	action := stringMapValue(event.Event.Action.Value, "action")
-	if action != "question_reply" && action != "question_custom_reply" && action != "question_reject" && action != "permission_reply" && action != "project_page" && action != "project_create" {
+	if action != "question_reply" && action != "question_custom_reply" && action != "question_reject" && action != "permission_reply" && action != "project_page" && action != "project_create" && action != "model_page" && action != "model_variants" && action != "model_apply" && action != "session_models" {
 		return cardToast("error", "不支持的卡片操作"), nil
 	}
 	messageID := ""
@@ -406,11 +445,38 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 			return cardToast("error", "项目页码无效"), nil
 		}
 	} else if action == "project_create" {
-		reply.CreateSession = true
+		reply.ListModels = true
+		reply.ModelPage = 1
 		reply.ProjectDirectory = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "directory"))
 		if reply.ProjectDirectory == "" {
 			return cardToast("error", "项目目录无效"), nil
 		}
+		reply.ModelContext = domain.ModelContext{Target: domain.ModelTargetCreate, ProjectDirectory: reply.ProjectDirectory}
+	} else if action == "model_page" {
+		reply.ListModels = true
+		reply.ModelPage = intMapValue(event.Event.Action.Value, "page")
+		if reply.ModelPage < 1 {
+			return cardToast("error", "模型页码无效"), nil
+		}
+		reply.ModelContext = modelContextFromAction(event.Event.Action.Value)
+	} else if action == "session_models" {
+		reply.ListModels = true
+		reply.ModelPage = 1
+		reply.ModelContext = modelContextFromAction(event.Event.Action.Value)
+		if reply.ModelContext.Target != domain.ModelTargetSwitch || reply.ModelContext.SessionID == "" || reply.ModelContext.ProjectDirectory == "" {
+			return cardToast("error", "Session 信息无效"), nil
+		}
+	} else if action == "model_variants" {
+		reply.ListModelVariants = true
+		reply.ModelContext = modelContextFromAction(event.Event.Action.Value)
+		reply.ProviderID = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "provider_id"))
+		reply.ModelID = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "model_id"))
+	} else if action == "model_apply" {
+		reply.ApplyModel = true
+		reply.ModelContext = modelContextFromAction(event.Event.Action.Value)
+		reply.ProviderID = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "provider_id"))
+		reply.ModelID = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "model_id"))
+		reply.ModelVariant = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "variant"))
 	}
 	select {
 	case <-ctx.Done():
@@ -436,6 +502,15 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		if reply.ListProjects {
 			return cardToast("success", "项目列表已发送"), nil
 		}
+		if reply.ListModels || reply.ListModelVariants {
+			return cardToast("success", "模型选择已发送"), nil
+		}
+		if reply.ApplyModel && reply.ModelContext.Target == domain.ModelTargetSwitch {
+			return cardToast("success", "模型将在下一条飞书任务中生效"), nil
+		}
+		if reply.ApplyModel && reply.ModelContext.Target == domain.ModelTargetCreate {
+			return cardToast("success", "OpenCode Session 已创建，模型将在第一条任务中生效"), nil
+		}
 		if reply.CreateSession {
 			return cardToast("success", "OpenCode Session 已创建"), nil
 		}
@@ -444,6 +519,15 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		return cardToast("warning", "答案正在提交，请稍后查看 OpenCode"), nil
 	case <-time.After(5 * time.Second):
 		return cardToast("warning", "答案正在提交，请稍后查看 OpenCode"), nil
+	}
+}
+
+func modelContextFromAction(values map[string]any) domain.ModelContext {
+	return domain.ModelContext{
+		Target:           domain.ModelTarget(strings.TrimSpace(stringMapValue(values, "target"))),
+		ProjectDirectory: strings.TrimSpace(stringMapValue(values, "directory")),
+		SessionID:        strings.TrimSpace(stringMapValue(values, "session_id")),
+		SessionName:      strings.TrimSpace(stringMapValue(values, "session_name")),
 	}
 }
 
@@ -726,6 +810,10 @@ func formatHandoffCard(handoff domain.Handoff, maxOutputChars int) (string, erro
 			}},
 		})
 	}
+	elements = append(elements, permissionButtonRow(callbackButton("切换模型（下一条任务生效）", map[string]any{
+		"action": "session_models", "target": string(domain.ModelTargetSwitch), "directory": handoff.Directory,
+		"session_id": handoff.SessionID, "session_name": sessionName,
+	}, "default")))
 	if handoff.Type == domain.HandoffError {
 		elements = append(elements, handoffCardElement{
 			Tag:     "markdown",
@@ -758,7 +846,7 @@ func formatProjectCard(page domain.ProjectPage) (string, error) {
 		elements = append(elements,
 			handoffCardElement{Tag: "hr"},
 			handoffCardElement{Tag: "markdown", Content: fmt.Sprintf("**%s**\n`%s`", project.Name, sanitizeInlineCode(project.Directory))},
-			permissionButtonRow(callbackButton("➕ 新建 Session", map[string]any{
+			permissionButtonRow(callbackButton("➕ 选择模型并创建", map[string]any{
 				"action": "project_create", "directory": project.Directory,
 			}, "primary")),
 		)
@@ -784,16 +872,165 @@ func formatProjectCard(page domain.ProjectPage) (string, error) {
 	return string(content), nil
 }
 
+func formatModelCard(page domain.ModelPage) (string, error) {
+	securityNote := "这里只展示 OpenCode 当前返回的脱敏模型信息，不会显示 API Key 或连接参数。"
+	note := "选择模型前请确认 Provider 与模型 ID。"
+	switch page.Context.Target {
+	case domain.ModelTargetCreate:
+		note = "选择后会创建空 Session；模型先记为“待使用”，第一次引用回复任务时才真正生效。"
+	case domain.ModelTargetSwitch:
+		note = "选择不会中断当前执行；模型从下一条通过飞书发送的普通任务起生效。"
+	}
+	elements := []handoffCardElement{{
+		Tag: "markdown", Content: fmt.Sprintf("🤖 **OpenCode Models**\n共 %d 个模型 · 第 %d/%d 页\n\nℹ️ %s\n🔒 %s", page.Total, page.Page, page.TotalPages, note, securityNote),
+	}}
+	if page.Context.Target == domain.ModelTargetCreate {
+		value := modelActionValue("model_apply", page.Context)
+		elements = append(elements, permissionButtonRow(callbackButton("使用 OpenCode 默认模型创建", value, "default")))
+	}
+	for _, model := range page.Models {
+		providerName := strings.TrimSpace(model.ProviderName)
+		if providerName == "" {
+			providerName = model.ProviderID
+		}
+		features := []string{}
+		if model.ContextLimit > 0 {
+			features = append(features, "上下文 "+formatTokenLimit(model.ContextLimit))
+		}
+		if model.Reasoning {
+			features = append(features, "支持推理")
+		}
+		if model.Attachment {
+			features = append(features, "支持附件")
+		}
+		if len(model.Variants) > 0 {
+			features = append(features, "档位 "+strings.Join(model.Variants, "/"))
+		}
+		detail := fmt.Sprintf("**%s**\nProvider：%s\n`%s/%s`", model.Name, providerName, sanitizeInlineCode(model.ProviderID), sanitizeInlineCode(model.ID))
+		if len(features) > 0 {
+			detail += "\n" + strings.Join(features, " · ")
+		}
+		elements = append(elements, handoffCardElement{Tag: "hr"}, handoffCardElement{Tag: "markdown", Content: detail})
+		if page.Context.Target != domain.ModelTargetBrowse {
+			action := "model_apply"
+			label := "使用此模型"
+			if len(model.Variants) > 0 {
+				action = "model_variants"
+				label = "选择模型与档位"
+			}
+			value := modelActionValue(action, page.Context)
+			value["provider_id"] = model.ProviderID
+			value["model_id"] = model.ID
+			elements = append(elements, permissionButtonRow(callbackButton(label, value, "primary")))
+		}
+	}
+	if page.TotalPages > 1 {
+		var buttons []handoffCardElement
+		if page.Page > 1 {
+			value := modelActionValue("model_page", page.Context)
+			value["page"] = page.Page - 1
+			buttons = append(buttons, callbackButton("← 上一页", value, "default"))
+		}
+		if page.Page < page.TotalPages {
+			value := modelActionValue("model_page", page.Context)
+			value["page"] = page.Page + 1
+			buttons = append(buttons, callbackButton("下一页 →", value, "default"))
+		}
+		elements = append(elements, handoffCardElement{Tag: "hr"}, permissionButtonRow(buttons...))
+	}
+	content, err := json.Marshal(handoffCard{
+		Schema: "2.0", Config: handoffCardConfig{UpdateMulti: true, WidthMode: "fill"},
+		Body: handoffCardBody{Direction: "vertical", Padding: "12px 12px 12px 12px", Elements: elements},
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func formatModelVariantCard(page domain.ModelVariantPage) (string, error) {
+	note := "创建后第一次引用回复任务时生效。"
+	if page.Context.Target == domain.ModelTargetSwitch {
+		note = "不会中断当前执行，从下一条飞书任务起生效。"
+	}
+	elements := []handoffCardElement{
+		{Tag: "markdown", Content: fmt.Sprintf("🧠 **选择模型档位**\n%s\n`%s/%s`\n\nℹ️ %s", page.Model.Name, sanitizeInlineCode(page.Model.ProviderID), sanitizeInlineCode(page.Model.ID), note)},
+		{Tag: "hr"},
+	}
+	defaultValue := modelActionValue("model_apply", page.Context)
+	defaultValue["provider_id"] = page.Model.ProviderID
+	defaultValue["model_id"] = page.Model.ID
+	elements = append(elements, permissionButtonRow(callbackButton("使用模型默认档位", defaultValue, "primary")))
+	for _, variant := range page.Model.Variants {
+		value := modelActionValue("model_apply", page.Context)
+		value["provider_id"] = page.Model.ProviderID
+		value["model_id"] = page.Model.ID
+		value["variant"] = variant
+		elements = append(elements, permissionButtonRow(callbackButton(modelVariantLabel(variant), value, "default")))
+	}
+	content, err := json.Marshal(handoffCard{
+		Schema: "2.0", Config: handoffCardConfig{UpdateMulti: true, WidthMode: "fill"},
+		Body: handoffCardBody{Direction: "vertical", Padding: "12px 12px 12px 12px", Elements: elements},
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func modelActionValue(action string, context domain.ModelContext) map[string]any {
+	return map[string]any{
+		"action": action, "target": string(context.Target), "directory": context.ProjectDirectory,
+		"session_id": context.SessionID, "session_name": context.SessionName,
+	}
+}
+
+func modelVariantLabel(variant string) string {
+	switch variant {
+	case "none":
+		return "关闭推理（none）"
+	case "thinking":
+		return "开启推理（thinking）"
+	default:
+		return "使用 " + variant + " 档位"
+	}
+}
+
+func formatTokenLimit(value int64) string {
+	if value >= 1_000_000 {
+		return fmt.Sprintf("%.1fM", float64(value)/1_000_000)
+	}
+	if value >= 1_000 {
+		return fmt.Sprintf("%dK", value/1_000)
+	}
+	return strconv.FormatInt(value, 10)
+}
+
 func formatCreatedSessionCard(handoff domain.Handoff) (string, error) {
 	sessionName := strings.TrimSpace(handoff.SessionName)
 	if sessionName == "" {
 		sessionName = "Untitled Session"
 	}
+	modelText := "OpenCode 默认模型（第一条任务发送时确定）"
+	if handoff.ModelID != "" {
+		modelText = strings.TrimSpace(handoff.ModelName)
+		if modelText == "" {
+			modelText = handoff.ModelProviderID + "/" + handoff.ModelID
+		}
+		if handoff.ModelVariant != "" {
+			modelText += " · " + handoff.ModelVariant
+		}
+		modelText += "（待使用）"
+	}
 	elements := []handoffCardElement{
 		{Tag: "markdown", Content: fmt.Sprintf("🆔 Session ID: %s\n🏷️ Session Name: %s", handoff.SessionID, sessionName)},
 		{Tag: "hr"},
-		{Tag: "markdown", Content: fmt.Sprintf("✅ **OpenCode · Session Created**\n📁 Project: %s\n📂 Directory: `%s`", handoff.ProjectName, sanitizeInlineCode(handoff.Directory))},
-		{Tag: "markdown", Content: "↩️ 引用回复本消息并输入任务，即可启动这个 Session。"},
+		{Tag: "markdown", Content: fmt.Sprintf("✅ **OpenCode · Session Created**\n📁 Project: %s\n📂 Directory: `%s`\n🤖 模型：%s", handoff.ProjectName, sanitizeInlineCode(handoff.Directory), modelText)},
+		{Tag: "markdown", Content: "ℹ️ 空 Session 尚未在 OpenCode 中固定模型；引用回复本消息并输入第一条任务后才真正生效。"},
+		permissionButtonRow(callbackButton("切换待使用模型", map[string]any{
+			"action": "session_models", "target": string(domain.ModelTargetSwitch), "directory": handoff.Directory,
+			"session_id": handoff.SessionID, "session_name": sessionName,
+		}, "default")),
 	}
 	content, err := json.Marshal(handoffCard{
 		Schema: "2.0",
@@ -821,6 +1058,14 @@ func formatRunningSessionsCard(running domain.RunningSessions) (string, error) {
 			lastInput = "（非文本输入）"
 		}
 		content := fmt.Sprintf("%s **%s**\n📁 Project: %s\n🆔 `%s`\n⏱️ 距上次用户输入：%s", stateIcon+" "+stateText, session.SessionName, session.ProjectName, sanitizeInlineCode(session.SessionID), elapsed)
+		modelText := session.CurrentModel
+		if modelText == "" {
+			modelText = "OpenCode 默认/尚未识别"
+		}
+		if session.CurrentVariant != "" {
+			modelText += " · " + session.CurrentVariant
+		}
+		content += "\n🤖 当前模型：`" + sanitizeInlineCode(modelText) + "`"
 		elements = append(elements, handoffCardElement{Tag: "hr"}, handoffCardElement{Tag: "markdown", Content: content})
 		if lastInput != "" {
 			expanded := false
@@ -836,6 +1081,10 @@ func formatRunningSessionsCard(running domain.RunningSessions) (string, error) {
 				Elements:        []handoffCardElement{{Tag: "markdown", Content: lastInput}},
 			})
 		}
+		elements = append(elements, permissionButtonRow(callbackButton("切换模型", map[string]any{
+			"action": "session_models", "target": string(domain.ModelTargetSwitch), "directory": session.Directory,
+			"session_id": session.SessionID, "session_name": session.SessionName,
+		}, "default")))
 	}
 	if running.Total > len(running.Items) {
 		elements = append(elements, handoffCardElement{Tag: "markdown", Content: fmt.Sprintf("ℹ️ 卡片仅显示前 %d 条，共 %d 条运行中 Session。", len(running.Items), running.Total)})

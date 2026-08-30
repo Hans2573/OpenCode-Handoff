@@ -164,6 +164,45 @@ func (s *SQLite) SetSetting(ctx context.Context, key, value string) error {
 	return nil
 }
 
+func (s *SQLite) GetPendingSessionModel(ctx context.Context, sessionID string) (domain.SessionModel, error) {
+	var model domain.SessionModel
+	err := s.db.QueryRowContext(ctx, `
+		SELECT provider_id, model_id, model_name, variant
+		FROM session_model_overrides WHERE session_id = ?`, sessionID).
+		Scan(&model.ProviderID, &model.ModelID, &model.ModelName, &model.Variant)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.SessionModel{}, ErrNotFound
+	}
+	if err != nil {
+		return domain.SessionModel{}, fmt.Errorf("get pending model for session %s: %w", sessionID, err)
+	}
+	return model, nil
+}
+
+func (s *SQLite) SetPendingSessionModel(ctx context.Context, sessionID string, model domain.SessionModel) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO session_model_overrides (session_id, provider_id, model_id, model_name, variant, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(session_id) DO UPDATE SET
+			provider_id = excluded.provider_id,
+			model_id = excluded.model_id,
+			model_name = excluded.model_name,
+			variant = excluded.variant,
+			updated_at = excluded.updated_at`,
+		sessionID, model.ProviderID, model.ModelID, model.ModelName, model.Variant, time.Now().UTC().UnixMilli())
+	if err != nil {
+		return fmt.Errorf("set pending model for session %s: %w", sessionID, err)
+	}
+	return nil
+}
+
+func (s *SQLite) ClearPendingSessionModel(ctx context.Context, sessionID string) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM session_model_overrides WHERE session_id = ?`, sessionID); err != nil {
+		return fmt.Errorf("clear pending model for session %s: %w", sessionID, err)
+	}
+	return nil
+}
+
 func (s *SQLite) AppendEvent(ctx context.Context, event domain.EventLog) error {
 	metadata, err := json.Marshal(event.Metadata)
 	if err != nil {

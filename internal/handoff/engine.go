@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -330,7 +331,7 @@ func (e *Engine) sendWithRetry(ctx context.Context, handoff domain.Handoff) (dom
 
 func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error {
 	text := strings.TrimSpace(reply.Text)
-	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion && reply.PermissionReply == "" && !reply.AbortSession && !reply.ListProjects && !reply.CreateSession && !reply.ListRunning {
+	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion && reply.PermissionReply == "" && !reply.AbortSession && !reply.ListProjects && !reply.CreateSession && !reply.ListRunning && !reply.ListModels && !reply.ListModelVariants && !reply.ApplyModel {
 		return nil
 	}
 	allowed, err := e.isAllowed(ctx, reply)
@@ -346,6 +347,15 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 	}
 	if reply.ListProjects {
 		return e.handleProjectList(ctx, reply)
+	}
+	if reply.ListModels {
+		return e.handleModelList(ctx, reply)
+	}
+	if reply.ListModelVariants {
+		return e.handleModelVariants(ctx, reply)
+	}
+	if reply.ApplyModel {
+		return e.handleApplyModel(ctx, reply)
 	}
 	if reply.CreateSession {
 		return e.handleCreateSession(ctx, reply)
@@ -395,7 +405,14 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 	if handoff.Type == domain.HandoffPermission {
 		return e.handlePermissionReply(ctx, handoff, reply, text)
 	}
-	if err := e.opencode.SendPrompt(ctx, handoff.SessionID, handoff.Directory, text); err != nil {
+	var selected *opencode.ModelRef
+	pending, pendingErr := e.store.GetPendingSessionModel(ctx, handoff.SessionID)
+	if pendingErr == nil {
+		selected = &opencode.ModelRef{ProviderID: pending.ProviderID, ModelID: pending.ModelID, Variant: pending.Variant}
+	} else if !errors.Is(pendingErr, store.ErrNotFound) {
+		return fmt.Errorf("read pending Session model: %w", pendingErr)
+	}
+	if err := e.opencode.SendPrompt(ctx, handoff.SessionID, handoff.Directory, text, selected); err != nil {
 		if reopenErr := e.store.Reopen(context.WithoutCancel(ctx), handoff.ID); reopenErr != nil {
 			e.logger.Error("reopen handoff after prompt failure", "handoff_id", handoff.ID, "error", reopenErr)
 		}
@@ -405,6 +422,11 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 			}
 		}
 		return fmt.Errorf("resume OpenCode session: %w", err)
+	}
+	if selected != nil {
+		if err := e.store.ClearPendingSessionModel(context.WithoutCancel(ctx), handoff.SessionID); err != nil {
+			e.logger.Warn("clear applied Session model", "session_id", handoff.SessionID, "error", err)
+		}
 	}
 	e.logger.Info("session resumed", "session_id", handoff.SessionID, "sender_id", reply.SenderID)
 	if !reply.CardAction {
@@ -416,6 +438,136 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 }
 
 const projectPageSize = 8
+
+const modelPageSize = 6
+
+func (e *Engine) handleModelList(ctx context.Context, reply domain.UserReply) error {
+	models, err := e.availableModels(ctx)
+	if err != nil {
+		return fmt.Errorf("list OpenCode models: %w", err)
+	}
+	if len(models) == 0 {
+		return e.channel.Reply(ctx, reply.MessageID, "OpenCode 当前没有返回可用模型。")
+	}
+	page := reply.ModelPage
+	if page < 1 {
+		page = 1
+	}
+	totalPages := (len(models) + modelPageSize - 1) / modelPageSize
+	if page > totalPages {
+		return e.channel.Reply(ctx, reply.MessageID, fmt.Sprintf("模型列表只有 %d 页，请发送 /models 1。", totalPages))
+	}
+	start := (page - 1) * modelPageSize
+	end := min(start+modelPageSize, len(models))
+	messageID := reply.MessageID
+	if reply.CardAction && reply.ParentMessageID != "" {
+		messageID = reply.ParentMessageID
+	}
+	return e.channel.ReplyModels(ctx, messageID, domain.ModelPage{
+		Models: models[start:end], Page: page, TotalPages: totalPages, Total: len(models), Context: reply.ModelContext,
+	})
+}
+
+func (e *Engine) handleModelVariants(ctx context.Context, reply domain.UserReply) error {
+	model, err := e.findModel(ctx, reply.ProviderID, reply.ModelID)
+	if err != nil {
+		return err
+	}
+	messageID := reply.MessageID
+	if reply.CardAction && reply.ParentMessageID != "" {
+		messageID = reply.ParentMessageID
+	}
+	return e.channel.ReplyModelVariants(ctx, messageID, domain.ModelVariantPage{Model: model, Context: reply.ModelContext})
+}
+
+func (e *Engine) handleApplyModel(ctx context.Context, reply domain.UserReply) error {
+	if reply.ModelContext.Target == domain.ModelTargetCreate && reply.ProviderID == "" && reply.ModelID == "" {
+		reply.ProjectDirectory = reply.ModelContext.ProjectDirectory
+		return e.handleCreateSession(ctx, reply)
+	}
+	model, err := e.findModel(ctx, reply.ProviderID, reply.ModelID)
+	if err != nil {
+		return err
+	}
+	if reply.ModelVariant != "" && !slices.Contains(model.Variants, reply.ModelVariant) {
+		return errors.New("该模型档位已不可用，请重新选择模型")
+	}
+	reply.ModelName = model.Name
+	switch reply.ModelContext.Target {
+	case domain.ModelTargetCreate:
+		reply.ProjectDirectory = reply.ModelContext.ProjectDirectory
+		return e.handleCreateSession(ctx, reply)
+	case domain.ModelTargetSwitch:
+		if reply.ModelContext.SessionID == "" || reply.ModelContext.ProjectDirectory == "" {
+			return errors.New("Session 信息不完整，请重新打开模型列表")
+		}
+		projects, err := e.availableProjects(ctx)
+		if err != nil {
+			return fmt.Errorf("validate Session project route: %w", err)
+		}
+		allowedDirectory := false
+		for _, project := range projects {
+			if sameDirectory(project.Directory, reply.ModelContext.ProjectDirectory) {
+				allowedDirectory = true
+				break
+			}
+		}
+		if !allowedDirectory {
+			return errors.New("该 Session 所在项目未接入飞书渠道")
+		}
+		session, err := e.opencode.GetSession(ctx, reply.ModelContext.SessionID, reply.ModelContext.ProjectDirectory)
+		if err != nil || session.ID == "" {
+			return errors.New("该 Session 已不存在，请重新查看 Session 列表")
+		}
+		selected := domain.SessionModel{ProviderID: model.ProviderID, ModelID: model.ID, ModelName: model.Name, Variant: reply.ModelVariant}
+		if err := e.store.SetPendingSessionModel(ctx, session.ID, selected); err != nil {
+			return err
+		}
+		variant := "默认档位"
+		if selected.Variant != "" {
+			variant = selected.Variant
+		}
+		messageID := reply.MessageID
+		if reply.ParentMessageID != "" {
+			messageID = reply.ParentMessageID
+		}
+		return e.channel.Reply(ctx, messageID, fmt.Sprintf("已为 Session `%s` 选择 %s（%s）。不会中断当前执行；下一条从飞书发送的普通任务起生效。", session.ID, selected.ModelName, variant))
+	default:
+		return errors.New("模型操作目标无效")
+	}
+}
+
+func (e *Engine) availableModels(ctx context.Context) ([]domain.Model, error) {
+	models, err := e.opencode.ListModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]domain.Model, 0, len(models))
+	for _, model := range models {
+		if model.ProviderID == "" || model.ID == "" {
+			continue
+		}
+		result = append(result, domain.Model{
+			ProviderID: model.ProviderID, ProviderName: model.ProviderName, ID: model.ID, Name: model.Name,
+			Status: model.Status, Variants: model.Variants, Reasoning: model.Reasoning,
+			Attachment: model.Attachment, ContextLimit: model.ContextLimit,
+		})
+	}
+	return result, nil
+}
+
+func (e *Engine) findModel(ctx context.Context, providerID, modelID string) (domain.Model, error) {
+	models, err := e.availableModels(ctx)
+	if err != nil {
+		return domain.Model{}, fmt.Errorf("refresh OpenCode models: %w", err)
+	}
+	for _, model := range models {
+		if model.ProviderID == providerID && model.ID == modelID {
+			return model, nil
+		}
+	}
+	return domain.Model{}, errors.New("该模型已不可用，请重新发送 /models 或重新打开模型列表")
+}
 
 func (e *Engine) handleProjectList(ctx context.Context, reply domain.UserReply) error {
 	projects, err := e.availableProjects(ctx)
@@ -500,12 +652,28 @@ func (e *Engine) handleCreateSession(ctx context.Context, reply domain.UserReply
 		SessionName:            sessionName(session),
 		Directory:              session.Directory,
 		ProjectName:            selected.Name,
+		ModelName:              reply.ModelName,
+		ModelProviderID:        reply.ProviderID,
+		ModelID:                reply.ModelID,
+		ModelVariant:           reply.ModelVariant,
 		Type:                   domain.HandoffSession,
 		LastAssistantMessageID: "session-created:" + session.ID,
 		Status:                 domain.StatusOpen,
 		CreatedAt:              time.Now().UTC(),
 	}
+	if reply.ProviderID != "" && reply.ModelID != "" {
+		if err := e.store.SetPendingSessionModel(context.WithoutCancel(ctx), session.ID, domain.SessionModel{
+			ProviderID: reply.ProviderID, ModelID: reply.ModelID, ModelName: reply.ModelName, Variant: reply.ModelVariant,
+		}); err != nil {
+			return fmt.Errorf("save selected Session model: %w", err)
+		}
+	}
 	if err := e.persistAndSend(ctx, handoff); err != nil {
+		if reply.ProviderID != "" && reply.ModelID != "" {
+			if clearErr := e.store.ClearPendingSessionModel(context.WithoutCancel(ctx), session.ID); clearErr != nil {
+				e.logger.Warn("clear model for unannounced Session", "session_id", session.ID, "error", clearErr)
+			}
+		}
 		return fmt.Errorf("send created session notification for %s: %w", session.ID, err)
 	}
 	e.logger.Info("session created from channel", "session_id", session.ID, "directory", session.Directory, "sender_id", reply.SenderID)
@@ -668,7 +836,7 @@ func (e *Engine) scanRunningDirectory(ctx context.Context, directory string) ([]
 			result = append(result, item)
 			continue
 		}
-		if createdAt, text, ok := lastUserInput(messages); ok {
+		if createdAt, text, model, ok := lastUserInput(messages); ok {
 			item.HasLastUserInput = true
 			item.LastUserInputAt = createdAt
 			item.LastUserText = strings.TrimSpace(text)
@@ -676,15 +844,20 @@ func (e *Engine) scanRunningDirectory(ctx context.Context, directory string) ([]
 			if item.RunningFor < 0 {
 				item.RunningFor = 0
 			}
+			if model != nil {
+				item.CurrentModel = model.ProviderID + "/" + model.ModelID
+				item.CurrentVariant = model.Variant
+			}
 		}
 		result = append(result, item)
 	}
 	return result, nil
 }
 
-func lastUserInput(messages []opencode.Message) (time.Time, string, bool) {
+func lastUserInput(messages []opencode.Message) (time.Time, string, *opencode.ModelRef, bool) {
 	var latest time.Time
 	var text string
+	var model *opencode.ModelRef
 	for _, message := range messages {
 		if message.Info.Role != "user" || message.Info.Time.Created == 0 {
 			continue
@@ -701,8 +874,9 @@ func lastUserInput(messages []opencode.Message) (time.Time, string, bool) {
 		}
 		latest = createdAt
 		text = strings.Join(parts, " ")
+		model = message.Info.Model
 	}
-	return latest, text, !latest.IsZero()
+	return latest, text, model, !latest.IsZero()
 }
 
 func sameDirectory(left, right string) bool {

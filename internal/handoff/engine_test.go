@@ -2,6 +2,7 @@ package handoff
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -211,10 +212,20 @@ func TestEngineListsProjectsCreatesSessionAndRoutesFirstPrompt(t *testing.T) {
 	if len(channel.projectPages) != 1 || channel.projectPages[0].Total != 1 || channel.projectPages[0].Projects[0].Name != "Project One" {
 		t.Fatalf("project pages = %+v", channel.projectPages)
 	}
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "evt_choose_project", ParentMessageID: "om_project_card", ChatID: "oc_allowed", SenderID: "ou_allowed",
+		ListModels: true, ModelPage: 1, ModelContext: domain.ModelContext{Target: domain.ModelTargetCreate, ProjectDirectory: `/work/project`}, CardAction: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.modelPages) != 1 || channel.modelPages[0].Total != 1 || channel.modelPages[0].Context.Target != domain.ModelTargetCreate {
+		t.Fatalf("model pages = %+v", channel.modelPages)
+	}
 
 	create := domain.UserReply{
 		MessageID: "evt_create", ParentMessageID: "om_project_card", ChatID: "oc_allowed", SenderID: "ou_allowed",
-		CreateSession: true, ProjectDirectory: `/work/project`, CardAction: true,
+		ApplyModel: true, ProviderID: "test", ModelID: "model",
+		ModelContext: domain.ModelContext{Target: domain.ModelTargetCreate, ProjectDirectory: `/work/project`}, CardAction: true,
 	}
 	if err := engine.handleReply(ctx, create); err != nil {
 		t.Fatal(err)
@@ -237,8 +248,58 @@ func TestEngineListsProjectsCreatesSessionAndRoutesFirstPrompt(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(adapter.prompts) != 1 || adapter.prompts[0].SessionID != "ses_created_1" || adapter.prompts[0].Text != "开始分析项目" {
+	if len(adapter.prompts) != 1 || adapter.prompts[0].SessionID != "ses_created_1" || adapter.prompts[0].Text != "开始分析项目" || adapter.prompts[0].Model == nil || adapter.prompts[0].Model.ProviderID != "test" || adapter.prompts[0].Model.ModelID != "model" {
 		t.Fatalf("created session prompts = %+v", adapter.prompts)
+	}
+	if _, err := database.GetPendingSessionModel(ctx, "ses_created_1"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("applied model was not cleared: %v", err)
+	}
+}
+
+func TestEngineSwitchesExistingSessionModelOnNextFeishuPrompt(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	adapter := &fakeAdapter{
+		session:  opencode.Session{ID: "ses_existing", Directory: "/work/project", Title: "Existing"},
+		projects: []opencode.Project{{ID: "project_1", Worktree: "/work/project", Name: "Project"}},
+		models:   []opencode.Model{{ProviderID: "openai", ProviderName: "OpenAI", ID: "gpt-test", Name: "GPT Test", Variants: []string{"high"}}},
+	}
+	channel := &fakeChannel{}
+	engine := newTestEngine(adapter, channel, database, true, true)
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "evt_switch", ParentMessageID: "om_models", ChatID: "oc_allowed", SenderID: "ou_allowed", CardAction: true,
+		ApplyModel: true, ProviderID: "openai", ModelID: "gpt-test", ModelVariant: "high",
+		ModelContext: domain.ModelContext{Target: domain.ModelTargetSwitch, ProjectDirectory: "/work/project", SessionID: "ses_existing", SessionName: "Existing"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.notices) != 1 || !strings.Contains(channel.notices[0], "下一条") {
+		t.Fatalf("switch notice = %v", channel.notices)
+	}
+	handoff := domain.Handoff{
+		ID: "hof_existing", SessionID: "ses_existing", Directory: "/work/project", ProjectName: "Project",
+		Type: domain.HandoffFinished, LastAssistantMessageID: "msg_assistant", Status: domain.StatusOpen, CreatedAt: time.Now().UTC(),
+	}
+	if err := database.Create(ctx, handoff); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.BindMessage(ctx, handoff.ID, domain.MessageRef{ChatID: "oc_allowed", MessageID: "om_handoff_existing"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "om_next", ParentMessageID: "om_handoff_existing", ChatID: "oc_allowed", SenderID: "ou_allowed", Text: "继续任务",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(adapter.prompts) != 1 || adapter.prompts[0].Model == nil || adapter.prompts[0].Model.ProviderID != "openai" || adapter.prompts[0].Model.ModelID != "gpt-test" || adapter.prompts[0].Model.Variant != "high" {
+		t.Fatalf("switched prompt = %+v", adapter.prompts)
+	}
+	if _, err := database.GetPendingSessionModel(ctx, "ses_existing"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("applied switched model was not cleared: %v", err)
 	}
 }
 
@@ -271,7 +332,7 @@ func TestEngineListsRunningSessionsWithLastUserElapsedTime(t *testing.T) {
 	}
 	t.Cleanup(func() { database.Close() })
 	lastInput := strings.Repeat("运行部署检查", 40) + "完整输入结尾"
-	userMessage := opencode.Message{Info: opencode.MessageInfo{ID: "msg_user", SessionID: "ses_run", Role: "user"}, Parts: []opencode.Part{{Type: "text", Text: lastInput}}}
+	userMessage := opencode.Message{Info: opencode.MessageInfo{ID: "msg_user", SessionID: "ses_run", Role: "user", Model: &opencode.ModelRef{ProviderID: "openai", ModelID: "gpt-test", Variant: "high"}}, Parts: []opencode.Part{{Type: "text", Text: lastInput}}}
 	userMessage.Info.Time.Created = time.Now().Add(-95 * time.Second).UnixMilli()
 	adapter := &fakeAdapter{
 		session:     opencode.Session{ID: "ses_run", Directory: "/work/project", Title: "Deploy checks"},
@@ -290,7 +351,7 @@ func TestEngineListsRunningSessionsWithLastUserElapsedTime(t *testing.T) {
 		t.Fatalf("running sessions = %+v", channel.runningSessions)
 	}
 	item := channel.runningSessions[0].Items[0]
-	if item.SessionID != "ses_run" || item.State != "waiting_permission" || item.LastUserText != lastInput {
+	if item.SessionID != "ses_run" || item.State != "waiting_permission" || item.LastUserText != lastInput || item.CurrentModel != "openai/gpt-test" || item.CurrentVariant != "high" {
 		t.Fatalf("running session = %+v", item)
 	}
 	if item.RunningFor < 94*time.Second || item.RunningFor > 100*time.Second {
@@ -569,6 +630,7 @@ type promptCall struct {
 	SessionID string
 	Directory string
 	Text      string
+	Model     *opencode.ModelRef
 }
 
 type permissionReplyCall struct {
@@ -596,6 +658,14 @@ type fakeAdapter struct {
 	statuses          map[string]opencode.SessionStatus
 	permissionReplies []permissionReplyCall
 	aborts            []abortCall
+	models            []opencode.Model
+}
+
+func (f *fakeAdapter) ListModels(context.Context) ([]opencode.Model, error) {
+	if f.models != nil {
+		return f.models, nil
+	}
+	return []opencode.Model{{ProviderID: "test", ProviderName: "Test", ID: "model", Name: "Model"}}, nil
 }
 
 func (f *fakeAdapter) ListProjects(context.Context) ([]opencode.Project, error) {
@@ -632,8 +702,8 @@ func (f *fakeAdapter) GetMessages(context.Context, string, string, int) ([]openc
 	return f.messages, nil
 }
 
-func (f *fakeAdapter) SendPrompt(_ context.Context, sessionID, directory, text string) error {
-	f.prompts = append(f.prompts, promptCall{SessionID: sessionID, Directory: directory, Text: text})
+func (f *fakeAdapter) SendPrompt(_ context.Context, sessionID, directory, text string, model *opencode.ModelRef) error {
+	f.prompts = append(f.prompts, promptCall{SessionID: sessionID, Directory: directory, Text: text, Model: model})
 	return nil
 }
 
@@ -684,6 +754,8 @@ type fakeChannel struct {
 	chatID          string
 	projectPages    []domain.ProjectPage
 	runningSessions []domain.RunningSessions
+	modelPages      []domain.ModelPage
+	variantPages    []domain.ModelVariantPage
 }
 
 func (f *fakeChannel) SendHandoff(_ context.Context, handoff domain.Handoff) (domain.MessageRef, error) {
@@ -703,6 +775,16 @@ func (f *fakeChannel) Reply(_ context.Context, messageID, text string) error {
 
 func (f *fakeChannel) ReplyProjects(_ context.Context, _ string, page domain.ProjectPage) error {
 	f.projectPages = append(f.projectPages, page)
+	return nil
+}
+
+func (f *fakeChannel) ReplyModels(_ context.Context, _ string, page domain.ModelPage) error {
+	f.modelPages = append(f.modelPages, page)
+	return nil
+}
+
+func (f *fakeChannel) ReplyModelVariants(_ context.Context, _ string, page domain.ModelVariantPage) error {
+	f.variantPages = append(f.variantPages, page)
 	return nil
 }
 

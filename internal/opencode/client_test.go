@@ -14,6 +14,8 @@ import (
 func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 	var promptDirectory string
 	var promptText string
+	var promptModel *ModelRef
+	var promptVariant string
 	var questionAnswers [][]string
 	var rejected bool
 	var aborted bool
@@ -22,6 +24,16 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 	var createdSessionDirectory string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/config/providers":
+			writeJSON(t, writer, map[string]any{"providers": []any{map[string]any{
+				"id": "provider-a", "name": "Provider A", "key": "must-not-be-retained",
+				"models": map[string]any{"model-a": map[string]any{
+					"id": "model-a", "name": "Model A", "status": "active",
+					"variants":     map[string]any{"high": map[string]any{}, "low": map[string]any{}},
+					"capabilities": map[string]any{"reasoning": true, "attachment": false},
+					"limit":        map[string]any{"context": 200000},
+				}},
+			}}})
 		case request.Method == http.MethodGet && request.URL.Path == "/project":
 			writeJSON(t, writer, []Project{{ID: "p1", Worktree: "/work/a", Sandboxes: []string{"/work/a-sandbox"}}})
 		case request.Method == http.MethodGet && request.URL.Path == "/session/status":
@@ -42,7 +54,9 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 		case request.Method == http.MethodPost && request.URL.Path == "/session/ses_1/prompt_async":
 			promptDirectory = request.URL.Query().Get("directory")
 			var body struct {
-				Parts []Part `json:"parts"`
+				Model   *ModelRef `json:"model"`
+				Variant string    `json:"variant"`
+				Parts   []Part    `json:"parts"`
 			}
 			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 				t.Errorf("decode prompt: %v", err)
@@ -50,6 +64,8 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 			if len(body.Parts) == 1 {
 				promptText = body.Parts[0].Text
 			}
+			promptModel = body.Model
+			promptVariant = body.Variant
 			writer.WriteHeader(http.StatusNoContent)
 		case request.Method == http.MethodPost && request.URL.Path == "/session/ses_1/abort":
 			aborted = true
@@ -103,6 +119,10 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 	if err != nil || len(projects) != 1 || projects[0].ID != "p1" {
 		t.Fatalf("ListProjects() = %v, %v", projects, err)
 	}
+	models, err := client.ListModels(context.Background())
+	if err != nil || len(models) != 1 || models[0].ProviderID != "provider-a" || models[0].ID != "model-a" || !models[0].Reasoning || models[0].ContextLimit != 200000 || strings.Join(models[0].Variants, ",") != "high,low" {
+		t.Fatalf("ListModels() = %+v, %v", models, err)
+	}
 	created, err := client.CreateSession(context.Background(), "/work/a", "Feishu · a")
 	if err != nil || created.ID != "ses_created" {
 		t.Fatalf("CreateSession() = %+v, %v", created, err)
@@ -114,11 +134,18 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 	if err != nil || statuses["ses_1"].Type != "busy" {
 		t.Fatalf("GetSessionStatuses() = %v, %v", statuses, err)
 	}
-	if err := client.SendPrompt(context.Background(), "ses_1", "/work/a", "continue"); err != nil {
+	if err := client.SendPrompt(context.Background(), "ses_1", "/work/a", "continue", nil); err != nil {
 		t.Fatal(err)
 	}
 	if promptDirectory != "/work/a" || promptText != "continue" {
 		t.Fatalf("prompt directory=%q text=%q", promptDirectory, promptText)
+	}
+	selected := &ModelRef{ProviderID: "provider-a", ModelID: "model-a", Variant: "high"}
+	if err := client.SendPrompt(context.Background(), "ses_1", "/work/a", "use selected model", selected); err != nil {
+		t.Fatal(err)
+	}
+	if promptModel == nil || promptModel.ProviderID != "provider-a" || promptModel.ModelID != "model-a" || promptVariant != "high" {
+		t.Fatalf("prompt model=%+v variant=%q", promptModel, promptVariant)
 	}
 	if err := client.AbortSession(context.Background(), "ses_1", "/work/a"); err != nil || !aborted {
 		t.Fatalf("AbortSession() aborted=%v err=%v", aborted, err)

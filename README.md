@@ -30,7 +30,9 @@ V1.0 已实现：
 
 V1.1 已支持 Question Tool、Permission Approval 和飞书交互卡片。
 
-项目启动器支持在飞书发送 `/project`，分页查看 OpenCode 已打开的项目并创建原生 Session。创建结果会形成一条带 Session 映射的卡片；引用回复该卡片即可发送第一条任务。配置了固定 `opencode.directory` 时只展示该目录，OpenCode 的 `global /` 项目不会作为可创建目标。
+项目启动器支持在飞书发送 `/project`，分页查看 OpenCode 已打开的项目、选择模型并创建原生 Session。创建结果会形成一条带 Session 映射的卡片；引用回复该卡片即可发送第一条任务。空 Session 的模型只是“待使用”，直到第一条任务发送时才真正交给 OpenCode。配置了固定 `opencode.directory` 时只展示该目录，OpenCode 的 `global /` 项目不会作为可创建目标。
+
+发送 `/models` 可分页查看 OpenCode 当前返回的模型目录。应用只解析 Provider、模型、能力和档位等脱敏字段，不会把 Provider 响应中的 API Key 或连接参数发送到飞书。运行中 Session 卡片支持选择模型；选择不会中断当前执行，并从下一条通过飞书发送的普通任务起生效。
 
 运行状态快捷命令 `/running`（简写 `/r`）会跨项目汇总当前 `busy/retry` Session，显示执行中、重试、等待授权或等待回答状态，并计算距离最后一条用户消息已经过了多久。最后一次用户输入会完整保留在默认收起的折叠块中。
 
@@ -355,16 +357,18 @@ OpenCode permission.asked -> 飞书授权卡片 -> /permission/{id}/reply
 从飞书创建 Session：
 
 ```text
-/project -> 飞书项目卡片 -> 新建 Session -> POST /session?directory=...
-                                                   |
-                                      Session Created 卡片
-                                                   |
-                                     引用回复首条任务
-                                                   |
-                             /session/{id}/prompt_async
+/project -> 飞书项目卡片 -> 模型/档位卡片 -> POST /session?directory=...
+                                                        |
+                                      Session Created（模型待使用）卡片
+                                                        |
+                                              引用回复首条任务
+                                                        |
+                         /session/{id}/prompt_async + model/variant
 ```
 
 `/project` 每页显示 8 个 OpenCode 已打开项目，可使用卡片的上一页/下一页按钮，也可发送 `/project 2` 直接查看指定页。创建按钮的目录会在执行前重新与 OpenCode 项目列表核对；飞书回调事件会持久化去重，避免事件重投创建重复 Session。
+
+`/models` 每页显示 6 个模型，也可发送 `/models 2` 直接查看指定页。模型选择按 `providerID/modelID` 在执行前重新校验；如果模型提供推理档位，会在下一张卡片中选择默认档位或具体 variant。
 
 单题单选可以直接点击飞书按钮。自定义答案可引用回复卡片并输入文本；多选用逗号分隔序号，多题时每题一行。回复“忽略”“拒绝”或 `reject` 会拒绝 Question。Question 记录只允许成功处理一次，并继续使用原 `session_id`；子 agent 的 Question 与结束/中断一样不会通知。
 
@@ -384,6 +388,6 @@ Permission 卡片会显示权限类型、本次请求范围、具体文件目标
 
 中断命令仅支持 `/stop`，其他文本不会触发中断。
 
-在飞书中发送 `/project` 可查看项目并创建 Session；发送 `/running` 或 `/r` 可查看当前运行中的 Session 及其持续时间；发送 `/help` 可随时查看上述使用说明。这些命令不会发送到 OpenCode Session。
+在飞书中发送 `/project` 可查看项目、选择模型并创建 Session；发送 `/models` 可查看脱敏模型目录；发送 `/running` 或 `/r` 可查看当前运行中的 Session、当前模型及持续时间，并可选择下一条任务使用的模型；发送 `/help` 可随时查看上述使用说明。这些命令不会发送到 OpenCode Session。
 
 测试使用 `httptest`、临时 SQLite 和 fake Channel，不连接真实 OpenCode 或飞书服务。完整验证命令见前文“构建前验证”。

@@ -543,10 +543,14 @@ func (m *Manager) collectDirectory(ctx context.Context, route domain.ProjectRout
 		}
 		if route.RouteEnabled && (index < 6 || status != "idle") {
 			if messages, err := client.GetMessages(ctx, session.ID, route.Directory, 50); err == nil {
-				if at, text, ok := lastUserMessage(messages); ok {
+				if at, text, model, ok := lastUserMessage(messages); ok {
 					view.HasLastInput = true
 					view.LastInput = text
 					view.SinceLastInputSeconds = maxInt64(0, int64(time.Since(at).Seconds()))
+					if model != nil {
+						view.CurrentModel = model.ProviderID + "/" + model.ModelID
+						view.CurrentVariant = model.Variant
+					}
 				}
 			}
 		}
@@ -597,7 +601,7 @@ func (m *Manager) trackBusy(sessionID, status string, fallback time.Time) int64 
 	return maxInt64(0, int64(now.Sub(tracker.since).Seconds()))
 }
 
-func lastUserMessage(messages []opencode.Message) (time.Time, string, bool) {
+func lastUserMessage(messages []opencode.Message) (time.Time, string, *opencode.ModelRef, bool) {
 	for index := len(messages) - 1; index >= 0; index-- {
 		message := messages[index]
 		if message.Info.Role != "user" {
@@ -611,10 +615,10 @@ func lastUserMessage(messages []opencode.Message) (time.Time, string, bool) {
 		}
 		text := strings.TrimSpace(strings.Join(chunks, "\n\n"))
 		if text != "" {
-			return time.UnixMilli(message.Info.Time.Created), text, true
+			return time.UnixMilli(message.Info.Time.Created), text, message.Info.Model, true
 		}
 	}
-	return time.Time{}, "", false
+	return time.Time{}, "", nil, false
 }
 
 func sessionTitle(session opencode.Session) string {

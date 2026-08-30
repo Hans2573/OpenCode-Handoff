@@ -27,6 +27,9 @@ type Store interface {
 	ClaimSessionCreate(context.Context, string) error
 	CompleteSessionCreate(context.Context, string, string) error
 	ReleaseSessionCreate(context.Context, string) error
+	GetPendingSessionModel(context.Context, string) (domain.SessionModel, error)
+	SetPendingSessionModel(context.Context, string, domain.SessionModel) error
+	ClearPendingSessionModel(context.Context, string) error
 	GetChannelBinding(context.Context) (domain.ChannelBinding, error)
 	BindChannel(context.Context, domain.ChannelBinding) error
 	Close() error

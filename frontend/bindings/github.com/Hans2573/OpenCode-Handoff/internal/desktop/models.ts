@@ -92,6 +92,8 @@ export interface SessionView {
     "sinceLastInputSeconds": number;
     "lastInput": string;
     "hasLastInput": boolean;
+    "currentModel": string;
+    "currentVariant": string;
 }
 
 export interface SettingsInput {

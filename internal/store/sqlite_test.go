@@ -227,6 +227,33 @@ func TestSQLiteSessionCreateReceipt(t *testing.T) {
 	}
 }
 
+func TestSQLitePendingSessionModelLifecycle(t *testing.T) {
+	ctx := context.Background()
+	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	if _, err := database.GetPendingSessionModel(ctx, "ses_1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing pending model error = %v", err)
+	}
+	want := domain.SessionModel{ProviderID: "openai", ModelID: "gpt-test", ModelName: "GPT Test", Variant: "high"}
+	if err := database.SetPendingSessionModel(ctx, "ses_1", want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := database.GetPendingSessionModel(ctx, "ses_1")
+	if err != nil || got != want {
+		t.Fatalf("pending model = %+v, %v", got, err)
+	}
+	if err := database.ClearPendingSessionModel(ctx, "ses_1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.GetPendingSessionModel(ctx, "ses_1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cleared pending model error = %v", err)
+	}
+}
+
 func TestSQLitePersistsQuestionAndPreventsSecondAnswer(t *testing.T) {
 	ctx := context.Background()
 	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))

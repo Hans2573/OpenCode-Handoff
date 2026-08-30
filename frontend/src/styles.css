@@ -179,6 +179,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .architecture-note { display: flex; gap: 14px; margin-top: 16px; padding: 18px; color: #99bde7; }
 .architecture-note strong { color: #d8e7f7; }
 .architecture-note p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.model-note { margin: 0 0 16px; }
+.session-model-row { display: flex; align-items: center; gap: 6px; color: #9fc3eb; font-size: 12px; }
 
 .event-table { min-height: 350px; }
 .event-row { display: grid; grid-template-columns: 165px 70px 95px 180px minmax(240px,1fr); align-items: center; gap: 12px; min-height: 46px; padding: 7px 17px; border-bottom: 1px solid var(--line-soft); color: #aeb9c4; font-size: 11px; }

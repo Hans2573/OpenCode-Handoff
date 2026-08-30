@@ -61,6 +61,8 @@ type SessionView struct {
 	SinceLastInputSeconds int64     `json:"sinceLastInputSeconds"`
 	LastInput             string    `json:"lastInput"`
 	HasLastInput          bool      `json:"hasLastInput"`
+	CurrentModel          string    `json:"currentModel"`
+	CurrentVariant        string    `json:"currentVariant"`
 }
 
 type IntegrationView struct {

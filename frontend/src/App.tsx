@@ -302,7 +302,16 @@ function SessionsPage({ sessions, onOpenSession }: { sessions: SessionView[]; on
   });
   return (
     <section className="page">
-      <PageHeader title="Sessions" description="查看 Session 状态；所有操作仍在对应 Agent 客户端中完成。" />
+      <PageHeader title="Sessions" description="查看 Session 状态；可在飞书查看模型目录，并为新建或已有 Session 选择模型。" />
+      <section className="panel architecture-note model-note">
+        <Bot size={22} />
+        <div>
+          <strong>飞书模型选择的生效规则</strong>
+          <p>发送 /models 只会展示 OpenCode 返回的脱敏模型信息，不会展示 API Key 或连接参数。</p>
+          <p>/project 创建的是空 Session：所选模型先显示为“待使用”，发送第一条任务时才真正生效。</p>
+          <p>已有 Session 切换模型不会中断当前执行，将从下一条通过飞书发送的普通任务起生效。</p>
+        </div>
+      </section>
       <section className="panel full-panel">
         <div className="toolbar">
           <SearchBox value={query} onChange={setQuery} placeholder="搜索 Session、项目或 ID" />
@@ -464,6 +473,7 @@ function SessionCard({ session, compact = false, onOpen }: { session: SessionVie
       <div className="session-card-head"><span className={`session-icon ${tone}`}>{session.status === "running" ? <Play size={17} /> : session.status.startsWith("waiting") ? <Clock3 size={17} /> : session.status === "retrying" ? <RotateCcw size={17} /> : <Activity size={17} />}</span><div className="session-title"><strong>{session.title}</strong><code>{shortID(session.id)}</code></div><span className={`status-pill ${tone}`}>{session.statusLabel}</span></div>
       <div className="session-meta"><span>项目：{session.projectName}</span><i /> <span>Agent：{session.agentName}</span><i /> <span>渠道：{session.channelName}</span></div>
       {session.statusDetail && <p className="status-detail">{session.statusDetail}</p>}
+      <div className="session-model-row"><Bot size={14} /><span>模型：{session.currentModel || "OpenCode 默认/尚未识别"}{session.currentVariant ? ` · ${session.currentVariant}` : ""}</span></div>
       <div className="session-time-row"><span>{session.busyForSeconds > 0 ? `当前忙碌 ${formatDuration(session.busyForSeconds)}` : "当前未忙碌"}</span><span>{session.hasLastInput ? `距最后用户输入 ${formatDuration(session.sinceLastInputSeconds)}` : "暂无用户输入"}</span></div>
       {!compact && session.hasLastInput && <details className="last-input"><summary>完整最后输入</summary><pre>{session.lastInput}</pre></details>}
       <div className="session-actions"><button className="secondary-button" onClick={onOpen}><ExternalLink size={15} />在 OpenCode 中打开</button></div>

@@ -36,10 +36,11 @@ func TestLastUserMessageReturnsLatestCompleteText(t *testing.T) {
 		{Type: "tool", Text: "not user text"},
 		{Type: "text", Text: "second complete paragraph"},
 	}}
+	latest.Info.Model = &opencode.ModelRef{ProviderID: "openai", ModelID: "gpt-test", Variant: "high"}
 	created := time.Now().Add(-5 * time.Second).Truncate(time.Millisecond)
 	latest.Info.Time.Created = created.UnixMilli()
 
-	at, text, ok := lastUserMessage([]opencode.Message{older, assistant, latest})
+	at, text, model, ok := lastUserMessage([]opencode.Message{older, assistant, latest})
 	if !ok {
 		t.Fatal("lastUserMessage did not find the latest user message")
 	}
@@ -48,6 +49,9 @@ func TestLastUserMessageReturnsLatestCompleteText(t *testing.T) {
 	}
 	if text != "first complete paragraph\n\nsecond complete paragraph" {
 		t.Fatalf("text = %q", text)
+	}
+	if model == nil || model.ProviderID != "openai" || model.ModelID != "gpt-test" || model.Variant != "high" {
+		t.Fatalf("model = %+v", model)
 	}
 }
 

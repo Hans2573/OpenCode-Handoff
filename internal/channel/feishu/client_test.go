@@ -229,7 +229,7 @@ func TestFormatProjectAndCreatedSessionCards(t *testing.T) {
 	}
 	card := decodeHandoffCard(t, content)
 	message := cardContents(card.Body.Elements)
-	for _, expected := range []string{"OpenCode Projects", "第 1/2 页", "opsloop-sdd", `D:\work\opsloop-sdd`, "新建 Session", "下一页"} {
+	for _, expected := range []string{"OpenCode Projects", "第 1/2 页", "opsloop-sdd", `D:\work\opsloop-sdd`, "选择模型并创建", "下一页"} {
 		if !strings.Contains(message, expected) {
 			t.Fatalf("project card %q does not contain %q", message, expected)
 		}
@@ -250,6 +250,45 @@ func TestFormatProjectAndCreatedSessionCards(t *testing.T) {
 	for _, expected := range []string{"Session Created", "ses_created", "opsloop-sdd", "引用回复本消息"} {
 		if !strings.Contains(message, expected) {
 			t.Fatalf("created session card %q does not contain %q", message, expected)
+		}
+	}
+}
+
+func TestFormatModelCardsExplainWhenSelectionTakesEffect(t *testing.T) {
+	model := domain.Model{
+		ProviderID: "openai", ProviderName: "OpenAI", ID: "gpt-test", Name: "GPT Test",
+		Variants: []string{"low", "high"}, Reasoning: true, ContextLimit: 200000,
+	}
+	content, err := formatModelCard(domain.ModelPage{
+		Models: []domain.Model{model}, Page: 1, TotalPages: 1, Total: 1,
+		Context: domain.ModelContext{Target: domain.ModelTargetCreate, ProjectDirectory: `D:\work\project`},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := decodeHandoffCard(t, content)
+	message := cardContents(card.Body.Elements)
+	for _, expected := range []string{"脱敏", "第一次引用回复任务时才真正生效", "GPT Test", "200K", "选择模型与档位"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("model card %q does not contain %q", message, expected)
+		}
+	}
+	buttons := findCardElements(card.Body.Elements, "button")
+	if len(buttons) != 2 || buttons[0].Behaviors[0].Value["action"] != "model_apply" || buttons[1].Behaviors[0].Value["action"] != "model_variants" {
+		t.Fatalf("model buttons = %+v", buttons)
+	}
+
+	content, err = formatModelVariantCard(domain.ModelVariantPage{
+		Model:   model,
+		Context: domain.ModelContext{Target: domain.ModelTargetSwitch, ProjectDirectory: `D:\work\project`, SessionID: "ses_1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message = cardContents(decodeHandoffCard(t, content).Body.Elements)
+	for _, expected := range []string{"不会中断当前执行", "下一条飞书任务起生效", "使用 low 档位", "使用 high 档位"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("variant card %q does not contain %q", message, expected)
 		}
 	}
 }
@@ -406,7 +445,7 @@ func TestOnCardActionRoutesProjectCreate(t *testing.T) {
 	}
 	go func() {
 		reply := <-client.replies
-		if !reply.CreateSession || reply.ProjectDirectory != `D:\work\project` || reply.MessageID != "evt_create" {
+		if !reply.ListModels || reply.ModelContext.Target != domain.ModelTargetCreate || reply.ProjectDirectory != `D:\work\project` || reply.MessageID != "evt_create" {
 			t.Errorf("project create reply = %+v", reply)
 		}
 		reply.Result <- nil
@@ -415,8 +454,38 @@ func TestOnCardActionRoutesProjectCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Toast == nil || response.Toast.Type != "success" || !strings.Contains(response.Toast.Content, "Session") {
+	if response.Toast == nil || response.Toast.Type != "success" || !strings.Contains(response.Toast.Content, "模型") {
 		t.Fatalf("project create response = %+v", response)
+	}
+}
+
+func TestOnCardActionRoutesModelSelectionContext(t *testing.T) {
+	client := &Client{replies: make(chan domain.UserReply, 1)}
+	event := &callback.CardActionTriggerEvent{
+		EventV2Base: &larkevent.EventV2Base{Header: &larkevent.EventHeader{EventID: "evt_model"}},
+		Event: &callback.CardActionTriggerRequest{
+			Operator: &callback.Operator{OpenID: "ou_1"},
+			Context:  &callback.Context{OpenMessageID: "om_models", OpenChatID: "oc_chat"},
+			Action: &callback.CallBackAction{Value: map[string]any{
+				"action": "model_apply", "target": "switch", "directory": `D:\work\project`,
+				"session_id": "ses_1", "session_name": "Existing", "provider_id": "openai",
+				"model_id": "gpt-test", "variant": "high",
+			}},
+		},
+	}
+	go func() {
+		reply := <-client.replies
+		if !reply.ApplyModel || reply.ModelContext.Target != domain.ModelTargetSwitch || reply.ModelContext.SessionID != "ses_1" || reply.ProviderID != "openai" || reply.ModelID != "gpt-test" || reply.ModelVariant != "high" {
+			t.Errorf("model selection reply = %+v", reply)
+		}
+		reply.Result <- nil
+	}()
+	response, err := client.onCardAction(context.Background(), event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Toast == nil || response.Toast.Type != "success" || !strings.Contains(response.Toast.Content, "下一条") {
+		t.Fatalf("model selection response = %+v", response)
 	}
 }
 
@@ -455,6 +524,18 @@ func TestParseProjectCommand(t *testing.T) {
 	}
 	if _, ok := parseProjectCommand("project"); ok {
 		t.Fatal("plain project text was parsed as a command")
+	}
+}
+
+func TestParseModelsCommand(t *testing.T) {
+	for input, expectedPage := range map[string]int{"/models": 1, " /MODELS 3 ": 3, "/models invalid": 1} {
+		page, ok := parseModelsCommand(input)
+		if !ok || page != expectedPage {
+			t.Fatalf("parseModelsCommand(%q) = %d, %v", input, page, ok)
+		}
+	}
+	if _, ok := parseModelsCommand("models"); ok {
+		t.Fatal("plain models text was parsed as a command")
 	}
 }
 

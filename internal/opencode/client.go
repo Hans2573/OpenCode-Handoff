@@ -10,12 +10,14 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type Adapter interface {
+	ListModels(context.Context) ([]Model, error)
 	ListProjects(context.Context) ([]Project, error)
 	ListDirectories(context.Context) ([]string, error)
 	ListSessions(context.Context, string) ([]Session, error)
@@ -23,7 +25,7 @@ type Adapter interface {
 	GetSession(context.Context, string, string) (Session, error)
 	GetSessionStatuses(context.Context, string) (map[string]SessionStatus, error)
 	GetMessages(context.Context, string, string, int) ([]Message, error)
-	SendPrompt(context.Context, string, string, string) error
+	SendPrompt(context.Context, string, string, string, *ModelRef) error
 	AbortSession(context.Context, string, string) error
 	ListQuestions(context.Context, string) ([]QuestionRequest, error)
 	ReplyQuestion(context.Context, string, string, [][]string) error
@@ -31,6 +33,60 @@ type Adapter interface {
 	ListPermissions(context.Context, string) ([]PermissionRequest, error)
 	ReplyPermission(context.Context, string, string, PermissionReply) error
 	WatchEvents(context.Context, func(Event)) error
+}
+
+func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
+	var response struct {
+		Providers []struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Models map[string]struct {
+				ID           string                     `json:"id"`
+				Name         string                     `json:"name"`
+				Status       string                     `json:"status"`
+				Variants     map[string]json.RawMessage `json:"variants"`
+				Capabilities struct {
+					Reasoning  bool `json:"reasoning"`
+					Attachment bool `json:"attachment"`
+				} `json:"capabilities"`
+				Limit struct {
+					Context int64 `json:"context"`
+				} `json:"limit"`
+			} `json:"models"`
+		} `json:"providers"`
+	}
+	if err := c.getJSON(ctx, "/config/providers", nil, "", &response); err != nil {
+		return nil, err
+	}
+	var result []Model
+	for _, provider := range response.Providers {
+		models := make([]Model, 0, len(provider.Models))
+		for key, item := range provider.Models {
+			id := strings.TrimSpace(item.ID)
+			if id == "" {
+				id = key
+			}
+			name := strings.TrimSpace(item.Name)
+			if name == "" {
+				name = id
+			}
+			variants := make([]string, 0, len(item.Variants))
+			for variant := range item.Variants {
+				variants = append(variants, variant)
+			}
+			sort.Strings(variants)
+			models = append(models, Model{
+				ProviderID: provider.ID, ProviderName: provider.Name, ID: id, Name: name,
+				Status: item.Status, Variants: variants, Reasoning: item.Capabilities.Reasoning,
+				Attachment: item.Capabilities.Attachment, ContextLimit: item.Limit.Context,
+			})
+		}
+		sort.SliceStable(models, func(i, j int) bool {
+			return strings.ToLower(models[i].Name) < strings.ToLower(models[j].Name)
+		})
+		result = append(result, models...)
+	}
+	return result, nil
 }
 
 type Client struct {
@@ -154,13 +210,25 @@ func (c *Client) GetMessages(ctx context.Context, sessionID, directory string, l
 	return messages, nil
 }
 
-func (c *Client) SendPrompt(ctx context.Context, sessionID, directory, text string) error {
+func (c *Client) SendPrompt(ctx context.Context, sessionID, directory, text string, selected *ModelRef) error {
 	body := struct {
-		Parts []struct {
+		Model *struct {
+			ProviderID string `json:"providerID"`
+			ModelID    string `json:"modelID"`
+		} `json:"model,omitempty"`
+		Variant string `json:"variant,omitempty"`
+		Parts   []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"parts"`
 	}{}
+	if selected != nil && selected.ProviderID != "" && selected.ModelID != "" {
+		body.Model = &struct {
+			ProviderID string `json:"providerID"`
+			ModelID    string `json:"modelID"`
+		}{ProviderID: selected.ProviderID, ModelID: selected.ModelID}
+		body.Variant = selected.Variant
+	}
 	body.Parts = append(body.Parts, struct {
 		Type string `json:"type"`
 		Text string `json:"text"`

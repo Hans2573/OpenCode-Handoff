@@ -30,6 +30,24 @@ type SessionStatus struct {
 	Message string `json:"message,omitempty"`
 }
 
+type ModelRef struct {
+	ProviderID string `json:"providerID"`
+	ModelID    string `json:"modelID"`
+	Variant    string `json:"variant,omitempty"`
+}
+
+type Model struct {
+	ProviderID   string
+	ProviderName string
+	ID           string
+	Name         string
+	Status       string
+	Variants     []string
+	Reasoning    bool
+	Attachment   bool
+	ContextLimit int64
+}
+
 type Message struct {
 	Info  MessageInfo `json:"info"`
 	Parts []Part      `json:"parts"`
@@ -39,6 +57,7 @@ type MessageInfo struct {
 	ID        string          `json:"id"`
 	SessionID string          `json:"sessionID"`
 	Role      string          `json:"role"`
+	Model     *ModelRef       `json:"model,omitempty"`
 	Error     json.RawMessage `json:"error,omitempty"`
 	Time      struct {
 		Created   int64 `json:"created"`
