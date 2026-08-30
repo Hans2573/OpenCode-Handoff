@@ -78,6 +78,60 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			session_id TEXT NOT NULL DEFAULT '',
 			created_at INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS agent_instances (
+			id TEXT PRIMARY KEY,
+			type TEXT NOT NULL,
+			name TEXT NOT NULL,
+			endpoint TEXT NOT NULL DEFAULT '',
+			enabled INTEGER NOT NULL DEFAULT 1,
+			health TEXT NOT NULL DEFAULT 'unknown',
+			last_error TEXT NOT NULL DEFAULT '',
+			last_seen_at INTEGER
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_instances (
+			id TEXT PRIMARY KEY,
+			type TEXT NOT NULL,
+			name TEXT NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			health TEXT NOT NULL DEFAULT 'unknown',
+			last_error TEXT NOT NULL DEFAULT '',
+			last_seen_at INTEGER,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS projects (
+			id TEXT PRIMARY KEY,
+			agent_id TEXT NOT NULL,
+			directory TEXT NOT NULL,
+			name TEXT NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			last_seen_at INTEGER NOT NULL,
+			UNIQUE(agent_id, directory),
+			FOREIGN KEY (agent_id) REFERENCES agent_instances(id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS project_routes (
+			project_id TEXT NOT NULL,
+			channel_id TEXT NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 0,
+			updated_at INTEGER NOT NULL,
+			PRIMARY KEY(project_id, channel_id),
+			FOREIGN KEY (project_id) REFERENCES projects(id),
+			FOREIGN KEY (channel_id) REFERENCES channel_instances(id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS event_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			level TEXT NOT NULL,
+			event_type TEXT NOT NULL,
+			source TEXT NOT NULL,
+			message TEXT NOT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_event_logs_created_at ON event_logs(created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS app_settings (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`,
 	}
 	for _, statement := range statements {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {

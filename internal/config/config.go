@@ -18,6 +18,10 @@ type Duration struct {
 	time.Duration
 }
 
+func (d Duration) MarshalYAML() (any, error) {
+	return d.Duration.String(), nil
+}
+
 func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 	value, err := time.ParseDuration(node.Value)
 	if err != nil {
@@ -104,6 +108,20 @@ func Default() Config {
 }
 
 func Load(path string) (Config, error) {
+	cfg, err := LoadUnvalidated(path)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// LoadUnvalidated decodes a configuration without enforcing service
+// requirements. The desktop settings window uses it so a user can repair an
+// incomplete configuration instead of the entire application failing to open.
+func LoadUnvalidated(path string) (Config, error) {
 	cfg := Default()
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -126,10 +144,156 @@ func Load(path string) (Config, error) {
 	if cfg.Store.Path != ":memory:" && !filepath.IsAbs(cfg.Store.Path) {
 		cfg.Store.Path = filepath.Join(filepath.Dir(path), cfg.Store.Path)
 	}
-	if err := cfg.Validate(); err != nil {
-		return Config{}, err
-	}
 	return cfg, nil
+}
+
+// Save writes a complete YAML configuration. Sensitive values are deliberately
+// stored as plain text because that is the desktop product's selected policy;
+// the restrictive file mode prevents accidental access by other local users on
+// platforms that honour POSIX-style permissions.
+func Save(path string, cfg Config) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
+	encoded, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("encode config: %w", err)
+	}
+	var desired yaml.Node
+	if err := yaml.Unmarshal(encoded, &desired); err != nil {
+		return fmt.Errorf("prepare config for save: %w", err)
+	}
+	var existing yaml.Node
+	if data, readErr := os.ReadFile(path); readErr == nil {
+		if err := yaml.Unmarshal(data, &existing); err == nil && len(existing.Content) > 0 {
+			preserveEnvironmentExpressions(desired.Content[0], existing.Content[0])
+		}
+	}
+	for field := range EnvironmentOverrides() {
+		preserveConfigPath(&desired, &existing, strings.Split(field, "."))
+	}
+	encoded, err = yaml.Marshal(&desired)
+	if err != nil {
+		return fmt.Errorf("encode protected config: %w", err)
+	}
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		return fmt.Errorf("write config %s: %w", path, err)
+	}
+	return nil
+}
+
+func preserveConfigPath(desired, existing *yaml.Node, path []string) {
+	if len(desired.Content) == 0 {
+		return
+	}
+	destination := desired.Content[0]
+	var source *yaml.Node
+	if len(existing.Content) > 0 {
+		source = existing.Content[0]
+	}
+	for index, part := range path {
+		if destination.Kind != yaml.MappingNode {
+			return
+		}
+		destinationValue, destinationIndex := mappingValue(destination, part)
+		if destinationValue == nil {
+			return
+		}
+		var sourceValue *yaml.Node
+		if source != nil && source.Kind == yaml.MappingNode {
+			sourceValue, _ = mappingValue(source, part)
+		}
+		if index == len(path)-1 {
+			if sourceValue == nil {
+				destination.Content = append(destination.Content[:destinationIndex], destination.Content[destinationIndex+2:]...)
+			} else {
+				destination.Content[destinationIndex+1] = cloneYAMLNode(sourceValue)
+			}
+			return
+		}
+		destination = destinationValue
+		source = sourceValue
+	}
+}
+
+func preserveEnvironmentExpressions(desired, existing *yaml.Node) {
+	if desired == nil || existing == nil {
+		return
+	}
+	if existing.Kind == yaml.ScalarNode && strings.Contains(existing.Value, "${") {
+		*desired = *cloneYAMLNode(existing)
+		return
+	}
+	switch existing.Kind {
+	case yaml.MappingNode:
+		for index := 0; index+1 < len(existing.Content); index += 2 {
+			key := existing.Content[index].Value
+			sourceValue := existing.Content[index+1]
+			destinationValue, _ := mappingValue(desired, key)
+			if destinationValue != nil {
+				preserveEnvironmentExpressions(destinationValue, sourceValue)
+			}
+		}
+	case yaml.SequenceNode:
+		for index := 0; index < len(existing.Content) && index < len(desired.Content); index++ {
+			preserveEnvironmentExpressions(desired.Content[index], existing.Content[index])
+		}
+	}
+}
+
+func mappingValue(node *yaml.Node, key string) (*yaml.Node, int) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil, -1
+	}
+	for index := 0; index+1 < len(node.Content); index += 2 {
+		if node.Content[index].Value == key {
+			return node.Content[index+1], index
+		}
+	}
+	return nil, -1
+}
+
+func cloneYAMLNode(node *yaml.Node) *yaml.Node {
+	if node == nil {
+		return nil
+	}
+	clone := *node
+	clone.Content = make([]*yaml.Node, len(node.Content))
+	for index, child := range node.Content {
+		clone.Content[index] = cloneYAMLNode(child)
+	}
+	return &clone
+}
+
+// EnvironmentOverrides reports which desktop fields are controlled by the
+// process environment. The UI renders these fields as read-only and names the
+// environment variable responsible for the value.
+func EnvironmentOverrides() map[string]string {
+	candidates := map[string]string{
+		"opencode.base_url":         "OPENCODE_BASE_URL",
+		"opencode.directory":        "OPENCODE_DIRECTORY",
+		"opencode.username":         "OPENCODE_SERVER_USERNAME",
+		"opencode.password":         "OPENCODE_SERVER_PASSWORD",
+		"feishu.app_id":             "FEISHU_APP_ID",
+		"feishu.app_secret":         "FEISHU_APP_SECRET",
+		"feishu.chat_id":            "FEISHU_CHAT_ID",
+		"security.allowed_users":    "FEISHU_ALLOWED_USERS",
+		"handoff.max_output_chars":  "HANDOFF_MAX_OUTPUT_CHARS",
+		"handoff.notify_idle":       "HANDOFF_NOTIFY_IDLE",
+		"handoff.notify_error":      "HANDOFF_NOTIFY_ERROR",
+		"handoff.notify_question":   "HANDOFF_NOTIFY_QUESTION",
+		"handoff.notify_permission": "HANDOFF_NOTIFY_PERMISSION",
+	}
+	if _, primary := os.LookupEnv("FEISHU_ALLOWED_USERS"); !primary {
+		candidates["security.allowed_users"] = "FEISHU_ALLOWED_USER"
+	}
+	result := make(map[string]string)
+	for field, name := range candidates {
+		if _, ok := os.LookupEnv(name); ok {
+			result[field] = name
+		}
+	}
+	return result
 }
 
 // Environment variables override literal YAML values. YAML ${VAR} expansion is

@@ -129,6 +129,77 @@ security:
 	}
 }
 
+func TestSaveRoundTripsDuration(t *testing.T) {
+	clearAutomaticOverrides(t)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := validConfig()
+	cfg.Watcher.PollingInterval = Duration{Duration: 7 * time.Second}
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Watcher.PollingInterval.Duration != 7*time.Second {
+		t.Fatalf("polling interval = %s", loaded.Watcher.PollingInterval.Duration)
+	}
+}
+
+func TestSaveDoesNotPersistDirectEnvironmentOverride(t *testing.T) {
+	clearAutomaticOverrides(t)
+	t.Setenv("FEISHU_APP_SECRET", "secret-from-environment")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := "feishu:\n  app_id: cli_file\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadUnvalidated(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Feishu.AppSecret != "secret-from-environment" {
+		t.Fatalf("effective secret = %q", cfg.Feishu.AppSecret)
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(saved), "secret-from-environment") || strings.Contains(string(saved), "app_secret") {
+		t.Fatalf("environment secret leaked into config:\n%s", saved)
+	}
+}
+
+func TestSavePreservesExplicitEnvironmentExpression(t *testing.T) {
+	clearAutomaticOverrides(t)
+	t.Setenv("MY_FEISHU_SECRET", "expanded-secret")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := "feishu:\n  app_id: cli_file\n  app_secret: ${MY_FEISHU_SECRET}\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadUnvalidated(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Feishu.AppSecret != "expanded-secret" {
+		t.Fatalf("expanded secret = %q", cfg.Feishu.AppSecret)
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(saved), "${MY_FEISHU_SECRET}") || strings.Contains(string(saved), "expanded-secret") {
+		t.Fatalf("environment expression was not preserved:\n%s", saved)
+	}
+}
+
 func validConfig() Config {
 	cfg := Default()
 	cfg.Feishu = FeishuConfig{AppID: "cli_test", AppSecret: "secret", ChatID: "oc_test"}

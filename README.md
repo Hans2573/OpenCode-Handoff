@@ -1,6 +1,18 @@
-# OpenCode Handoff
+# Agent Handoff
 
-OpenCode Handoff 是一个独立的 Human-in-the-Loop sidecar。它在 OpenCode Session 进入 idle/error、Question Tool 等待回答或 Permission 等待授权时通知飞书，并把用户回复精确送回原 Session。
+Agent Handoff 是一个 Windows 桌面端 Human-in-the-Loop 中枢。它发现本机 OpenCode 项目，让用户按项目选择是否接入飞书，并集中展示 Session 状态、完整的最后一次用户输入、Agent、渠道和事件记录。底层仍可作为无界面的 Handoff sidecar 运行：当 OpenCode Session 进入 idle/error、Question Tool 等待回答或 Permission 等待授权时通知飞书，并把用户回复精确送回原 Session。
+
+桌面端当前支持：
+
+- 总览、项目接入、Sessions、Agents、渠道、事件记录和设置七个页面
+- OpenCode 项目发现，以及项目 × 渠道路由开关；开关即时生效
+- 区分执行中、重试、等待授权、等待回答、空闲等 Session 状态
+- 分别显示本轮运行时长、距上次用户输入时长，并在折叠块中完整显示最后输入
+- OpenCode 与飞书 WebSocket 的真实连接状态
+- 关闭主窗口后驻留系统托盘；显式“退出应用”才停止本地服务
+- 单实例保护，以及与旧 CLI 同时运行时的冲突提示（不会强制结束 CLI）
+- 首次启动自动迁移旧 `config.yaml` 与 SQLite 数据库
+- 为 Claude Code、Codex 和更多渠道保留的可扩展接入模型
 
 V1.0 已实现：
 
@@ -21,6 +33,149 @@ V1.1 已支持 Question Tool、Permission Approval 和飞书交互卡片。
 项目启动器支持在飞书发送 `/project`，分页查看 OpenCode 已打开的项目并创建原生 Session。创建结果会形成一条带 Session 映射的卡片；引用回复该卡片即可发送第一条任务。配置了固定 `opencode.directory` 时只展示该目录，OpenCode 的 `global /` 项目不会作为可创建目标。
 
 运行状态快捷命令 `/running`（简写 `/r`）会跨项目汇总当前 `busy/retry` Session，显示执行中、重试、等待授权或等待回答状态，并计算距离最后一条用户消息已经过了多久。最后一次用户输入会完整保留在默认收起的折叠块中。
+
+## 本地快速使用
+
+### 1. 安装或运行桌面端
+
+已经生成本地产物时，可以选择以下任一种方式：
+
+- 双击 `bin\agent-handoff-amd64-installer.exe` 安装，然后从桌面或开始菜单启动 **Agent Handoff**。
+- 解压 `bin\Agent-Handoff-0.1.0-windows-amd64-portable.zip`，双击其中的 `agent-handoff.exe`。
+- 开发调试时按下方“本地开发与打包”运行 `wails3 dev`。
+
+关闭主窗口只会隐藏到系统托盘，不会停止 Handoff 服务。需要彻底停止时，从托盘菜单选择“退出”，或在设置页点击“退出应用”。
+
+### 2. 启动 OpenCode Server
+
+Agent Handoff 只连接用户已经启动的 OpenCode Server，不会自行启动或停止 OpenCode。建议只监听本机回环地址：
+
+```powershell
+$env:OPENCODE_SERVER_PASSWORD = "你的本机密码"
+opencode serve --hostname 127.0.0.1 --port 4096
+```
+
+启动后先确认浏览器可以访问 `http://127.0.0.1:4096`。
+
+### 3. 配置 Agent Handoff
+
+打开左侧“设置”，填写并保存：
+
+- OpenCode 服务地址：`http://127.0.0.1:4096`
+- OpenCode 用户名：通常为 `opencode`
+- OpenCode 密码：与 `OPENCODE_SERVER_PASSWORD` 一致
+- 飞书 App ID 和 App Secret
+- Chat ID：可以留空，随后使用 `/bind` 自动配对
+
+设置页保存后会重新加载 Handoff 引擎，但不会重启 OpenCode。应用配置、数据库和日志默认保存在：
+
+```text
+%LOCALAPPDATA%\Agent Handoff
+```
+
+### 4. 首次绑定飞书
+
+从旧版本迁移且已经绑定过的用户通常不需要重新绑定。全新安装可在 PowerShell 查看配对命令：
+
+```powershell
+Get-Content "$env:LOCALAPPDATA\Agent Handoff\logs\agent-handoff.log" -Tail 100
+```
+
+找到类似下面的日志：
+
+```text
+/bind 8A31C29F10
+```
+
+将完整命令发送给飞书机器人。私聊可直接发送；群聊需要先把机器人加入群聊并 @机器人。机器人提示配对成功后，绑定关系会持久化到本地数据库。
+
+### 5. 接入项目并查看 Session
+
+1. 在 OpenCode 中打开需要接入的项目。
+2. 回到 Agent Handoff，点击“刷新 OpenCode 项目”。
+3. 在“项目接入”中打开对应项目的飞书路由开关。
+4. 在“Sessions”页面查看运行状态、忙碌时长、距离最后输入的时长及完整最后输入。
+
+所有项目默认均为“未接入”，包括从旧 CLI 导入或后续新发现的项目；只有用户在“项目接入”中明确开启的项目才会接入飞书。用户的手动选择会持久保存，刷新项目或重启应用不会改变。只有已接入项目的新事件才会转发到飞书。Session 的实际操作仍在 OpenCode 中完成；桌面端提供“在 OpenCode 中打开”入口。
+
+## 本地开发与打包
+
+当前项目固定使用 Wails `v3.0.0-beta.15`。建议使用 Go 1.25、Node.js 22 和 npm 10。
+
+### 首次安装依赖
+
+```powershell
+cd D:\A_New_Codes\Github\opencode-handoff
+
+$env:Path = "D:\GoMultiVersion\goCurrent\gopath\bin;$env:Path"
+
+cd frontend
+npm install
+cd ..
+```
+
+如果本机还没有 Wails CLI，可安装项目锁定的版本：
+
+```powershell
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.15
+```
+
+### 开发模式运行
+
+```powershell
+cd D:\A_New_Codes\Github\opencode-handoff
+$env:Path = "D:\GoMultiVersion\goCurrent\gopath\bin;$env:Path"
+wails3 dev
+```
+
+### 构建 Windows EXE
+
+构建前先从托盘完全退出正在运行的 Agent Handoff：
+
+```powershell
+cd D:\A_New_Codes\Github\opencode-handoff
+$env:Path = "D:\GoMultiVersion\goCurrent\gopath\bin;$env:Path"
+wails3 build
+```
+
+输出文件：
+
+```text
+bin\agent-handoff.exe
+```
+
+### 生成 Windows 安装包
+
+Windows 安装包使用 NSIS。当前开发机上的便携 NSIS 位于 `%LOCALAPPDATA%\Agent Handoff BuildTools\nsis-3.12`，在新的 PowerShell 窗口中执行：
+
+```powershell
+cd D:\A_New_Codes\Github\opencode-handoff
+
+$env:Path = "$env:LOCALAPPDATA\Agent Handoff BuildTools\nsis-3.12;D:\GoMultiVersion\goCurrent\gopath\bin;$env:Path"
+
+wails3 package
+```
+
+输出文件：
+
+```text
+bin\agent-handoff-amd64-installer.exe
+```
+
+安装包使用简体中文并按当前用户安装，不需要管理员权限。`wails3 package` 只生成安装包；便携版是将最终 `agent-handoff.exe`、`config.example.yaml` 和 `README.md` 放入版本目录后压缩得到的 ZIP。
+
+如果构建偶尔提示临时 `a.out.exe` 被其他进程占用，先确认 Agent Handoff 已完全退出，然后重新执行原命令。
+
+### 构建前验证
+
+```powershell
+cd D:\A_New_Codes\Github\opencode-handoff\frontend
+npm run build
+
+cd ..
+go test ./...
+go vet ./...
+```
 
 ## 前置条件
 
@@ -67,6 +222,17 @@ OpenCode Server 应只监听 loopback。配置为远程地址时，程序默认�
 Question 卡片的选项按钮、自定义答案提交和“忽略”，以及 Permission 卡片的三种授权按钮，都共用 `card.action.trigger`。如果回调未生效，仍可引用回复卡片：Question 使用选项序号、自定义文本或“忽略”，Permission 使用“允许一次”“始终允许”或“拒绝”。
 
 ## 下载与安装
+
+Windows x64 桌面端提供两种产物：
+
+- `agent-handoff-amd64-installer.exe`：安装版，创建标准 Windows 应用安装目录和卸载入口。
+- `Agent-Handoff-0.1.0-windows-amd64-portable.zip`：便携版，解压后双击 `agent-handoff.exe`。
+
+应用数据默认保存在 `%LOCALAPPDATA%\Agent Handoff`。首次启动会尝试从可执行文件附近、当前工作目录以及 `%LOCALAPPDATA%\OpenCode Handoff` 导入旧配置和数据库，并保留 `.imported.bak` 备份。配置仍是明文 YAML；设置页会掩码显示密钥，并标识被环境变量覆盖的字段。
+
+关闭窗口只会隐藏到托盘。请从托盘菜单或设置页选择“退出应用”来停止服务。
+
+### 旧版 CLI 发布包
 
 Windows x64 用户可从 [GitHub Releases](https://github.com/Hans2573/OpenCode-Handoff/releases) 下载 `OpenCode-Handoff-v1.1.1-windows-amd64.zip`，解压到一个固定目录。发布包包含：
 
@@ -148,7 +314,9 @@ Feishu is not paired; send this command to the bot command="/bind 8A31C29F10"
 go run ./cmd/handoff -config ./config.yaml -check
 ```
 
-## 运行
+## CLI 运行与工作流程
+
+以下命令运行旧版无界面 CLI：
 
 ```powershell
 go run ./cmd/handoff -config ./config.yaml
@@ -218,11 +386,4 @@ Permission 卡片会显示权限类型、本次请求范围、具体文件目标
 
 在飞书中发送 `/project` 可查看项目并创建 Session；发送 `/running` 或 `/r` 可查看当前运行中的 Session 及其持续时间；发送 `/help` 可随时查看上述使用说明。这些命令不会发送到 OpenCode Session。
 
-## 开发验证
-
-```powershell
-go test ./...
-go vet ./...
-```
-
-测试使用 `httptest`、临时 SQLite 和 fake Channel，不连接真实 OpenCode 或飞书服务。
+测试使用 `httptest`、临时 SQLite 和 fake Channel，不连接真实 OpenCode 或飞书服务。完整验证命令见前文“构建前验证”。

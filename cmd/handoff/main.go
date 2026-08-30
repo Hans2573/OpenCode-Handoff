@@ -2,9 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -13,10 +10,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/Hans2573/OpenCode-Handoff/internal/channel/feishu"
 	"github.com/Hans2573/OpenCode-Handoff/internal/config"
-	"github.com/Hans2573/OpenCode-Handoff/internal/handoff"
-	"github.com/Hans2573/OpenCode-Handoff/internal/opencode"
+	handoffruntime "github.com/Hans2573/OpenCode-Handoff/internal/runtime"
 	"github.com/Hans2573/OpenCode-Handoff/internal/store"
 )
 
@@ -46,6 +41,12 @@ func main() {
 	logger := newLogger(cfg.Logging.Level)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	instanceLock, err := handoffruntime.AcquireInstanceLock("agent-handoff-engine")
+	if err != nil {
+		logger.Error("start Handoff engine", "error", err)
+		os.Exit(1)
+	}
+	defer instanceLock.Close()
 
 	handoffStore, err := store.OpenSQLite(ctx, cfg.Store.Path)
 	if err != nil {
@@ -53,86 +54,18 @@ func main() {
 		os.Exit(1)
 	}
 	defer handoffStore.Close()
-	pairingCode, err := preparePairing(ctx, cfg, handoffStore, logger)
+	service, err := handoffruntime.New(ctx, cfg, handoffStore, logger, nil)
 	if err != nil {
-		logger.Error("prepare Feishu pairing", "error", err)
+		logger.Error("prepare Handoff service", "error", err)
 		os.Exit(1)
 	}
-
-	opencodeClient, err := opencode.NewClient(opencode.ClientOptions{
-		BaseURL:   cfg.OpenCode.BaseURL,
-		Directory: cfg.OpenCode.Directory,
-		Username:  cfg.OpenCode.Username,
-		Password:  cfg.OpenCode.Password,
-	})
-	if err != nil {
-		logger.Error("create OpenCode client", "error", err)
-		os.Exit(1)
-	}
-	channelClient := feishu.New(feishu.Options{
-		AppID:          cfg.Feishu.AppID,
-		AppSecret:      cfg.Feishu.AppSecret,
-		ChatID:         cfg.Feishu.ChatID,
-		PairingCode:    pairingCode,
-		AllowedUsers:   cfg.Security.AllowedUsers,
-		BindingStore:   handoffStore,
-		MaxOutputChars: cfg.Handoff.MaxOutputChars,
-	}, logger)
-
-	watcher := handoff.NewWatcher(opencodeClient, handoff.WatcherOptions{
-		SSE:               cfg.Watcher.SSE,
-		PollingFallback:   cfg.Watcher.PollingFallback,
-		PollingInterval:   cfg.Watcher.PollingInterval.Duration,
-		NotifyQuestions:   cfg.Handoff.NotifyQuestion,
-		NotifyPermissions: cfg.Handoff.NotifyPermission,
-	}, logger)
-	engine := handoff.NewEngine(opencodeClient, channelClient, handoffStore, handoff.EngineOptions{
-		MaxOutputChars:   cfg.Handoff.MaxOutputChars,
-		NotifyIdle:       cfg.Handoff.NotifyIdle,
-		NotifyError:      cfg.Handoff.NotifyError,
-		NotifyQuestion:   cfg.Handoff.NotifyQuestion,
-		NotifyPermission: cfg.Handoff.NotifyPermission,
-		AllowedUsers:     cfg.Security.AllowedUsers,
-		ChatID:           cfg.Feishu.ChatID,
-	}, logger)
 
 	logger.Info("OpenCode Handoff starting", "version", version, "opencode", cfg.OpenCode.BaseURL)
-	if err := engine.Run(ctx, watcher.Run(ctx)); err != nil && ctx.Err() == nil {
+	if err := service.Run(ctx); err != nil && ctx.Err() == nil {
 		logger.Error("OpenCode Handoff stopped", "error", err)
 		os.Exit(1)
 	}
 	logger.Info("OpenCode Handoff stopped")
-}
-
-func preparePairing(ctx context.Context, cfg config.Config, handoffStore store.Store, logger *slog.Logger) (string, error) {
-	binding, err := handoffStore.GetChannelBinding(ctx)
-	if err == nil {
-		if cfg.Feishu.ChatID != "" && cfg.Feishu.ChatID != binding.ChatID {
-			return "", fmt.Errorf("configured feishu.chat_id %s differs from stored binding %s", cfg.Feishu.ChatID, binding.ChatID)
-		}
-		logger.Info("using stored Feishu pairing", "chat_id", binding.ChatID)
-		return "", nil
-	}
-	if !errors.Is(err, store.ErrNotFound) {
-		return "", err
-	}
-	if cfg.Feishu.ChatID != "" && len(cfg.Security.AllowedUsers) > 0 {
-		return "", nil
-	}
-	code, err := newPairingCode()
-	if err != nil {
-		return "", err
-	}
-	logger.Info("Feishu is not paired; send this command to the bot", "command", "/bind "+code)
-	return code, nil
-}
-
-func newPairingCode() (string, error) {
-	buffer := make([]byte, 5)
-	if _, err := rand.Read(buffer); err != nil {
-		return "", fmt.Errorf("generate pairing code: %w", err)
-	}
-	return strings.ToUpper(hex.EncodeToString(buffer)), nil
 }
 
 func newLogger(level string) *slog.Logger {

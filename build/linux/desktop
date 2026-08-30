@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Name=Agent Handoff
+Comment=Route local coding agent sessions to communication channels
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/agent-handoff %u
+Terminal=false
+Type=Application
+Icon=agent-handoff
+Categories=Utility;
+StartupWMClass=agent-handoff

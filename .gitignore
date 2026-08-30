@@ -1,4 +1,10 @@
 /bin/
+/frontend/node_modules/
+/frontend/.vite/
+/.task/
+/build/android/.gradle/
+/build/android/app/build/
+/build/android/build/
 /.env
 /config.yaml
 *.db

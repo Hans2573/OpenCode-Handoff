@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.1.0",
+			"CompanyName": "Hans2573",
+			"FileDescription": "Route local coding agent sessions to communication channels",
+			"LegalCopyright": "Copyright 2026 Hans2573",
+			"ProductName": "Agent Handoff",
+			"Comments": "Agent Handoff desktop application"
+		}
+	}
+}

@@ -38,6 +38,11 @@ type Options struct {
 	MaxOutputChars int
 }
 
+type Health struct {
+	State   string
+	Message string
+}
+
 type Client struct {
 	api            *lark.Client
 	ws             *larkws.Client
@@ -54,6 +59,8 @@ type Client struct {
 	maxOutputChars int
 	mu             sync.Mutex
 	started        bool
+	healthMu       sync.RWMutex
+	health         Health
 }
 
 func New(options Options, logger *slog.Logger) *Client {
@@ -72,6 +79,7 @@ func New(options Options, logger *slog.Logger) *Client {
 		replies:        replies,
 		logger:         logger,
 		maxOutputChars: options.MaxOutputChars,
+		health:         Health{State: "stopped", Message: "飞书监听未启动"},
 	}
 	client.replyText = client.sendTextReply
 	client.sendCard = client.sendInteractiveMessage
@@ -83,8 +91,25 @@ func New(options Options, logger *slog.Logger) *Client {
 		options.AppSecret,
 		larkws.WithEventHandler(handler),
 		larkws.WithLogLevel(larkcore.LogLevelWarn),
+		larkws.WithOnReady(func() { client.setHealth("connected", "飞书 WebSocket 已连接") }),
+		larkws.WithOnReconnecting(func() { client.setHealth("reconnecting", "飞书 WebSocket 正在重连") }),
+		larkws.WithOnReconnected(func() { client.setHealth("connected", "飞书 WebSocket 已重新连接") }),
+		larkws.WithOnDisconnected(func() { client.setHealth("disconnected", "飞书 WebSocket 已断开") }),
+		larkws.WithOnError(func(err error) { client.setHealth("error", err.Error()) }),
 	)
 	return client
+}
+
+func (c *Client) setHealth(state, message string) {
+	c.healthMu.Lock()
+	c.health = Health{State: state, Message: message}
+	c.healthMu.Unlock()
+}
+
+func (c *Client) Health() Health {
+	c.healthMu.RLock()
+	defer c.healthMu.RUnlock()
+	return c.health
 }
 
 func (c *Client) SendHandoff(ctx context.Context, handoff domain.Handoff) (domain.MessageRef, error) {
@@ -183,9 +208,13 @@ func (c *Client) Receive(ctx context.Context) (<-chan domain.UserReply, error) {
 		return nil, errors.New("Feishu receiver already started")
 	}
 	c.started = true
+	c.setHealth("connecting", "正在连接飞书 WebSocket")
 	go func() {
 		if err := c.ws.Start(ctx); err != nil && ctx.Err() == nil {
+			c.setHealth("error", err.Error())
 			c.logger.Error("Feishu WebSocket stopped", "error", err)
+		} else if ctx.Err() != nil {
+			c.setHealth("stopped", "飞书监听已停止")
 		}
 		close(c.replies)
 	}()

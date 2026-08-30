@@ -90,6 +90,108 @@ func TestSQLiteChannelBinding(t *testing.T) {
 	}
 }
 
+func TestSQLiteDesktopRoutesAndEvents(t *testing.T) {
+	ctx := context.Background()
+	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	if err := database.EnsureDesktopDefaults(ctx, "http://127.0.0.1:4096"); err != nil {
+		t.Fatal(err)
+	}
+	projects := []domain.AgentProject{
+		{ID: "project-a", AgentID: DefaultAgentID, Name: "Alpha", Directory: `D:\work\alpha`, LastSeen: time.Now()},
+		{ID: "project-b", AgentID: DefaultAgentID, Name: "Beta", Directory: `D:\work\beta`, LastSeen: time.Now()},
+	}
+	if err := database.SyncProjects(ctx, projects); err != nil {
+		t.Fatal(err)
+	}
+	routes, err := database.ListProjectRoutes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routes) != 2 || routes[0].RouteEnabled || routes[1].RouteEnabled {
+		t.Fatalf("initial routes = %+v", routes)
+	}
+	if err := database.SetProjectRoute(ctx, "project-a", DefaultChannelID, true); err != nil {
+		t.Fatal(err)
+	}
+	routes, err = database.ListProjectRoutes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !routes[0].RouteEnabled || routes[1].RouteEnabled {
+		t.Fatalf("updated routes = %+v", routes)
+	}
+
+	old := time.Now().Add(-48 * time.Hour)
+	for _, event := range []domain.EventLog{
+		{Level: "info", Type: "old", Source: "test", Message: "expired", CreatedAt: old},
+		{Level: "warn", Type: "new", Source: "test", Message: "keep this", Metadata: map[string]any{"attempt": float64(2)}},
+	} {
+		if err := database.AppendEvent(ctx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := database.CleanupEvents(ctx, 24*time.Hour, 10); err != nil {
+		t.Fatal(err)
+	}
+	events, err := database.ListEvents(ctx, "keep", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Type != "new" || events[0].Metadata["attempt"] != float64(2) {
+		t.Fatalf("events = %+v", events)
+	}
+	if err := database.ClearEvents(ctx); err != nil {
+		t.Fatal(err)
+	}
+	events, err = database.ListEvents(ctx, "", 20)
+	if err != nil || len(events) != 0 {
+		t.Fatalf("events after clear = %+v, err = %v", events, err)
+	}
+}
+
+func TestSQLiteProjectRoutesRequireExplicitOptIn(t *testing.T) {
+	ctx := context.Background()
+	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	if err := database.EnsureDesktopDefaults(ctx, "http://127.0.0.1:4096"); err != nil {
+		t.Fatal(err)
+	}
+	project := domain.AgentProject{ID: "project-opt-in", AgentID: DefaultAgentID, Name: "Opt In", Directory: `D:\work\opt-in`}
+	if err := database.SyncProjects(ctx, []domain.AgentProject{project}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetProjectRoute(ctx, project.ID, DefaultChannelID, true); err != nil {
+		t.Fatal(err)
+	}
+	reset, err := database.EnsureProjectRoutesOptIn(ctx)
+	if err != nil || !reset {
+		t.Fatalf("first EnsureProjectRoutesOptIn() = %v, %v", reset, err)
+	}
+	routes, err := database.ListProjectRoutes(ctx)
+	if err != nil || len(routes) != 1 || routes[0].RouteEnabled {
+		t.Fatalf("routes after opt-in migration = %+v, err = %v", routes, err)
+	}
+	if err := database.SetProjectRoute(ctx, project.ID, DefaultChannelID, true); err != nil {
+		t.Fatal(err)
+	}
+	reset, err = database.EnsureProjectRoutesOptIn(ctx)
+	if err != nil || reset {
+		t.Fatalf("second EnsureProjectRoutesOptIn() = %v, %v", reset, err)
+	}
+	routes, err = database.ListProjectRoutes(ctx)
+	if err != nil || !routes[0].RouteEnabled {
+		t.Fatalf("explicit user choice was not preserved: %+v, err = %v", routes, err)
+	}
+}
+
 func TestSQLiteSessionCreateReceipt(t *testing.T) {
 	ctx := context.Background()
 	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
