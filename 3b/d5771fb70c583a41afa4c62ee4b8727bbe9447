@@ -1,0 +1,73 @@
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/models.ts
+  s_bae3ab37c1657f::t_b2e5b589161449 95-96
+frontend/src/App.tsx
+  s_bae3ab37c1657f::t_11cd690f9452d9 305-314,476
+frontend/src/styles.css
+  s_bae3ab37c1657f::t_aa4752b8097636 182-183
+internal/channel/channel.go
+  s_bae3ab37c1657f::t_192c1fc76abe3f 12-13
+internal/channel/feishu/client_test.go
+  s_bae3ab37c1657f::t_5f9a3af76896b0 232,257-295,448,457,462-491,530-541
+internal/desktop/manager.go
+  s_bae3ab37c1657f::t_fe8ff0496f7763 546,550-553,604,618,621
+internal/desktop/manager_test.go
+  s_bae3ab37c1657f::t_e828342a0a185a 39,43,53-55
+internal/desktop/viewmodel.go
+  s_bae3ab37c1657f::t_dbd68b3e177b4b 64-65
+internal/opencode/client_test.go
+  s_bae3ab37c1657f::t_df569116d7b271 17-18,27-36,57-59,67-68,122-125,137,143-149
+internal/opencode/types.go
+  s_bae3ab37c1657f::t_d7deb4bb2d76d2 33-50,60
+internal/store/desktop.go
+  s_bae3ab37c1657f::t_a1f1c3c1cd67f5 167-205
+internal/store/sqlite.go
+  s_bae3ab37c1657f::t_71d6c395e1b992 81-88
+internal/store/store.go
+  s_bae3ab37c1657f::t_07fb0760276e1b 30-32
+README.md
+  s_e829e1cd99eb2b::t_61b59bfcae767f 33-35,360-366,371-372,391
+internal/channel/feishu/client.go
+  s_e829e1cd99eb2b::t_db1febf2d1d31a 236-251,301-305,357-371,384,387-390,392,400,448-449,454-479,505-513,525-533,813-816,849,875-1008,1014-1024,1028-1033,1061-1068,1084-1087
+internal/domain/handoff.go
+  s_7b9d596adc544c::t_57b9f52d5fea7a 31-34,93-139,150-151,162-187
+internal/handoff/engine.go
+  s_e829e1cd99eb2b::t_6a2e28654786d0 11,334,351-359,408-415,426-430,442-571,655-658,664-670,672-676,839,847-850,857,860,877,879
+internal/handoff/engine_test.go
+  s_e829e1cd99eb2b::t_7c490c5d835ce6 5,215-223,227-228,251,254-303,335,354,633,661-668,705-706,757-758,781-790
+internal/opencode/client.go
+  s_7b9d596adc544c::t_de079cf49a596c 13,20,28,38-91,213,215-220,225-231
+internal/store/sqlite_test.go
+  s_e829e1cd99eb2b::t_defeb1ba7dc371 230-256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3bd5771fb70c583a41afa4c62ee4b8727bbe9447",
+  "prompts": {},
+  "sessions": {
+    "s_7b9d596adc544c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0439e-6bbd-7e52-a8ee-9a21a5a8b2b2",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    },
+    "s_bae3ab37c1657f": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fafef7fb1ffeE2xgZpk6DaJjuL",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    },
+    "s_e829e1cd99eb2b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d5c-8bb1-72d2-bad8-945ee13db8eb",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
