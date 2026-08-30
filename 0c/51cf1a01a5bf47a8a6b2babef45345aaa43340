@@ -1,0 +1,45 @@
+README.md
+  s_7b9d596adc544c::t_c1901b77cd2c79 35
+internal/channel/feishu/client.go
+  s_7b9d596adc544c::t_15e2bf1a5830c2 245-255,316,319,373,375-376,379,381-385,387,408,418,467,473-496,500-501,508,708,711,716-724,941-948,957-975,980-1025,1067-1068,1074-1075,1080-1081,1129-1146
+internal/channel/feishu/client_test.go
+  s_7b9d596adc544c::t_eb7b9ca281f2b6 6,263-294,310,329-342,539-592,632-640,643-644,697-725
+internal/domain/handoff.go
+  s_e829e1cd99eb2b::t_536b74f63c1ab5 120-130,132-142,196-197
+internal/handoff/engine.go
+  s_7b9d596adc544c::t_ce8d7131ac3dee 352-360,453,461-481,486,488,491-499,502-526,528-570,639,642-645,651-656,821-825
+internal/handoff/engine_test.go
+  s_7b9d596adc544c::t_7e7361997ebf59 286-289,303-358,715,719-721
+internal/store/desktop.go
+  s_e829e1cd99eb2b::t_d0e516833b505d 206-263
+internal/store/sqlite.go
+  s_e829e1cd99eb2b::t_e7127d448c3da3 89-97
+internal/store/sqlite_test.go
+  s_e829e1cd99eb2b::t_f4f82a9dde208f 257-288
+internal/store/store.go
+  s_e829e1cd99eb2b::t_e19cc9029e07e8 33-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0c51cf1a01a5bf47a8a6b2babef45345aaa43340",
+  "prompts": {},
+  "sessions": {
+    "s_7b9d596adc544c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0439e-6bbd-7e52-a8ee-9a21a5a8b2b2",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    },
+    "s_e829e1cd99eb2b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d5c-8bb1-72d2-bad8-945ee13db8eb",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
