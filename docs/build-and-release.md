@@ -107,21 +107,54 @@ bin\agent-handoff-amd64-installer.exe
 
 ## 便携版
 
-仓库当前没有单独的便携 ZIP Task。现有发布约定是把以下文件放入版本目录后压缩：
+仓库当前没有单独的本地便携 ZIP Task。Tag Release 工作流会自动把以下内容放入版本目录后压缩：
 
 ```text
 agent-handoff.exe
 config.example.yaml
 README.md
+README.zh-CN.md
+docs/
 ```
 
 产物命名示例：
 
 ```text
-Agent-Handoff-0.1.0-windows-amd64-portable.zip
+OpenCode-Handoff-0.2.0-windows-amd64-portable.zip
 ```
 
 不要把本机 `config.yaml`、SQLite 数据库或日志放入便携包。
+
+## GitHub Actions Tag Release
+
+`.github/workflows/release.yml` 会在推送 `v*.*.*` Tag 时启动 Windows Release：
+
+```powershell
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Tag 必须使用 `vMAJOR.MINOR.PATCH`；也支持 `vMAJOR.MINOR.PATCH-prerelease`，例如 `v0.2.0-rc.1`。预发布 Tag 会创建 GitHub Prerelease。
+
+工作流会：
+
+1. 按 `go.mod` 安装 Go，并使用 Node.js 22。
+2. 安装锁定的 Wails CLI `v3.0.0-beta.15` 和 NSIS。
+3. 在 Runner 内把 Tag 的数值版本同步到 Wails、Windows EXE 和 NSIS 元数据，不修改仓库提交。
+4. 执行 `npm ci`、`go test ./...` 和 `go vet ./...`。
+5. 构建 amd64 Windows EXE 和 NSIS 安装包。
+6. 生成版本化安装包、便携 ZIP 与 `checksums-sha256.txt`。
+7. 创建 GitHub Release、上传产物，并通过 `generate_release_notes: true` 自动生成 Release Notes。
+
+Release 产物示例：
+
+```text
+OpenCode-Handoff-0.2.0-windows-amd64-installer.exe
+OpenCode-Handoff-0.2.0-windows-amd64-portable.zip
+checksums-sha256.txt
+```
+
+工作流声明 `contents: write` 供 `GITHUB_TOKEN` 创建 Release。若仓库级 Actions 设置显式限制写权限，需要在 GitHub 的 Actions 设置中允许工作流获得相应权限。
 
 ## 版本与构建元数据
 

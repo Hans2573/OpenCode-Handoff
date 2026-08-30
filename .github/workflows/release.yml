@@ -1,0 +1,173 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and release Windows packages
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Read release version from tag
+        id: version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          $match = [regex]::Match(
+            $tag,
+            '^v(?<core>\d+\.\d+\.\d+)(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$'
+          )
+          if (-not $match.Success) {
+            throw "Tag '$tag' must use vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-prerelease."
+          }
+
+          $releaseVersion = $tag.Substring(1)
+          $prerelease = $releaseVersion.Contains('-').ToString().ToLowerInvariant()
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$($match.Groups['core'].Value)"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "release_version=$releaseVersion"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "prerelease=$prerelease"
+
+      - name: Sync Windows version metadata with tag
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $configPath = 'build/config.yml'
+          $configPattern = '(?m)^(\s{2}version:\s*)"[^"]+"(\s*# The application version)$'
+          $configText = Get-Content -Raw -LiteralPath $configPath
+          if ([regex]::Matches($configText, $configPattern).Count -ne 1) {
+            throw "Could not find exactly one application version in $configPath."
+          }
+          $configText = [regex]::Replace(
+            $configText,
+            $configPattern,
+            {
+              param($match)
+              $match.Groups[1].Value + '"' + $env:RELEASE_VERSION + '"' + $match.Groups[2].Value
+            }
+          )
+          Set-Content -LiteralPath $configPath -Value $configText -Encoding utf8
+
+          $infoPath = 'build/windows/info.json'
+          $info = Get-Content -Raw -LiteralPath $infoPath | ConvertFrom-Json
+          $info.fixed.file_version = $env:RELEASE_VERSION
+          $info.info.'0000'.ProductVersion = $env:RELEASE_VERSION
+          $info | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $infoPath -Encoding utf8
+
+          $nsisPath = 'build/windows/nsis/wails_tools.nsh'
+          $nsisPattern = '(?m)^(\s*!define INFO_PRODUCTVERSION\s+)"[^"]+"'
+          $nsisText = Get-Content -Raw -LiteralPath $nsisPath
+          if ([regex]::Matches($nsisText, $nsisPattern).Count -ne 1) {
+            throw "Could not find exactly one NSIS product version in $nsisPath."
+          }
+          $nsisText = [regex]::Replace(
+            $nsisText,
+            $nsisPattern,
+            {
+              param($match)
+              $match.Groups[1].Value + '"' + $env:RELEASE_VERSION + '"'
+            }
+          )
+          Set-Content -LiteralPath $nsisPath -Value $nsisText -Encoding utf8
+
+      - name: Install build tools
+        shell: pwsh
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.15
+          $goBin = Join-Path (go env GOPATH) 'bin'
+          Add-Content -Path $env:GITHUB_PATH -Value $goBin
+
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            choco install nsis --yes --no-progress
+          }
+
+      - name: Install frontend dependencies
+        shell: pwsh
+        run: npm ci --prefix frontend
+
+      - name: Run checks
+        shell: pwsh
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: wails3 task package ARCH=amd64 INSTALL_SCOPE=user
+
+      - name: Prepare release assets
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
+        run: |
+          $binary = 'bin/agent-handoff.exe'
+          $installer = 'bin/agent-handoff-amd64-installer.exe'
+          if (-not (Test-Path -LiteralPath $binary)) {
+            throw "Missing desktop binary: $binary"
+          }
+          if (-not (Test-Path -LiteralPath $installer)) {
+            throw "Missing NSIS installer: $installer"
+          }
+
+          $versionedInstaller = "bin/OpenCode-Handoff-$env:RELEASE_VERSION-windows-amd64-installer.exe"
+          Copy-Item -LiteralPath $installer -Destination $versionedInstaller
+
+          $portableDirectory = "release/OpenCode-Handoff-$env:RELEASE_VERSION-windows-amd64"
+          New-Item -ItemType Directory -Path $portableDirectory -Force | Out-Null
+          Copy-Item -LiteralPath $binary -Destination (Join-Path $portableDirectory 'agent-handoff.exe')
+          Copy-Item -LiteralPath 'config.example.yaml' -Destination $portableDirectory
+          Copy-Item -LiteralPath 'README.md' -Destination $portableDirectory
+          Copy-Item -LiteralPath 'README.zh-CN.md' -Destination $portableDirectory
+          Copy-Item -LiteralPath 'docs' -Destination $portableDirectory -Recurse
+
+          $portableZip = "bin/OpenCode-Handoff-$env:RELEASE_VERSION-windows-amd64-portable.zip"
+          Compress-Archive -Path $portableDirectory -DestinationPath $portableZip -CompressionLevel Optimal
+
+          $checksumPath = 'bin/checksums-sha256.txt'
+          @($versionedInstaller, $portableZip) |
+            ForEach-Object {
+              $hash = Get-FileHash -LiteralPath $_ -Algorithm SHA256
+              '{0}  {1}' -f $hash.Hash.ToLowerInvariant(), [IO.Path]::GetFileName($_)
+            } |
+            Set-Content -LiteralPath $checksumPath -Encoding ascii
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            bin/OpenCode-Handoff-${{ steps.version.outputs.release_version }}-windows-amd64-installer.exe
+            bin/OpenCode-Handoff-${{ steps.version.outputs.release_version }}-windows-amd64-portable.zip
+            bin/checksums-sha256.txt
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          prerelease: ${{ steps.version.outputs.prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
