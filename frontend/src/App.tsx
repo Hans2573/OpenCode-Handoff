@@ -468,12 +468,13 @@ function ProjectTable({ projects, onRoute, roomy = false }: { projects: ProjectV
 
 function SessionCard({ session, compact = false, onOpen }: { session: SessionView; compact?: boolean; onOpen: () => void }) {
   const tone = statusTone(session.status);
+  const modelLabel = `${session.currentModel || "OpenCode 默认/尚未识别"}${session.currentVariant ? ` · ${session.currentVariant}` : ""}`;
   return (
     <article className={`session-card ${tone} ${compact ? "compact" : ""}`}>
       <div className="session-card-head"><span className={`session-icon ${tone}`}>{session.status === "running" ? <Play size={17} /> : session.status.startsWith("waiting") ? <Clock3 size={17} /> : session.status === "retrying" ? <RotateCcw size={17} /> : <Activity size={17} />}</span><div className="session-title"><strong>{session.title}</strong><code>{shortID(session.id)}</code></div><span className={`status-pill ${tone}`}>{session.statusLabel}</span></div>
       <div className="session-meta"><span>项目：{session.projectName}</span><i /> <span>Agent：{session.agentName}</span><i /> <span>渠道：{session.channelName}</span></div>
       {session.statusDetail && <p className="status-detail">{session.statusDetail}</p>}
-      <div className="session-model-row"><Bot size={14} /><span>模型：{session.currentModel || "OpenCode 默认/尚未识别"}{session.currentVariant ? ` · ${session.currentVariant}` : ""}</span></div>
+      <div className="session-model-row" title={`模型：${modelLabel}`}><Bot size={14} /><span>模型：{modelLabel}</span></div>
       <div className="session-time-row"><span>{session.busyForSeconds > 0 ? `当前忙碌 ${formatDuration(session.busyForSeconds)}` : "当前未忙碌"}</span><span>{session.hasLastInput ? `距最后用户输入 ${formatDuration(session.sinceLastInputSeconds)}` : "暂无用户输入"}</span></div>
       {!compact && session.hasLastInput && <details className="last-input"><summary>完整最后输入</summary><pre>{session.lastInput}</pre></details>}
       <div className="session-actions"><button className="secondary-button" onClick={onOpen}><ExternalLink size={15} />在 OpenCode 中打开</button></div>
