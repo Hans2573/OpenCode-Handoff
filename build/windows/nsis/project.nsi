@@ -33,7 +33,6 @@ Unicode true
 ####
 ## Include the wails tools
 ####
-!define WAILS_INSTALL_SCOPE "user"
 !include "wails_tools.nsh"
 
 # The version information for this two must consist of 4 parts
