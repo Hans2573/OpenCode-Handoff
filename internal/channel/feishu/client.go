@@ -225,6 +225,10 @@ func (c *Client) Reply(ctx context.Context, messageID, text string) error {
 	return c.sendTextReply(ctx, messageID, text)
 }
 
+func (c *Client) ReplyWithRef(ctx context.Context, messageID, text string) (domain.MessageRef, error) {
+	return c.sendTextReplyWithRef(ctx, messageID, text)
+}
+
 func (c *Client) ReplyProjects(ctx context.Context, messageID string, page domain.ProjectPage) error {
 	content, err := formatProjectCard(page)
 	if err != nil {
@@ -616,11 +620,16 @@ func (c *Client) senderAllowed(senderIDs []string) bool {
 }
 
 func (c *Client) sendTextReply(ctx context.Context, messageID, text string) error {
+	_, err := c.sendTextReplyWithRef(ctx, messageID, text)
+	return err
+}
+
+func (c *Client) sendTextReplyWithRef(ctx context.Context, messageID, text string) (domain.MessageRef, error) {
 	content, err := json.Marshal(struct {
 		Text string `json:"text"`
 	}{Text: text})
 	if err != nil {
-		return err
+		return domain.MessageRef{}, err
 	}
 	request := larkim.NewReplyMessageReqBuilder().
 		MessageId(messageID).
@@ -631,12 +640,19 @@ func (c *Client) sendTextReply(ctx context.Context, messageID, text string) erro
 		Build()
 	response, err := c.api.Im.V1.Message.Reply(ctx, request)
 	if err != nil {
-		return fmt.Errorf("reply to Feishu message: %w", err)
+		return domain.MessageRef{}, fmt.Errorf("reply to Feishu message: %w", err)
 	}
 	if !response.Success() {
-		return fmt.Errorf("reply to Feishu message: code=%d message=%s request_id=%s", response.Code, response.Msg, response.RequestId())
+		return domain.MessageRef{}, fmt.Errorf("reply to Feishu message: code=%d message=%s request_id=%s", response.Code, response.Msg, response.RequestId())
 	}
-	return nil
+	if response.Data == nil || response.Data.MessageId == nil || strings.TrimSpace(*response.Data.MessageId) == "" {
+		return domain.MessageRef{}, errors.New("reply to Feishu message: response omitted message_id")
+	}
+	ref := domain.MessageRef{MessageID: strings.TrimSpace(*response.Data.MessageId)}
+	if response.Data.ChatId != nil {
+		ref.ChatID = strings.TrimSpace(*response.Data.ChatId)
+	}
+	return ref, nil
 }
 
 func (c *Client) sendCardReply(ctx context.Context, messageID, content string) error {

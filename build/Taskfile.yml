@@ -205,8 +205,6 @@ tasks:
 
   dev:frontend:
     summary: Runs the frontend in development mode
-    deps:
-      - task: install:frontend:deps
     cmds:
       - task: frontend:dev:{{.PACKAGE_MANAGER}}
 

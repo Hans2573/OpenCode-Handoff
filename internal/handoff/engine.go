@@ -505,19 +505,22 @@ func (e *Engine) handleApplyModel(ctx context.Context, reply domain.UserReply) e
 		if err != nil {
 			return fmt.Errorf("validate Session project route: %w", err)
 		}
-		allowedDirectory := false
+		var selectedProject domain.Project
 		for _, project := range projects {
 			if sameDirectory(project.Directory, reply.ModelContext.ProjectDirectory) {
-				allowedDirectory = true
+				selectedProject = project
 				break
 			}
 		}
-		if !allowedDirectory {
+		if selectedProject.Directory == "" {
 			return errors.New("该 Session 所在项目未接入飞书渠道")
 		}
 		session, err := e.opencode.GetSession(ctx, reply.ModelContext.SessionID, reply.ModelContext.ProjectDirectory)
 		if err != nil || session.ID == "" {
 			return errors.New("该 Session 已不存在，请重新查看 Session 列表")
+		}
+		if session.Directory == "" {
+			session.Directory = reply.ModelContext.ProjectDirectory
 		}
 		selected := domain.SessionModel{ProviderID: model.ProviderID, ModelID: model.ID, ModelName: model.Name, Variant: reply.ModelVariant}
 		if err := e.store.SetPendingSessionModel(ctx, session.ID, selected); err != nil {
@@ -531,10 +534,37 @@ func (e *Engine) handleApplyModel(ctx context.Context, reply domain.UserReply) e
 		if reply.ParentMessageID != "" {
 			messageID = reply.ParentMessageID
 		}
-		return e.channel.Reply(ctx, messageID, fmt.Sprintf("已为 Session `%s` 选择 %s（%s）。不会中断当前执行；下一条从飞书发送的普通任务起生效。", session.ID, selected.ModelName, variant))
+		return e.replyWithSessionRoute(ctx, messageID, reply.ChatID, domain.Handoff{
+			SessionID: session.ID, SessionName: sessionName(session), Directory: session.Directory, ProjectName: selectedProject.Name,
+		}, fmt.Sprintf("已为 Session `%s` 选择 %s（%s）。不会中断当前执行；请引用回复本消息发送下一条任务，所选模型将从该任务起生效。", session.ID, selected.ModelName, variant))
 	default:
 		return errors.New("模型操作目标无效")
 	}
+}
+
+func (e *Engine) replyWithSessionRoute(ctx context.Context, parentMessageID, fallbackChatID string, handoff domain.Handoff, text string) error {
+	handoff.ID = newID()
+	handoff.Type = domain.HandoffSession
+	handoff.LastAssistantMessageID = "session-route:" + handoff.ID
+	handoff.Status = domain.StatusOpen
+	handoff.CreatedAt = time.Now().UTC()
+	if err := e.store.Create(ctx, handoff); err != nil {
+		return fmt.Errorf("create replyable Session route: %w", err)
+	}
+	ref, err := e.channel.ReplyWithRef(ctx, parentMessageID, text)
+	if err != nil {
+		if cleanupErr := e.store.DeleteUnbound(context.WithoutCancel(ctx), handoff.ID); cleanupErr != nil {
+			e.logger.Error("clean up undelivered Session route", "handoff_id", handoff.ID, "error", cleanupErr)
+		}
+		return err
+	}
+	if ref.ChatID == "" {
+		ref.ChatID = fallbackChatID
+	}
+	if err := e.store.BindMessage(ctx, handoff.ID, ref); err != nil {
+		return fmt.Errorf("bind replyable Session route: %w", err)
+	}
+	return nil
 }
 
 func (e *Engine) availableModels(ctx context.Context) ([]domain.Model, error) {

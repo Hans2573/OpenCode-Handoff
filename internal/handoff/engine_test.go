@@ -280,18 +280,11 @@ func TestEngineSwitchesExistingSessionModelOnNextFeishuPrompt(t *testing.T) {
 	if len(channel.notices) != 1 || !strings.Contains(channel.notices[0], "下一条") {
 		t.Fatalf("switch notice = %v", channel.notices)
 	}
-	handoff := domain.Handoff{
-		ID: "hof_existing", SessionID: "ses_existing", Directory: "/work/project", ProjectName: "Project",
-		Type: domain.HandoffFinished, LastAssistantMessageID: "msg_assistant", Status: domain.StatusOpen, CreatedAt: time.Now().UTC(),
-	}
-	if err := database.Create(ctx, handoff); err != nil {
-		t.Fatal(err)
-	}
-	if err := database.BindMessage(ctx, handoff.ID, domain.MessageRef{ChatID: "oc_allowed", MessageID: "om_handoff_existing"}); err != nil {
-		t.Fatal(err)
+	if len(channel.replyRefs) != 1 {
+		t.Fatalf("switch reply refs = %v", channel.replyRefs)
 	}
 	if err := engine.handleReply(ctx, domain.UserReply{
-		MessageID: "om_next", ParentMessageID: "om_handoff_existing", ChatID: "oc_allowed", SenderID: "ou_allowed", Text: "继续任务",
+		MessageID: "om_next", ParentMessageID: channel.replyRefs[0].MessageID, ChatID: "oc_allowed", SenderID: "ou_allowed", Text: "继续任务",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -756,6 +749,7 @@ type fakeChannel struct {
 	runningSessions []domain.RunningSessions
 	modelPages      []domain.ModelPage
 	variantPages    []domain.ModelVariantPage
+	replyRefs       []domain.MessageRef
 }
 
 func (f *fakeChannel) SendHandoff(_ context.Context, handoff domain.Handoff) (domain.MessageRef, error) {
@@ -771,6 +765,14 @@ func (f *fakeChannel) Reply(_ context.Context, messageID, text string) error {
 	f.replyIDs = append(f.replyIDs, messageID)
 	f.notices = append(f.notices, text)
 	return nil
+}
+
+func (f *fakeChannel) ReplyWithRef(_ context.Context, messageID, text string) (domain.MessageRef, error) {
+	f.replyIDs = append(f.replyIDs, messageID)
+	f.notices = append(f.notices, text)
+	ref := domain.MessageRef{ChatID: "oc_allowed", MessageID: fmt.Sprintf("om_reply_%d", len(f.replyRefs)+1)}
+	f.replyRefs = append(f.replyRefs, ref)
+	return ref, nil
 }
 
 func (f *fakeChannel) ReplyProjects(_ context.Context, _ string, page domain.ProjectPage) error {
