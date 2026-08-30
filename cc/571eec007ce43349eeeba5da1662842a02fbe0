@@ -1,0 +1,237 @@
+.gitignore
+  s_bae3ab37c1657f::t_735332cad439c9 2-7
+build/ios/LaunchScreen.storyboard
+  s_bae3ab37c1657f::t_8b95a3b2abef7c 1-53
+build/linux/appimage/build.sh
+  s_bae3ab37c1657f::t_c93eb3fac399e8 1-34
+build/linux/desktop
+  s_bae3ab37c1657f::t_3e80dfca31d56d 1-11
+build/windows/msix/app_manifest.xml
+  s_bae3ab37c1657f::t_658d8b474f7ac1 1-55
+build/windows/msix/template.xml
+  s_bae3ab37c1657f::t_97a1b11b9bdd78 1-54
+build/windows/nsis/project.nsi
+  s_bae3ab37c1657f::t_7e7c14fb8de5fe 1-120
+build/windows/nsis/wails_tools.nsh
+  s_bae3ab37c1657f::t_d3a835bfbda205 1-261
+README.md
+  s_7b9d596adc544c::t_10f477de96fe3d 1,3-15,37-179,226-236,317-319,389
+Taskfile.yml
+  s_e829e1cd99eb2b::t_43680352dabe1a 1-65
+appservice.go
+  s_e829e1cd99eb2b::t_3bb7ee9c686bb3 1-153
+build/Taskfile.yml
+  s_e829e1cd99eb2b::t_f8bf13cbcf8653 1-398
+build/android/Taskfile.yml
+  s_e829e1cd99eb2b::t_b0aecd52133034 1-464
+build/android/app/build.gradle
+  s_e829e1cd99eb2b::t_da6c2ae5609495 1-83
+build/android/app/proguard-rules.pro
+  s_e829e1cd99eb2b::t_897042f6efc1ce 1-12
+build/android/app/src/main/AndroidManifest.xml
+  s_e829e1cd99eb2b::t_8278967b91c55e 1-63
+build/android/app/src/main/java/com/wails/app/MainActivity.java
+  s_e829e1cd99eb2b::t_6c2d3a60fefe5e 1-821
+build/android/app/src/main/java/com/wails/app/WailsBridge.java
+  s_e829e1cd99eb2b::t_27a347ffe150a2 1-1408
+build/android/app/src/main/java/com/wails/app/WailsForegroundService.java
+  s_e829e1cd99eb2b::t_331820d029509c 1-74
+build/android/app/src/main/java/com/wails/app/WailsJSBridge.java
+  s_e829e1cd99eb2b::t_6b45da7b6cb4c3 1-151
+build/android/app/src/main/java/com/wails/app/WailsPathHandler.java
+  s_e829e1cd99eb2b::t_03564ac373ccc9 1-68
+build/android/app/src/main/res/layout/activity_main.xml
+  s_e829e1cd99eb2b::t_4d31415da24a90 1-12
+build/android/app/src/main/res/values/colors.xml
+  s_e829e1cd99eb2b::t_613742f0fc5e7a 1-8
+build/android/app/src/main/res/values/strings.xml
+  s_e829e1cd99eb2b::t_b82d867d45ab3e 1-4
+build/android/app/src/main/res/values/themes.xml
+  s_e829e1cd99eb2b::t_cb60a497f000bb 1-14
+build/android/app/src/main/res/xml/file_paths.xml
+  s_e829e1cd99eb2b::t_a97c65bef4efa2 1-6
+build/android/build.gradle
+  s_e829e1cd99eb2b::t_1062c3ecf6f640 1-4
+build/android/gradle.properties
+  s_e829e1cd99eb2b::t_f0b0dacbd7116a 1-26
+build/android/gradle/wrapper/gradle-wrapper.properties
+  s_e829e1cd99eb2b::t_38e748668d6bf8 1-7
+build/android/gradlew
+  s_e829e1cd99eb2b::t_6d73fea90ec894 1-248
+build/android/gradlew.bat
+  s_e829e1cd99eb2b::t_a05bb255fee27f 1-93
+build/android/main_android.go
+  s_e829e1cd99eb2b::t_627eb51312590d 1-11
+build/android/scripts/deps/install_deps.go
+  s_e829e1cd99eb2b::t_b0c56d4ebffd6e 1-266
+build/android/settings.gradle
+  s_e829e1cd99eb2b::t_20b3689d3c7572 1-18
+build/appicon.icon/Assets/wails_icon_vector.svg
+  s_e829e1cd99eb2b::t_73870b0781e3ae 1-9
+build/appicon.icon/icon.json
+  s_e829e1cd99eb2b::t_5ae11c289c543a 1-51
+build/appicon.svg
+  s_e829e1cd99eb2b::t_9de2af5bb3f1d2 1-25
+build/config.yml
+  s_e829e1cd99eb2b::t_53bdef356f42cf 1-79
+build/darwin/Info.dev.plist
+  s_e829e1cd99eb2b::t_1c5a9afabf2409 1-35
+build/darwin/Info.plist
+  s_e829e1cd99eb2b::t_b422978e1948f9 1-30
+build/darwin/Taskfile.yml
+  s_e829e1cd99eb2b::t_0140d61ab06d5b 1-220
+build/docker/Dockerfile.cross
+  s_e829e1cd99eb2b::t_d5366a64f94d8f 1-225
+build/docker/Dockerfile.server
+  s_e829e1cd99eb2b::t_b4a0e2917d8a9e 1-67
+build/ios/Assets.xcassets
+  s_e829e1cd99eb2b::t_1589ea8f706f11 1-116
+build/ios/Info.dev.plist
+  s_e829e1cd99eb2b::t_326dc324d97995 1-56
+build/ios/Info.plist
+  s_e829e1cd99eb2b::t_b2874fbfd63d74 1-54
+build/ios/Taskfile.yml
+  s_e829e1cd99eb2b::t_17ade16d3218ad 1-365
+build/ios/app_options_default.go
+  s_e829e1cd99eb2b::t_e4065ea8811699 1-10
+build/ios/app_options_ios.go
+  s_e829e1cd99eb2b::t_f7b9df8fbc0eb1 1-11
+build/ios/entitlements.plist
+  s_e829e1cd99eb2b::t_c322dca505d3f7 1-8
+build/ios/icon.png
+  s_e829e1cd99eb2b::t_297ba0ee0269eb 1-3
+build/ios/main.m
+  s_e829e1cd99eb2b::t_d97b731757d932 1-22
+build/ios/main_ios.go
+  s_e829e1cd99eb2b::t_3269dadc47674b 1-23
+build/ios/project.pbxproj
+  s_e829e1cd99eb2b::t_650e31e860b73a 1-230
+build/ios/scripts/deps/install_deps.go
+  s_e829e1cd99eb2b::t_4995d2c1dc8163 1-319
+build/linux/Taskfile.yml
+  s_e829e1cd99eb2b::t_cdb744173c7e2e 1-220
+build/linux/nfpm/nfpm.yaml
+  s_e829e1cd99eb2b::t_3069b9e4a6dcba 1-80
+build/linux/nfpm/scripts/postinstall.sh
+  s_e829e1cd99eb2b::t_be5a87a4d3b5f6 1-21
+build/linux/nfpm/scripts/postremove.sh
+  s_e829e1cd99eb2b::t_c1297a423b16ef 1
+build/linux/nfpm/scripts/preinstall.sh
+  s_e829e1cd99eb2b::t_8a565ddb200ace 1
+build/linux/nfpm/scripts/preremove.sh
+  s_e829e1cd99eb2b::t_f13ee307d0973d 1
+build/windows/Taskfile.yml
+  s_e829e1cd99eb2b::t_55b7782491392a 1-195
+build/windows/info.json
+  s_e829e1cd99eb2b::t_52a54bf6282064 1-15
+build/windows/wails.exe.manifest
+  s_e829e1cd99eb2b::t_fc9cdd25a0449c 1-22
+cmd/handoff/main.go
+  s_e829e1cd99eb2b::t_cb02e8af526190 14,44-49,57,59,64
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/appservice.ts
+  s_e829e1cd99eb2b::t_5a6f7c156c3a12 1-78
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/index.ts
+  s_e829e1cd99eb2b::t_47bbc906fe557b 1-7
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/index.ts
+  s_e829e1cd99eb2b::t_e86a2c99401a46 1-16
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/models.ts
+  s_e829e1cd99eb2b::t_a18eea7337ed10 1-137
+frontend/bindings/github.com/wailsapp/wails/v3/internal/eventcreate.ts
+  s_e829e1cd99eb2b::t_3e045549c8fd87 1-9
+frontend/bindings/github.com/wailsapp/wails/v3/internal/eventdata.d.ts
+  s_e829e1cd99eb2b::t_e99a4a7a561e0b 1-2
+frontend/index.html
+  s_e829e1cd99eb2b::t_ed744af769609f 1-13
+frontend/package-lock.json
+  s_e829e1cd99eb2b::t_e09798787b8d45 1-1300
+frontend/package.json
+  s_e829e1cd99eb2b::t_11b3b25d19382e 1-26
+frontend/src/App.tsx
+  s_e829e1cd99eb2b::t_faba30b4f88fb0 1-520
+frontend/src/main.tsx
+  s_e829e1cd99eb2b::t_3d003ec8994922 1-10
+frontend/src/styles.css
+  s_e829e1cd99eb2b::t_e11a4a5dd0ad3f 1-250
+frontend/src/vite-env.d.ts
+  s_e829e1cd99eb2b::t_ae4dffcc3dd9a3 1
+frontend/tsconfig.json
+  s_e829e1cd99eb2b::t_4305f6b303a97f 1-21
+frontend/vite.config.ts
+  s_e829e1cd99eb2b::t_eebeae417b7b7f 1-12
+go.mod
+  s_e829e1cd99eb2b::t_aac22dff251fbf 3,7-8,10,14-15,17-18,21-23,25,27-28
+go.sum
+  s_e829e1cd99eb2b::t_be469e87d02baa 1-6,9-14,17-18,24-29,34-37,40-43,46-49,55-56,59-60,68-69,72,74,76-77,84-85,94-99,102-103,106-107,116-117
+internal/channel/feishu/client.go
+  s_e829e1cd99eb2b::t_3c9aee0d2c1c2c 41-45,62-63,82,94-98,103-114,211,214,216-217
+internal/config/config.go
+  s_e829e1cd99eb2b::t_13ba75b8f35021 21-24,111-124,150-298
+internal/config/config_test.go
+  s_e829e1cd99eb2b::t_18be8c78c2b634 132-202
+internal/desktop/manager.go
+  s_e829e1cd99eb2b::t_236bce6c8580cb 1-845
+internal/desktop/manager_test.go
+  s_e829e1cd99eb2b::t_394cefb15557ab 1-100
+internal/desktop/paths.go
+  s_e829e1cd99eb2b::t_3e6af413683ae2 1-129
+internal/desktop/paths_test.go
+  s_e829e1cd99eb2b::t_7bc0ebc85baaab 1-41
+internal/desktop/routing.go
+  s_e829e1cd99eb2b::t_4986c82b4f3094 1-115
+internal/desktop/routing_test.go
+  s_e829e1cd99eb2b::t_ef9acb3e96c9f5 1-69
+internal/desktop/viewmodel.go
+  s_e829e1cd99eb2b::t_ee5703a3490d1d 1-131
+internal/domain/desktop.go
+  s_e829e1cd99eb2b::t_21f14df3521b4d 1-32
+internal/runtime/lock.go
+  s_e829e1cd99eb2b::t_2eee77c321bde0 1-9
+internal/runtime/lock_test.go
+  s_e829e1cd99eb2b::t_bcb2c323fbf2cb 1-34
+internal/runtime/lock_unix.go
+  s_e829e1cd99eb2b::t_b998d26d4c3380 1-44
+internal/runtime/lock_windows.go
+  s_e829e1cd99eb2b::t_80e42f487dc05a 1-39
+internal/runtime/service.go
+  s_e829e1cd99eb2b::t_938b707da23b36 1-169
+internal/store/desktop.go
+  s_e829e1cd99eb2b::t_c3618b368385e8 1-239
+internal/store/sqlite.go
+  s_e829e1cd99eb2b::t_60998dbccdece0 81-134
+internal/store/sqlite_test.go
+  s_7b9d596adc544c::t_eac2a0cb596251 93-194
+main.go
+  s_e829e1cd99eb2b::t_f449b84c8ce714 1-150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "cc571eec007ce43349eeeba5da1662842a02fbe0",
+  "prompts": {},
+  "sessions": {
+    "s_7b9d596adc544c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0439e-6bbd-7e52-a8ee-9a21a5a8b2b2",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    },
+    "s_bae3ab37c1657f": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fafef7fb1ffeE2xgZpk6DaJjuL",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    },
+    "s_e829e1cd99eb2b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d5c-8bb1-72d2-bad8-945ee13db8eb",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
