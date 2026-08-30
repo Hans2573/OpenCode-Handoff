@@ -107,6 +107,48 @@ jobs:
 
           if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
             choco install nsis --yes --no-progress
+            if ($LASTEXITCODE -ne 0) {
+              throw "Chocolatey failed to install NSIS (exit code $LASTEXITCODE)."
+            }
+          }
+
+          $makensis = Get-Command makensis -ErrorAction SilentlyContinue
+          if (-not $makensis) {
+            $candidates = @()
+            if (${env:ProgramFiles(x86)}) {
+              $candidates += Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
+            }
+            if ($env:ProgramFiles) {
+              $candidates += Join-Path $env:ProgramFiles 'NSIS\makensis.exe'
+            }
+            if ($env:ChocolateyInstall) {
+              $candidates += Join-Path $env:ChocolateyInstall 'bin\makensis.exe'
+              $candidates += Get-ChildItem `
+                -Path (Join-Path $env:ChocolateyInstall 'lib\nsis*') `
+                -Filter makensis.exe `
+                -File `
+                -Recurse `
+                -ErrorAction SilentlyContinue |
+                Select-Object -ExpandProperty FullName
+            }
+
+            $makensisPath = $candidates |
+              Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
+              Select-Object -First 1
+            if (-not $makensisPath) {
+              throw 'NSIS was installed, but makensis.exe could not be located.'
+            }
+
+            $nsisDirectory = Split-Path -Parent $makensisPath
+            Add-Content -Path $env:GITHUB_PATH -Value $nsisDirectory
+            $env:PATH = "$nsisDirectory;$env:PATH"
+            $makensis = Get-Command makensis -ErrorAction Stop
+          }
+
+          Write-Host "Using NSIS: $($makensis.Source)"
+          & $makensis.Source /VERSION
+          if ($LASTEXITCODE -ne 0) {
+            throw "makensis version check failed (exit code $LASTEXITCODE)."
           }
 
       - name: Install frontend dependencies
