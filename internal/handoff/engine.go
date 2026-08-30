@@ -349,7 +349,15 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 		return e.handleProjectList(ctx, reply)
 	}
 	if reply.ListModels {
-		return e.handleModelList(ctx, reply)
+		err := e.handleModelList(ctx, reply)
+		if err != nil && !reply.CardAction {
+			detail := strings.NewReplacer("\r", " ", "\n", " ").Replace(truncateTail(err.Error(), 300))
+			message := fmt.Sprintf("获取模型列表失败。\n\n错误摘要：`%s`", strings.ReplaceAll(detail, "`", "ˋ"))
+			if replyErr := e.channel.Reply(ctx, reply.MessageID, message); replyErr != nil {
+				e.logger.Warn("report model list failure", "message_id", reply.MessageID, "error", replyErr)
+			}
+		}
+		return err
 	}
 	if reply.ListModelVariants {
 		return e.handleModelVariants(ctx, reply)
@@ -442,6 +450,7 @@ const projectPageSize = 8
 const modelPageSize = 6
 
 func (e *Engine) handleModelList(ctx context.Context, reply domain.UserReply) error {
+	e.logger.Info("model catalog requested", "query", strings.TrimSpace(reply.ModelQuery), "provider_id", strings.TrimSpace(reply.ModelProviderID), "page", reply.ModelPage, "card_action", reply.CardAction)
 	models, err := e.availableModels(ctx)
 	if err != nil {
 		return fmt.Errorf("list OpenCode models: %w", err)
@@ -449,23 +458,116 @@ func (e *Engine) handleModelList(ctx context.Context, reply domain.UserReply) er
 	if len(models) == 0 {
 		return e.channel.Reply(ctx, reply.MessageID, "OpenCode 当前没有返回可用模型。")
 	}
-	page := reply.ModelPage
-	if page < 1 {
-		page = 1
-	}
-	totalPages := (len(models) + modelPageSize - 1) / modelPageSize
-	if page > totalPages {
-		return e.channel.Reply(ctx, reply.MessageID, fmt.Sprintf("模型列表只有 %d 页，请发送 /models 1。", totalPages))
-	}
-	start := (page - 1) * modelPageSize
-	end := min(start+modelPageSize, len(models))
+	query := strings.TrimSpace(reply.ModelQuery)
+	providerID := strings.TrimSpace(reply.ModelProviderID)
+	home := reply.ModelPage <= 0 && query == "" && providerID == ""
 	messageID := reply.MessageID
 	if reply.CardAction && reply.ParentMessageID != "" {
 		messageID = reply.ParentMessageID
 	}
+	if home {
+		providers := modelProviders(models)
+		recent := e.recentAvailableModels(ctx, models, 5)
+		return e.channel.ReplyModels(ctx, messageID, domain.ModelPage{
+			Recent: recent, Providers: providers, Total: len(models), Home: true, Context: reply.ModelContext,
+		})
+	}
+	filtered := filterModels(models, query, providerID)
+	if len(filtered) == 0 {
+		if query != "" {
+			return e.channel.Reply(ctx, messageID, fmt.Sprintf("没有找到与 `%s` 匹配的模型。请尝试更短的关键词，例如 `/models gpt`。", strings.ReplaceAll(query, "`", "ˋ")))
+		}
+		return e.channel.Reply(ctx, messageID, "该 Provider 当前没有可用模型，请返回模型首页重新选择。")
+	}
+	page := reply.ModelPage
+	if page < 1 {
+		page = 1
+	}
+	totalPages := (len(filtered) + modelPageSize - 1) / modelPageSize
+	if page > totalPages {
+		return e.channel.Reply(ctx, messageID, fmt.Sprintf("当前模型结果只有 %d 页，请返回模型首页重新选择。", totalPages))
+	}
+	start := (page - 1) * modelPageSize
+	end := min(start+modelPageSize, len(filtered))
+	providerName := ""
+	if providerID != "" {
+		for _, provider := range modelProviders(models) {
+			if provider.ID == providerID {
+				providerName = provider.Name
+				break
+			}
+		}
+	}
 	return e.channel.ReplyModels(ctx, messageID, domain.ModelPage{
-		Models: models[start:end], Page: page, TotalPages: totalPages, Total: len(models), Context: reply.ModelContext,
+		Models: filtered[start:end], Page: page, TotalPages: totalPages, Total: len(filtered), Query: query,
+		ProviderID: providerID, ProviderName: providerName, Context: reply.ModelContext,
 	})
+}
+
+func modelProviders(models []domain.Model) []domain.ModelProvider {
+	byID := make(map[string]domain.ModelProvider)
+	for _, model := range models {
+		provider := byID[model.ProviderID]
+		provider.ID = model.ProviderID
+		provider.Name = strings.TrimSpace(model.ProviderName)
+		if provider.Name == "" {
+			provider.Name = model.ProviderID
+		}
+		provider.Count++
+		byID[model.ProviderID] = provider
+	}
+	result := make([]domain.ModelProvider, 0, len(byID))
+	for _, provider := range byID {
+		result = append(result, provider)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		left := strings.ToLower(result[i].Name + "\x00" + result[i].ID)
+		right := strings.ToLower(result[j].Name + "\x00" + result[j].ID)
+		return left < right
+	})
+	return result
+}
+
+func filterModels(models []domain.Model, query, providerID string) []domain.Model {
+	query = strings.ToLower(strings.TrimSpace(query))
+	result := make([]domain.Model, 0, len(models))
+	for _, model := range models {
+		if providerID != "" && model.ProviderID != providerID {
+			continue
+		}
+		if query != "" {
+			haystack := strings.ToLower(strings.Join([]string{
+				model.ProviderID, model.ProviderName, model.ID, model.Name, strings.Join(model.Variants, " "),
+			}, " "))
+			if !strings.Contains(haystack, query) {
+				continue
+			}
+		}
+		result = append(result, model)
+	}
+	return result
+}
+
+func (e *Engine) recentAvailableModels(ctx context.Context, models []domain.Model, limit int) []domain.RecentModel {
+	recent, err := e.store.ListRecentModels(ctx, limit)
+	if err != nil {
+		e.logger.Warn("list recent models", "error", err)
+		return nil
+	}
+	available := make(map[string]domain.Model, len(models))
+	for _, model := range models {
+		available[model.ProviderID+"\x00"+model.ID] = model
+	}
+	result := make([]domain.RecentModel, 0, len(recent))
+	for _, item := range recent {
+		if model, ok := available[item.ProviderID+"\x00"+item.ModelID]; ok {
+			if item.Variant != "" && !slices.Contains(model.Variants, item.Variant) {
+				continue
+			}
+			result = append(result, domain.RecentModel{Model: model, Variant: item.Variant})
+		}
+	}
+	return result
 }
 
 func (e *Engine) handleModelVariants(ctx context.Context, reply domain.UserReply) error {
@@ -534,11 +636,21 @@ func (e *Engine) handleApplyModel(ctx context.Context, reply domain.UserReply) e
 		if reply.ParentMessageID != "" {
 			messageID = reply.ParentMessageID
 		}
-		return e.replyWithSessionRoute(ctx, messageID, reply.ChatID, domain.Handoff{
+		err = e.replyWithSessionRoute(ctx, messageID, reply.ChatID, domain.Handoff{
 			SessionID: session.ID, SessionName: sessionName(session), Directory: session.Directory, ProjectName: selectedProject.Name,
 		}, fmt.Sprintf("已为 Session `%s` 选择 %s（%s）。不会中断当前执行；请引用回复本消息发送下一条任务，所选模型将从该任务起生效。", session.ID, selected.ModelName, variant))
+		if err == nil {
+			e.recordRecentModel(ctx, selected)
+		}
+		return err
 	default:
 		return errors.New("模型操作目标无效")
+	}
+}
+
+func (e *Engine) recordRecentModel(ctx context.Context, model domain.SessionModel) {
+	if err := e.store.RecordRecentModel(context.WithoutCancel(ctx), model); err != nil {
+		e.logger.Warn("record recent model", "provider_id", model.ProviderID, "model_id", model.ModelID, "error", err)
 	}
 }
 
@@ -705,6 +817,11 @@ func (e *Engine) handleCreateSession(ctx context.Context, reply domain.UserReply
 			}
 		}
 		return fmt.Errorf("send created session notification for %s: %w", session.ID, err)
+	}
+	if reply.ProviderID != "" && reply.ModelID != "" {
+		e.recordRecentModel(ctx, domain.SessionModel{
+			ProviderID: reply.ProviderID, ModelID: reply.ModelID, ModelName: reply.ModelName, Variant: reply.ModelVariant,
+		})
 	}
 	e.logger.Info("session created from channel", "session_id", session.ID, "directory", session.Directory, "sender_id", reply.SenderID)
 	return nil

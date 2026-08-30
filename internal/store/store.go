@@ -30,6 +30,8 @@ type Store interface {
 	GetPendingSessionModel(context.Context, string) (domain.SessionModel, error)
 	SetPendingSessionModel(context.Context, string, domain.SessionModel) error
 	ClearPendingSessionModel(context.Context, string) error
+	RecordRecentModel(context.Context, domain.SessionModel) error
+	ListRecentModels(context.Context, int) ([]domain.SessionModel, error)
 	GetChannelBinding(context.Context) (domain.ChannelBinding, error)
 	BindChannel(context.Context, domain.ChannelBinding) error
 	Close() error

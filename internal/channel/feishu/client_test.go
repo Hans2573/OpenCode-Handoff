@@ -3,6 +3,7 @@ package feishu
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -259,6 +260,38 @@ func TestFormatModelCardsExplainWhenSelectionTakesEffect(t *testing.T) {
 		ProviderID: "openai", ProviderName: "OpenAI", ID: "gpt-test", Name: "GPT Test",
 		Variants: []string{"low", "high"}, Reasoning: true, ContextLimit: 200000,
 	}
+	homeContent, err := formatModelCard(domain.ModelPage{
+		Home: true, Total: 12,
+		Recent:    []domain.RecentModel{{Model: model, Variant: "high"}},
+		Providers: []domain.ModelProvider{{ID: "openai", Name: "OpenAI", Count: 12}},
+		Context:   domain.ModelContext{Target: domain.ModelTargetSwitch, ProjectDirectory: `D:\work\project`, SessionID: "ses_1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeCard := decodeHandoffCard(t, homeContent)
+	homeMessage := cardContents(homeCard.Body.Elements)
+	for _, expected := range []string{"最近使用", "GPT Test · high", "按 Provider 查看", "OpenAI · 12", "/models <关键词>"} {
+		if !strings.Contains(homeMessage, expected) {
+			t.Fatalf("model home %q does not contain %q", homeMessage, expected)
+		}
+	}
+	homeButtons := findCardElements(homeCard.Body.Elements, "button")
+	if len(homeButtons) != 4 || homeButtons[0].Behaviors[0].Value["action"] != "model_apply" || homeButtons[1].Behaviors[0].Value["action"] != "model_provider" || homeButtons[2].Behaviors[0].Value["action"] != "model_all" || homeButtons[3].Behaviors[0].Value["action"] != "model_search" {
+		t.Fatalf("model home buttons = %+v", homeButtons)
+	}
+	fallbackContent, err := formatModelCardWithoutSearch(domain.ModelPage{
+		Home: true, Total: 12, Providers: []domain.ModelProvider{{ID: "openai", Name: "OpenAI", Count: 12}},
+		Context: domain.ModelContext{Target: domain.ModelTargetSwitch, ProjectDirectory: `D:\work\project`, SessionID: "ses_1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallbackCard := decodeHandoffCard(t, fallbackContent)
+	if findCardElement(fallbackCard.Body.Elements, "form") != nil || !strings.Contains(cardContents(fallbackCard.Body.Elements), "不支持卡片搜索框") {
+		t.Fatalf("fallback model card = %+v", fallbackCard)
+	}
+
 	content, err := formatModelCard(domain.ModelPage{
 		Models: []domain.Model{model}, Page: 1, TotalPages: 1, Total: 1,
 		Context: domain.ModelContext{Target: domain.ModelTargetCreate, ProjectDirectory: `D:\work\project`},
@@ -274,7 +307,7 @@ func TestFormatModelCardsExplainWhenSelectionTakesEffect(t *testing.T) {
 		}
 	}
 	buttons := findCardElements(card.Body.Elements, "button")
-	if len(buttons) != 2 || buttons[0].Behaviors[0].Value["action"] != "model_apply" || buttons[1].Behaviors[0].Value["action"] != "model_variants" {
+	if len(buttons) != 3 || buttons[0].Behaviors[0].Value["action"] != "model_apply" || buttons[1].Behaviors[0].Value["action"] != "model_variants" || buttons[2].Behaviors[0].Value["action"] != "model_home" {
 		t.Fatalf("model buttons = %+v", buttons)
 	}
 
@@ -290,6 +323,20 @@ func TestFormatModelCardsExplainWhenSelectionTakesEffect(t *testing.T) {
 		if !strings.Contains(message, expected) {
 			t.Fatalf("variant card %q does not contain %q", message, expected)
 		}
+	}
+}
+
+func TestInvalidCardReplyErrorDetection(t *testing.T) {
+	for _, message := range []string{
+		"reply card to Feishu message: code=230099 message=failed to create card content",
+		"card error 200621: parse card json failed",
+	} {
+		if !isInvalidCardReplyError(errors.New(message)) {
+			t.Fatalf("invalid card error not detected: %s", message)
+		}
+	}
+	if isInvalidCardReplyError(errors.New("network timeout")) {
+		t.Fatal("network error was treated as invalid card")
 	}
 }
 
@@ -489,6 +536,60 @@ func TestOnCardActionRoutesModelSelectionContext(t *testing.T) {
 	}
 }
 
+func TestOnCardActionRoutesModelProviderFilter(t *testing.T) {
+	client := &Client{replies: make(chan domain.UserReply, 1)}
+	event := &callback.CardActionTriggerEvent{Event: &callback.CardActionTriggerRequest{
+		Operator: &callback.Operator{OpenID: "ou_1"},
+		Context:  &callback.Context{OpenMessageID: "om_models", OpenChatID: "oc_chat"},
+		Action: &callback.CallBackAction{Value: map[string]any{
+			"action": "model_provider", "filter_provider": "openai", "target": "switch",
+			"directory": `D:\work\project`, "session_id": "ses_1",
+		}},
+	}}
+	go func() {
+		reply := <-client.replies
+		if !reply.ListModels || reply.ModelPage != 1 || reply.ModelProviderID != "openai" || reply.ModelContext.SessionID != "ses_1" {
+			t.Errorf("model provider reply = %+v", reply)
+		}
+		reply.Result <- nil
+	}()
+	response, err := client.onCardAction(context.Background(), event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Toast == nil || response.Toast.Type != "success" || !strings.Contains(response.Toast.Content, "模型") {
+		t.Fatalf("model provider response = %+v", response)
+	}
+}
+
+func TestOnCardActionRoutesModelSearchWithSessionContext(t *testing.T) {
+	client := &Client{replies: make(chan domain.UserReply, 1)}
+	event := &callback.CardActionTriggerEvent{Event: &callback.CardActionTriggerRequest{
+		Operator: &callback.Operator{OpenID: "ou_1"},
+		Context:  &callback.Context{OpenMessageID: "om_models", OpenChatID: "oc_chat"},
+		Action: &callback.CallBackAction{
+			Value: map[string]any{
+				"action": "model_search", "target": "switch", "directory": `D:\work\project`, "session_id": "ses_1",
+			},
+			FormValue: map[string]any{"model_query": " claude code "},
+		},
+	}}
+	go func() {
+		reply := <-client.replies
+		if !reply.ListModels || reply.ModelPage != 1 || reply.ModelQuery != "claude code" || reply.ModelContext.SessionID != "ses_1" {
+			t.Errorf("model search reply = %+v", reply)
+		}
+		reply.Result <- nil
+	}()
+	response, err := client.onCardAction(context.Background(), event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Toast == nil || response.Toast.Type != "success" || !strings.Contains(response.Toast.Content, "模型") {
+		t.Fatalf("model search response = %+v", response)
+	}
+}
+
 func TestIsAbortCommand(t *testing.T) {
 	for _, input := range []string{"/stop", " /stop ", "/STOP"} {
 		if !isAbortCommand(input) {
@@ -528,14 +629,19 @@ func TestParseProjectCommand(t *testing.T) {
 }
 
 func TestParseModelsCommand(t *testing.T) {
-	for input, expectedPage := range map[string]int{"/models": 1, " /MODELS 3 ": 3, "/models invalid": 1} {
-		page, ok := parseModelsCommand(input)
-		if !ok || page != expectedPage {
-			t.Fatalf("parseModelsCommand(%q) = %d, %v", input, page, ok)
+	tests := []struct {
+		input string
+		query string
+		page  int
+	}{{"/models", "", 0}, {"models", "", 0}, {" /MODELS 3 ", "", 3}, {"models gpt", "gpt", 1}, {"/models claude code 2", "claude code", 2}}
+	for _, test := range tests {
+		query, page, ok := parseModelsCommand(test.input)
+		if !ok || query != test.query || page != test.page {
+			t.Fatalf("parseModelsCommand(%q) = %q, %d, %v", test.input, query, page, ok)
 		}
 	}
-	if _, ok := parseModelsCommand("models"); ok {
-		t.Fatal("plain models text was parsed as a command")
+	if _, _, ok := parseModelsCommand("model"); ok {
+		t.Fatal("unrecognised model text was parsed as a command")
 	}
 }
 
@@ -585,6 +691,35 @@ func TestOnMessageRepliesHelpWithoutRouting(t *testing.T) {
 	case reply := <-client.replies:
 		t.Fatalf("help command was routed as reply: %+v", reply)
 	default:
+	}
+}
+
+func TestOnMessageAcceptsBareModelsOnlyWhenUnquoted(t *testing.T) {
+	messageID := "om_models"
+	chatID := "oc_chat"
+	messageType := "text"
+	content := `{"text":"models gpt"}`
+	openID := "ou_open"
+	client := &Client{replies: make(chan domain.UserReply, 2), logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	event := &larkim.P2MessageReceiveV1{Event: &larkim.P2MessageReceiveV1Data{
+		Sender:  &larkim.EventSender{SenderId: &larkim.UserId{OpenId: &openID}},
+		Message: &larkim.EventMessage{MessageId: &messageID, ChatId: &chatID, MessageType: &messageType, Content: &content},
+	}}
+	if err := client.onMessage(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	reply := <-client.replies
+	if !reply.ListModels || reply.ModelQuery != "gpt" {
+		t.Fatalf("bare models reply = %+v", reply)
+	}
+	parentID := "om_parent"
+	event.Event.Message.ParentId = &parentID
+	if err := client.onMessage(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	reply = <-client.replies
+	if reply.ListModels || reply.Text != "models gpt" {
+		t.Fatalf("quoted bare models reply = %+v", reply)
 	}
 }
 

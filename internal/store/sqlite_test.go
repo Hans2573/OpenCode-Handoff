@@ -254,6 +254,38 @@ func TestSQLitePendingSessionModelLifecycle(t *testing.T) {
 	}
 }
 
+func TestSQLiteRecentModelsAreOrderedAndUpdated(t *testing.T) {
+	ctx := context.Background()
+	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	first := domain.SessionModel{ProviderID: "openai", ModelID: "gpt-test", ModelName: "GPT Test", Variant: "high"}
+	second := domain.SessionModel{ProviderID: "anthropic", ModelID: "claude-test", ModelName: "Claude Test"}
+	if err := database.RecordRecentModel(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Millisecond)
+	if err := database.RecordRecentModel(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	recent, err := database.ListRecentModels(ctx, 5)
+	if err != nil || len(recent) != 2 || recent[0] != second || recent[1] != first {
+		t.Fatalf("recent models = %+v, %v", recent, err)
+	}
+	first.ModelName = "GPT Test Renamed"
+	time.Sleep(time.Millisecond)
+	if err := database.RecordRecentModel(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	recent, err = database.ListRecentModels(ctx, 1)
+	if err != nil || len(recent) != 1 || recent[0] != first {
+		t.Fatalf("updated recent models = %+v, %v", recent, err)
+	}
+}
+
 func TestSQLitePersistsQuestionAndPreventsSecondAnswer(t *testing.T) {
 	ctx := context.Background()
 	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))

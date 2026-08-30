@@ -242,6 +242,17 @@ func (c *Client) ReplyModels(ctx context.Context, messageID string, page domain.
 	if err != nil {
 		return fmt.Errorf("encode model card: %w", err)
 	}
+	err = c.sendCardReply(ctx, messageID, content)
+	if err == nil || !page.Home || !isInvalidCardReplyError(err) {
+		return err
+	}
+	if c.logger != nil {
+		c.logger.Warn("Feishu rejected the model search form; retrying without the search input", "error", err)
+	}
+	content, encodeErr := formatModelCardWithoutSearch(page)
+	if encodeErr != nil {
+		return fmt.Errorf("encode fallback model card: %w", encodeErr)
+	}
 	return c.sendCardReply(ctx, messageID, content)
 }
 
@@ -302,9 +313,10 @@ func (c *Client) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1
 	if isRunningCommand(text) {
 		reply.ListRunning = true
 	}
-	if page, ok := parseModelsCommand(text); ok {
+	if query, page, ok := parseModelsCommand(text); ok && (strings.HasPrefix(strings.TrimSpace(text), "/") || reply.ParentMessageID == "") {
 		reply.ListModels = true
 		reply.ModelPage = page
+		reply.ModelQuery = query
 		reply.ModelContext = domain.ModelContext{Target: domain.ModelTargetBrowse}
 	}
 	if len(senderIDs) > 0 {
@@ -358,19 +370,21 @@ func isRunningCommand(text string) bool {
 	}
 }
 
-func parseModelsCommand(text string) (int, bool) {
+func parseModelsCommand(text string) (string, int, bool) {
 	fields := strings.Fields(strings.TrimSpace(text))
-	if len(fields) == 0 || !strings.EqualFold(fields[0], "/models") {
-		return 0, false
+	if len(fields) == 0 || (!strings.EqualFold(fields[0], "/models") && !strings.EqualFold(fields[0], "models")) {
+		return "", 0, false
 	}
 	if len(fields) == 1 {
-		return 1, true
+		return "", 0, true
 	}
-	page, err := strconv.Atoi(fields[1])
-	if err != nil || page < 1 {
-		return 1, true
+	page := 1
+	queryFields := fields[1:]
+	if parsed, err := strconv.Atoi(queryFields[len(queryFields)-1]); err == nil && parsed > 0 {
+		page = parsed
+		queryFields = queryFields[:len(queryFields)-1]
 	}
-	return page, true
+	return strings.Join(queryFields, " "), page, true
 }
 
 const helpMessage = `OpenCode Handoff 使用说明
@@ -391,7 +405,7 @@ const helpMessage = `OpenCode Handoff 使用说明
 发送 /running（或 /r），查看状态、当前模型和距离上次用户输入的时长；可选择模型，从下一条飞书任务起生效。
 
 6. 查看可用模型
-发送 /models，可查看 OpenCode 当前返回的脱敏模型目录。
+发送 /models 查看最近使用与 Provider 分组；发送 /models <关键词> 可按 Provider、模型名称或模型 ID 搜索。
 
 7. 获取帮助
 发送 /help。`
@@ -401,7 +415,7 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		return cardToast("error", "无效的卡片操作"), nil
 	}
 	action := stringMapValue(event.Event.Action.Value, "action")
-	if action != "question_reply" && action != "question_custom_reply" && action != "question_reject" && action != "permission_reply" && action != "project_page" && action != "project_create" && action != "model_page" && action != "model_variants" && action != "model_apply" && action != "session_models" {
+	if action != "question_reply" && action != "question_custom_reply" && action != "question_reject" && action != "permission_reply" && action != "project_page" && action != "project_create" && action != "model_home" && action != "model_all" && action != "model_search" && action != "model_provider" && action != "model_page" && action != "model_variants" && action != "model_apply" && action != "session_models" {
 		return cardToast("error", "不支持的卡片操作"), nil
 	}
 	messageID := ""
@@ -450,22 +464,48 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		}
 	} else if action == "project_create" {
 		reply.ListModels = true
-		reply.ModelPage = 1
+		reply.ModelPage = 0
 		reply.ProjectDirectory = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "directory"))
 		if reply.ProjectDirectory == "" {
 			return cardToast("error", "项目目录无效"), nil
 		}
 		reply.ModelContext = domain.ModelContext{Target: domain.ModelTargetCreate, ProjectDirectory: reply.ProjectDirectory}
+	} else if action == "model_home" {
+		reply.ListModels = true
+		reply.ModelPage = 0
+		reply.ModelContext = modelContextFromAction(event.Event.Action.Value)
+	} else if action == "model_all" {
+		reply.ListModels = true
+		reply.ModelPage = 1
+		reply.ModelContext = modelContextFromAction(event.Event.Action.Value)
+	} else if action == "model_search" {
+		reply.ListModels = true
+		reply.ModelPage = 1
+		reply.ModelQuery = strings.TrimSpace(stringMapValue(event.Event.Action.FormValue, "model_query"))
+		reply.ModelContext = modelContextFromAction(event.Event.Action.Value)
+		if reply.ModelQuery == "" {
+			return cardToast("error", "请输入模型关键词"), nil
+		}
+	} else if action == "model_provider" {
+		reply.ListModels = true
+		reply.ModelPage = 1
+		reply.ModelProviderID = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "filter_provider"))
+		reply.ModelContext = modelContextFromAction(event.Event.Action.Value)
+		if reply.ModelProviderID == "" {
+			return cardToast("error", "Provider 信息无效"), nil
+		}
 	} else if action == "model_page" {
 		reply.ListModels = true
 		reply.ModelPage = intMapValue(event.Event.Action.Value, "page")
+		reply.ModelQuery = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "query"))
+		reply.ModelProviderID = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "filter_provider"))
 		if reply.ModelPage < 1 {
 			return cardToast("error", "模型页码无效"), nil
 		}
 		reply.ModelContext = modelContextFromAction(event.Event.Action.Value)
 	} else if action == "session_models" {
 		reply.ListModels = true
-		reply.ModelPage = 1
+		reply.ModelPage = 0
 		reply.ModelContext = modelContextFromAction(event.Event.Action.Value)
 		if reply.ModelContext.Target != domain.ModelTargetSwitch || reply.ModelContext.SessionID == "" || reply.ModelContext.ProjectDirectory == "" {
 			return cardToast("error", "Session 信息无效"), nil
@@ -665,12 +705,21 @@ func (c *Client) sendCardReply(ctx context.Context, messageID, content string) e
 		Build()
 	response, err := c.api.Im.V1.Message.Reply(ctx, request)
 	if err != nil {
-		return fmt.Errorf("reply project card to Feishu message: %w", err)
+		return fmt.Errorf("reply card to Feishu message: %w", err)
 	}
 	if !response.Success() {
-		return fmt.Errorf("reply project card to Feishu message: code=%d message=%s request_id=%s", response.Code, response.Msg, response.RequestId())
+		return fmt.Errorf("reply card to Feishu message: code=%d message=%s request_id=%s", response.Code, response.Msg, response.RequestId())
 	}
 	return nil
+}
+
+func isInvalidCardReplyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "code=230099") || strings.Contains(message, "200621") ||
+		strings.Contains(message, "parse card json") || strings.Contains(message, "failed to create card content")
 }
 
 func senderIdentifiers(sender *larkim.EventSender) []string {
@@ -889,6 +938,14 @@ func formatProjectCard(page domain.ProjectPage) (string, error) {
 }
 
 func formatModelCard(page domain.ModelPage) (string, error) {
+	return formatModelCardWithSearch(page, true)
+}
+
+func formatModelCardWithoutSearch(page domain.ModelPage) (string, error) {
+	return formatModelCardWithSearch(page, false)
+}
+
+func formatModelCardWithSearch(page domain.ModelPage, includeSearch bool) (string, error) {
 	securityNote := "这里只展示 OpenCode 当前返回的脱敏模型信息，不会显示 API Key 或连接参数。"
 	note := "选择模型前请确认 Provider 与模型 ID。"
 	switch page.Context.Target {
@@ -897,12 +954,74 @@ func formatModelCard(page domain.ModelPage) (string, error) {
 	case domain.ModelTargetSwitch:
 		note = "选择不会中断当前执行；模型从下一条通过飞书发送的普通任务起生效。"
 	}
-	elements := []handoffCardElement{{
-		Tag: "markdown", Content: fmt.Sprintf("🤖 **OpenCode Models**\n共 %d 个模型 · 第 %d/%d 页\n\nℹ️ %s\n🔒 %s", page.Total, page.Page, page.TotalPages, note, securityNote),
-	}}
+	elements := []handoffCardElement{}
+	if page.Home {
+		elements = append(elements, handoffCardElement{Tag: "markdown", Content: fmt.Sprintf(
+			"🤖 **OpenCode Models**\n共 %d 个模型 · %d 个 Provider\n\nℹ️ %s\n🔒 %s", page.Total, len(page.Providers), note, securityNote,
+		)})
+	} else {
+		title := "全部模型"
+		if page.Query != "" {
+			title = fmt.Sprintf("搜索：`%s`", sanitizeInlineCode(page.Query))
+		} else if page.ProviderID != "" {
+			title = "Provider：" + page.ProviderName
+			if strings.TrimSpace(page.ProviderName) == "" {
+				title = "Provider：" + page.ProviderID
+			}
+		}
+		elements = append(elements, handoffCardElement{Tag: "markdown", Content: fmt.Sprintf(
+			"🤖 **%s**\n共 %d 个模型 · 第 %d/%d 页\n\nℹ️ %s\n🔒 %s", title, page.Total, page.Page, page.TotalPages, note, securityNote,
+		)})
+	}
 	if page.Context.Target == domain.ModelTargetCreate {
 		value := modelActionValue("model_apply", page.Context)
 		elements = append(elements, permissionButtonRow(callbackButton("使用 OpenCode 默认模型创建", value, "default")))
+	}
+	if page.Home {
+		if len(page.Recent) > 0 {
+			elements = append(elements, handoffCardElement{Tag: "hr"}, handoffCardElement{Tag: "markdown", Content: "⭐ **最近使用**"})
+			for _, recent := range page.Recent {
+				label := recent.Model.Name
+				if recent.Variant != "" {
+					label += " · " + recent.Variant
+				}
+				detail := fmt.Sprintf("**%s**\n`%s/%s`", label, sanitizeInlineCode(recent.Model.ProviderID), sanitizeInlineCode(recent.Model.ID))
+				elements = append(elements, handoffCardElement{Tag: "markdown", Content: detail})
+				if page.Context.Target != domain.ModelTargetBrowse {
+					value := modelActionValue("model_apply", page.Context)
+					value["provider_id"] = recent.Model.ProviderID
+					value["model_id"] = recent.Model.ID
+					value["variant"] = recent.Variant
+					elements = append(elements, permissionButtonRow(callbackButton("使用 "+label, value, "primary")))
+				}
+			}
+		}
+		elements = append(elements, handoffCardElement{Tag: "hr"}, handoffCardElement{Tag: "markdown", Content: "🏢 **按 Provider 查看**"})
+		for index := 0; index < len(page.Providers); index += 2 {
+			buttons := make([]handoffCardElement, 0, 2)
+			for _, provider := range page.Providers[index:min(index+2, len(page.Providers))] {
+				value := modelActionValue("model_provider", page.Context)
+				value["filter_provider"] = provider.ID
+				buttons = append(buttons, callbackButton(fmt.Sprintf("%s · %d", provider.Name, provider.Count), value, "default"))
+			}
+			elements = append(elements, permissionButtonRow(buttons...))
+		}
+		allValue := modelActionValue("model_all", page.Context)
+		elements = append(elements, permissionButtonRow(callbackButton("查看全部模型", allValue, "default")))
+		if includeSearch {
+			elements = append(elements, modelSearchForm(page.Context))
+		} else {
+			elements = append(elements, handoffCardElement{Tag: "markdown", Content: "当前飞书环境不支持卡片搜索框，可按 Provider 查看，或发送 `/models <关键词>` 进行全局搜索。"})
+		}
+		elements = append(elements, handoffCardElement{Tag: "markdown", Content: "也可以直接发送 `/models <关键词>` 进行全局浏览，例如 `/models claude`。"})
+		content, err := json.Marshal(handoffCard{
+			Schema: "2.0", Config: handoffCardConfig{UpdateMulti: true, WidthMode: "fill"},
+			Body: handoffCardBody{Direction: "vertical", Padding: "12px 12px 12px 12px", Elements: elements},
+		})
+		if err != nil {
+			return "", err
+		}
+		return string(content), nil
 	}
 	for _, model := range page.Models {
 		providerName := strings.TrimSpace(model.ProviderName)
@@ -945,15 +1064,21 @@ func formatModelCard(page domain.ModelPage) (string, error) {
 		if page.Page > 1 {
 			value := modelActionValue("model_page", page.Context)
 			value["page"] = page.Page - 1
+			value["query"] = page.Query
+			value["filter_provider"] = page.ProviderID
 			buttons = append(buttons, callbackButton("← 上一页", value, "default"))
 		}
 		if page.Page < page.TotalPages {
 			value := modelActionValue("model_page", page.Context)
 			value["page"] = page.Page + 1
+			value["query"] = page.Query
+			value["filter_provider"] = page.ProviderID
 			buttons = append(buttons, callbackButton("下一页 →", value, "default"))
 		}
 		elements = append(elements, handoffCardElement{Tag: "hr"}, permissionButtonRow(buttons...))
 	}
+	homeValue := modelActionValue("model_home", page.Context)
+	elements = append(elements, permissionButtonRow(callbackButton("← 返回模型首页", homeValue, "default")))
 	content, err := json.Marshal(handoffCard{
 		Schema: "2.0", Config: handoffCardConfig{UpdateMulti: true, WidthMode: "fill"},
 		Body: handoffCardBody{Direction: "vertical", Padding: "12px 12px 12px 12px", Elements: elements},
@@ -998,6 +1123,24 @@ func modelActionValue(action string, context domain.ModelContext) map[string]any
 	return map[string]any{
 		"action": action, "target": string(context.Target), "directory": context.ProjectDirectory,
 		"session_id": context.SessionID, "session_name": context.SessionName,
+	}
+}
+
+func modelSearchForm(context domain.ModelContext) handoffCardElement {
+	required := true
+	submit := callbackButton("搜索模型", modelActionValue("model_search", context), "primary")
+	submit.Name = "model_search_submit"
+	submit.ActionType = "form_submit"
+	return handoffCardElement{
+		Tag: "form", Name: "model_search_form",
+		Elements: []handoffCardElement{
+			{
+				Tag: "input", Name: "model_query", InputType: "multiline_text", Rows: 1, MaxLength: 100, Required: &required,
+				Label:       &handoffCardText{Tag: "plain_text", Content: "搜索模型"},
+				Placeholder: &handoffCardText{Tag: "plain_text", Content: "Provider、模型名称、模型 ID 或档位"},
+			},
+			submit,
+		},
 	}
 }
 

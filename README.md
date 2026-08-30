@@ -32,7 +32,7 @@ V1.1 已支持 Question Tool、Permission Approval 和飞书交互卡片。
 
 项目启动器支持在飞书发送 `/project`，分页查看 OpenCode 已打开的项目、选择模型并创建原生 Session。创建结果会形成一条带 Session 映射的卡片；引用回复该卡片即可发送第一条任务。空 Session 的模型只是“待使用”，直到第一条任务发送时才真正交给 OpenCode。配置了固定 `opencode.directory` 时只展示该目录，OpenCode 的 `global /` 项目不会作为可创建目标。
 
-发送 `/models` 可分页查看 OpenCode 当前返回的模型目录。应用只解析 Provider、模型、能力和档位等脱敏字段，不会把 Provider 响应中的 API Key 或连接参数发送到飞书。运行中 Session 卡片支持选择模型；选择不会中断当前执行，并从下一条通过飞书发送的普通任务起生效。
+发送 `/models` 会先展示最近使用的模型和按 Provider 分组的入口；发送 `/models <关键词>`（例如 `/models claude`）可按 Provider、模型名称、模型 ID 或档位模糊搜索，筛选结果支持翻页。飞书环境支持表单时，创建或切换 Session 的模型首页也会显示搜索框，并保留当前 Session 上下文；飞书拒绝表单时会自动降级为无搜索框卡片。在任何情况下，Provider 分组和命令搜索都可使用。应用只解析 Provider、模型、能力和档位等脱敏字段，不会把 Provider 响应中的 API Key 或连接参数发送到飞书。最近使用记录只在本机 SQLite 中保留最多 20 条。运行中 Session 卡片支持选择模型；选择不会中断当前执行，并从下一条通过飞书发送的普通任务起生效。
 
 运行状态快捷命令 `/running`（简写 `/r`）会跨项目汇总当前 `busy/retry` Session，显示执行中、重试、等待授权或等待回答状态，并计算距离最后一条用户消息已经过了多久。最后一次用户输入会完整保留在默认收起的折叠块中。
 

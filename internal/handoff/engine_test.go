@@ -283,6 +283,10 @@ func TestEngineSwitchesExistingSessionModelOnNextFeishuPrompt(t *testing.T) {
 	if len(channel.replyRefs) != 1 {
 		t.Fatalf("switch reply refs = %v", channel.replyRefs)
 	}
+	recent, err := database.ListRecentModels(ctx, 5)
+	if err != nil || len(recent) != 1 || recent[0].ProviderID != "openai" || recent[0].ModelID != "gpt-test" || recent[0].Variant != "high" {
+		t.Fatalf("recent switched model = %+v, %v", recent, err)
+	}
 	if err := engine.handleReply(ctx, domain.UserReply{
 		MessageID: "om_next", ParentMessageID: channel.replyRefs[0].MessageID, ChatID: "oc_allowed", SenderID: "ou_allowed", Text: "继续任务",
 	}); err != nil {
@@ -293,6 +297,62 @@ func TestEngineSwitchesExistingSessionModelOnNextFeishuPrompt(t *testing.T) {
 	}
 	if _, err := database.GetPendingSessionModel(ctx, "ses_existing"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("applied switched model was not cleared: %v", err)
+	}
+}
+
+func TestEngineModelCatalogSupportsHomeRecentSearchAndProvider(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	if err := database.RecordRecentModel(ctx, domain.SessionModel{ProviderID: "openai", ModelID: "gpt-a", ModelName: "GPT A", Variant: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &fakeAdapter{models: []opencode.Model{
+		{ProviderID: "openai", ProviderName: "OpenAI", ID: "gpt-a", Name: "GPT A", Variants: []string{"low", "high"}},
+		{ProviderID: "openai", ProviderName: "OpenAI", ID: "gpt-b", Name: "GPT B"},
+		{ProviderID: "anthropic", ProviderName: "Anthropic", ID: "claude-a", Name: "Claude A"},
+	}}
+	channel := &fakeChannel{}
+	engine := newTestEngine(adapter, channel, database, true, true)
+
+	if err := engine.handleReply(ctx, domain.UserReply{MessageID: "om_home", ChatID: "oc_allowed", SenderID: "ou_allowed", ListModels: true}); err != nil {
+		t.Fatal(err)
+	}
+	home := channel.modelPages[0]
+	if !home.Home || home.Total != 3 || len(home.Providers) != 2 || len(home.Recent) != 1 || home.Recent[0].Variant != "high" {
+		t.Fatalf("model home = %+v", home)
+	}
+	if err := engine.handleReply(ctx, domain.UserReply{MessageID: "om_search", ChatID: "oc_allowed", SenderID: "ou_allowed", ListModels: true, ModelPage: 1, ModelQuery: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	search := channel.modelPages[1]
+	if search.Total != 1 || search.Query != "claude" || search.Models[0].ID != "claude-a" {
+		t.Fatalf("model search = %+v", search)
+	}
+	if err := engine.handleReply(ctx, domain.UserReply{MessageID: "om_provider", ChatID: "oc_allowed", SenderID: "ou_allowed", ListModels: true, ModelPage: 1, ModelProviderID: "openai"}); err != nil {
+		t.Fatal(err)
+	}
+	provider := channel.modelPages[2]
+	if provider.Total != 2 || provider.ProviderID != "openai" || provider.ProviderName != "OpenAI" {
+		t.Fatalf("provider models = %+v", provider)
+	}
+}
+
+func TestEngineReportsModelListFailureToFeishu(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	channel := &fakeChannel{}
+	engine := newTestEngine(&fakeAdapter{modelErr: errors.New("provider endpoint unavailable")}, channel, database, true, true)
+	err = engine.handleReply(ctx, domain.UserReply{MessageID: "om_models", ChatID: "oc_allowed", SenderID: "ou_allowed", ListModels: true})
+	if err == nil || len(channel.notices) != 1 || !strings.Contains(channel.notices[0], "获取模型列表失败") {
+		t.Fatalf("model list failure = %v, notices = %v", err, channel.notices)
 	}
 }
 
@@ -652,9 +712,13 @@ type fakeAdapter struct {
 	permissionReplies []permissionReplyCall
 	aborts            []abortCall
 	models            []opencode.Model
+	modelErr          error
 }
 
 func (f *fakeAdapter) ListModels(context.Context) ([]opencode.Model, error) {
+	if f.modelErr != nil {
+		return nil, f.modelErr
+	}
 	if f.models != nil {
 		return f.models, nil
 	}

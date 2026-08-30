@@ -203,6 +203,64 @@ func (s *SQLite) ClearPendingSessionModel(ctx context.Context, sessionID string)
 	return nil
 }
 
+func (s *SQLite) RecordRecentModel(ctx context.Context, model domain.SessionModel) error {
+	model.ProviderID = strings.TrimSpace(model.ProviderID)
+	model.ModelID = strings.TrimSpace(model.ModelID)
+	model.ModelName = strings.TrimSpace(model.ModelName)
+	model.Variant = strings.TrimSpace(model.Variant)
+	if model.ProviderID == "" || model.ModelID == "" {
+		return errors.New("recent model requires provider_id and model_id")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin recent model update: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO recent_models (provider_id, model_id, model_name, variant, used_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(provider_id, model_id, variant) DO UPDATE SET
+			model_name = excluded.model_name,
+			used_at = excluded.used_at`,
+		model.ProviderID, model.ModelID, model.ModelName, model.Variant, time.Now().UTC().UnixMilli()); err != nil {
+		return fmt.Errorf("record recent model: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM recent_models WHERE rowid NOT IN (
+		SELECT rowid FROM recent_models ORDER BY used_at DESC, rowid DESC LIMIT 20
+	)`); err != nil {
+		return fmt.Errorf("trim recent models: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit recent model update: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLite) ListRecentModels(ctx context.Context, limit int) ([]domain.SessionModel, error) {
+	if limit <= 0 || limit > 20 {
+		limit = 5
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT provider_id, model_id, model_name, variant
+		FROM recent_models ORDER BY used_at DESC, rowid DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list recent models: %w", err)
+	}
+	defer rows.Close()
+	result := make([]domain.SessionModel, 0, limit)
+	for rows.Next() {
+		var model domain.SessionModel
+		if err := rows.Scan(&model.ProviderID, &model.ModelID, &model.ModelName, &model.Variant); err != nil {
+			return nil, fmt.Errorf("scan recent model: %w", err)
+		}
+		result = append(result, model)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate recent models: %w", err)
+	}
+	return result, nil
+}
+
 func (s *SQLite) AppendEvent(ctx context.Context, event domain.EventLog) error {
 	metadata, err := json.Marshal(event.Metadata)
 	if err != nil {

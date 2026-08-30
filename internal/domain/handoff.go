@@ -117,12 +117,29 @@ type ModelContext struct {
 	SessionName      string
 }
 
+type ModelProvider struct {
+	ID    string
+	Name  string
+	Count int
+}
+
+type RecentModel struct {
+	Model   Model
+	Variant string
+}
+
 type ModelPage struct {
-	Models     []Model
-	Page       int
-	TotalPages int
-	Total      int
-	Context    ModelContext
+	Models       []Model
+	Recent       []RecentModel
+	Providers    []ModelProvider
+	Page         int
+	TotalPages   int
+	Total        int
+	Query        string
+	ProviderID   string
+	ProviderName string
+	Home         bool
+	Context      ModelContext
 }
 
 type ModelVariantPage struct {
@@ -176,6 +193,8 @@ type UserReply struct {
 	ListRunning       bool
 	ListModels        bool
 	ModelPage         int
+	ModelQuery        string
+	ModelProviderID   string
 	ModelContext      ModelContext
 	ListModelVariants bool
 	ApplyModel        bool

@@ -86,6 +86,15 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			variant TEXT NOT NULL DEFAULT '',
 			updated_at INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS recent_models (
+			provider_id TEXT NOT NULL,
+			model_id TEXT NOT NULL,
+			model_name TEXT NOT NULL DEFAULT '',
+			variant TEXT NOT NULL DEFAULT '',
+			used_at INTEGER NOT NULL,
+			PRIMARY KEY(provider_id, model_id, variant)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_recent_models_used_at ON recent_models(used_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS agent_instances (
 			id TEXT PRIMARY KEY,
 			type TEXT NOT NULL,
