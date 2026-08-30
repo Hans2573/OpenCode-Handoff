@@ -1,0 +1,21 @@
+.github/workflows/release.yml
+  s_855ba914fc7499::t_0a8884bd843bac 1-173
+docs/build-and-release.md
+  s_855ba914fc7499::t_974cd3279c8601 110,116-117,123,128-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d101711fe0ad42654d699d75c542d34da5032c6f",
+  "prompts": {},
+  "sessions": {
+    "s_855ba914fc7499": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05354-bb05-7f23-aae4-9faf6d584e54",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
