@@ -24,7 +24,26 @@ OpenCode Handoff 让你离开电脑时，仍能掌握 OpenCode Session 的关键
 
 当 OpenCode 完成任务、提出问题、请求授权或发生错误时，Handoff 会通过飞书 / Lark 通知你。
 
-你可以直接用手机回复，消息会返回同一个 OpenCode Session。OpenCode 始终是主工作界面，也是完整对话的唯一事实源。
+你可以直接用手机回复，消息会返回同一个 OpenCode Session。OpenCode 始终是主工作界面，也是完整 Session 的唯一事实源。
+
+## 为什么是 Handoff？
+
+许多飞书 / Lark Bridge 试图把 Coding Agent 的完整交互体验搬到 IM 中。OpenCode Handoff 采用不同的方式：**OpenCode 始终是主工作界面，Handoff 只在关键时刻把控制权带到你身边。**
+
+| | OpenCode Handoff | Chat Bridge |
+| --- | --- | --- |
+| 核心定位 | **Agent Handoff 与远程控制** | 将 Agent 接入 IM |
+| 主工作界面 | **OpenCode** | 飞书 / Lark，或在两者之间切换 |
+| 交互方式 | **只在需要关注时介入** | 持续聊天 |
+| Session 连续性 | **始终继续原 OpenCode Session** | 通常通过 IM 管理或映射 Session |
+| 远程能力 | **回答、授权、继续、停止、创建 Session** | 以聊天交互为核心 |
+| 本地管理 | **桌面端统一管理项目与 Session 状态** | 通常依赖配置、命令或当前聊天 |
+| 模型管理 | **模型发现、选择与切换** | 取决于具体 Bridge |
+| 扩展方向 | **Agent × Channel 的本地 Handoff 控制中心** | 将更多 Agent 能力带入 IM |
+
+> **Handoff 连接的是注意力，而不是完整对话。**
+
+当你离开电脑后，OpenCode 仍然继续工作；只有任务完成、需要回答、需要授权或出现异常时，Handoff 才把这个时刻带到飞书 / Lark。处理完成后，原来的 Session 继续执行。
 
 ## 工作流程
 
@@ -44,9 +63,7 @@ OpenCode Handoff
 原 OpenCode Session 继续
 ```
 
-OpenCode 始终是你的主工作界面。只有 Agent 需要你时，Handoff 才会介入。
-
-它不是完整的 OpenCode ↔ 飞书聊天 Bridge，不会持续转发 Thinking、Token Stream、Tool Call 或每一条 Assistant 流式输出。
+完整 Session 始终留在 OpenCode，Handoff 专注于远程控制和关键交接。
 
 ## 核心能力
 

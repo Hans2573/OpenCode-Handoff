@@ -24,7 +24,26 @@ OpenCode Handoff lets you leave your desk without losing control of your OpenCod
 
 When OpenCode finishes a task, asks a question, requests permission, or hits an error, Handoff notifies you through Feishu / Lark.
 
-Reply from your phone, and your response goes back to the same OpenCode session. OpenCode remains your primary workspace and the source of truth for the complete conversation.
+Reply from your phone, and your response goes back to the same OpenCode session. OpenCode remains your primary workspace and the source of truth for the full session.
+
+## Why Handoff?
+
+Many Feishu / Lark bridges try to move the full Coding Agent experience into IM. OpenCode Handoff takes a different approach: **OpenCode remains the primary workspace, while Handoff brings control to you at the moments that matter.**
+
+| | OpenCode Handoff | Chat Bridge |
+| --- | --- | --- |
+| Core focus | **Agent handoff and remote control** | Agent access through IM |
+| Primary workspace | **OpenCode** | Feishu / Lark, or split between both |
+| Interaction model | **Intervene only when attention is needed** | Continuous chat |
+| Session continuity | **Always continue the original OpenCode session** | Sessions are often managed or mapped through IM |
+| Remote actions | **Reply, approve, continue, stop, and launch sessions** | Primarily chat interactions |
+| Local operations | **Desktop control center for projects and session states** | Usually configuration-, command-, or chat-driven |
+| Model control | **Discover, select, and switch models** | Depends on the bridge |
+| Direction | **A local Agent × Channel handoff center** | Bring more Agent capabilities into IM |
+
+> **Handoff is an attention bridge, not a conversation bridge.**
+
+When you step away, OpenCode keeps working. Handoff reaches you only when a task finishes, a question or permission needs your input, or an error needs attention. Once handled, the original session continues.
 
 ## How It Works
 
@@ -44,9 +63,7 @@ Reply / Approve
 Same OpenCode Session continues
 ```
 
-OpenCode stays your primary workspace. Handoff only steps in when the agent needs you.
-
-It is not a full OpenCode ↔ Feishu chat bridge. It does not continuously forward Thinking, token streams, tool calls, or every streamed Assistant response.
+The complete session stays in OpenCode. Handoff focuses on remote control and the moments that need your attention.
 
 ## Features
 
