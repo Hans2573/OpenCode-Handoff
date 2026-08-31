@@ -337,7 +337,7 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
       && withinRange;
   });
   const ranked: ExecutionRankingItem[] = (metric === "round"
-    ? executionRuns.map((run) => ({ key: `${run.id || "active"}-${run.sessionId}-${run.startedAt}`, title: run.sessionTitle, project: run.projectName, duration: run.durationSeconds, statusLabel: run.statusLabel, active: run.active, detail: run.active ? "当前轮次" : formatRecentTime(run.endedAt) }))
+    ? executionRuns.map((run) => ({ key: run.active ? `active-${run.sessionId}-${run.directory}` : `${run.id}-${run.sessionId}-${run.startedAt}`, title: run.sessionTitle, project: run.projectName, duration: run.durationSeconds, statusLabel: run.statusLabel, active: run.active, detail: run.active ? "当前轮次" : formatRecentTime(run.endedAt) }))
     : executionSessions.map((session) => ({ key: `${session.sessionId}-${session.directory}`, title: session.sessionTitle, project: session.projectName, duration: session.totalExecutionSeconds, statusLabel: session.statusLabel, active: session.active, detail: `${session.executionCount} 轮` })))
     .filter((item) => item.duration > 0)
     .sort((a, b) => b.duration - a.duration)
@@ -368,14 +368,14 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
                 <article className={`podium-card rank-${[2, 1, 3][index]}`} key={item.key}>
                   <span className="rank-medal">{[2, 1, 3][index]}</span>
                   <strong title={item.title}>{item.title}</strong>
-                  <b>{formatDuration(item.duration)}</b>
+                  <b><LiveDuration seconds={item.duration} running={item.active} /></b>
                   <div><span>{item.project} · {item.detail}</span><span className={`status-pill ${rankingTone(item)}`}>{item.statusLabel}</span></div>
                 </article>
               ) : <span className="podium-placeholder" aria-hidden="true" key={`empty-rank-${index}`} />)}
             </div>
             <div className="leaderboard-list">
               <div className="leaderboard-row leaderboard-head"><span>排名</span><span>Session 名称</span><span>自动执行时长</span></div>
-              {ranked.slice(3).map((item, index) => <div className="leaderboard-row" key={item.key}><span>{index + 4}</span><strong title={item.title}>{item.title}</strong><time>{formatDuration(item.duration)}</time></div>)}
+              {ranked.slice(3).map((item, index) => <div className="leaderboard-row" key={item.key}><span>{index + 4}</span><strong title={item.title}>{item.title}</strong><time><LiveDuration seconds={item.duration} running={item.active} /></time></div>)}
               {ranked.length <= 3 && <div className="leaderboard-empty">更多有运行记录的 Session 将显示在这里</div>}
               <button className="leaderboard-link" onClick={() => document.querySelector(".sessions-data-panel")?.scrollIntoView({ behavior: "smooth" })}>查看完整列表 <ChevronRight size={14} /></button>
             </div>
@@ -422,7 +422,8 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
 function SessionTableRow({ session, metric, onOpen }: { session: SessionView; metric: ExecutionMetric; onOpen: () => void }) {
   const tone = statusTone(session.status);
   const modelLabel = `${session.currentModel || "默认模型"}${session.currentVariant ? ` · ${session.currentVariant}` : ""}`;
-  const duration = metric === "round" ? session.latestExecutionSeconds : session.totalExecutionSeconds;
+  const serverDuration = metric === "round" ? session.latestExecutionSeconds : session.totalExecutionSeconds;
+  const duration = useLiveSeconds(serverDuration, isSessionBusy(session));
   return <article className="sessions-table-row" role="row">
     <div className="table-session-cell"><span className={`session-run-icon ${tone}`}>{session.status === "running" ? <Play size={15} /> : <Activity size={15} />}</span><div><strong title={session.title}>{session.title}</strong><span>项目：{session.projectName}<i />Agent：{session.agentName}<i />渠道：{session.channelName}</span><code>{shortID(session.id)}</code></div></div>
     <span><span className={`table-status ${tone}`}>{tone === "running" && <i className="health-dot online" />}{session.statusLabel}</span>{session.statusDetail && <small title={session.statusDetail}>{session.statusDetail}</small>}</span>
@@ -584,13 +585,16 @@ function ProjectTable({ projects, onRoute, roomy = false }: { projects: ProjectV
 function SessionCard({ session, compact = false, onOpen }: { session: SessionView; compact?: boolean; onOpen: () => void }) {
   const tone = statusTone(session.status);
   const modelLabel = `${session.currentModel || "OpenCode 默认/尚未识别"}${session.currentVariant ? ` · ${session.currentVariant}` : ""}`;
+  const busy = isSessionBusy(session);
+  const busyForSeconds = useLiveSeconds(session.busyForSeconds, busy);
+  const sinceLastInputSeconds = useLiveSeconds(session.sinceLastInputSeconds, session.hasLastInput);
   return (
     <article className={`session-card ${tone} ${compact ? "compact" : ""}`}>
       <div className="session-card-head"><span className={`session-icon ${tone}`}>{session.status === "running" ? <Play size={17} /> : session.status.startsWith("waiting") ? <Clock3 size={17} /> : session.status === "retrying" ? <RotateCcw size={17} /> : <Activity size={17} />}</span><div className="session-title"><strong>{session.title}</strong><code>{shortID(session.id)}</code></div><span className={`status-pill ${tone}`}>{session.statusLabel}</span></div>
       <div className="session-meta"><span>项目：{session.projectName}</span><i /> <span>Agent：{session.agentName}</span><i /> <span>渠道：{session.channelName}</span></div>
       {session.statusDetail && <p className="status-detail">{session.statusDetail}</p>}
       <div className="session-model-row" title={`模型：${modelLabel}`}><Bot size={14} /><span>模型：{modelLabel}</span></div>
-      <div className="session-time-row"><span>{session.busyForSeconds > 0 ? `当前忙碌 ${formatDuration(session.busyForSeconds)}` : "当前未忙碌"}</span><span>{session.hasLastInput ? `距最后用户输入 ${formatDuration(session.sinceLastInputSeconds)}` : "暂无用户输入"}</span></div>
+      <div className="session-time-row"><span>{busy ? `当前忙碌 ${formatDuration(busyForSeconds)}` : "当前未忙碌"}</span><span>{session.hasLastInput ? `距最后用户输入 ${formatDuration(sinceLastInputSeconds)}` : "暂无用户输入"}</span></div>
       {!compact && session.hasLastInput && <details className="last-input"><summary>完整最后输入</summary><pre>{session.lastInput}</pre></details>}
       <div className="session-actions"><button className="secondary-button" onClick={onOpen}><ExternalLink size={15} />在 OpenCode 中打开</button></div>
     </article>
@@ -639,8 +643,30 @@ function normaliseDashboard(value: Dashboard): Dashboard { return { ...value, pr
 function errorMessage(reason: unknown): string { return reason instanceof Error ? reason.message : String(reason); }
 function serviceStateLabel(state: string): string { return ({ conflict: "等待关闭 CLI", config_error: "配置待完善", error: "服务异常", stopped: "服务已停止", loading: "正在启动" } as Record<string, string>)[state] ?? "未运行"; }
 function statusTone(status: string): string { return ({ running: "running", waiting_permission: "permission", waiting_answer: "question", retrying: "retry", idle: "idle", unmonitored: "neutral" } as Record<string, string>)[status] ?? "neutral"; }
+function isSessionBusy(session: SessionView): boolean { return session.status === "running" || session.status === "retrying"; }
+function LiveDuration({ seconds, running }: { seconds: number; running: boolean }) { return <>{formatDuration(useLiveSeconds(seconds, running))}</>; }
+function useLiveSeconds(serverSeconds: number, running: boolean): number {
+  const normalise = (value: number) => Math.max(0, Math.floor(value));
+  const [seconds, setSeconds] = useState(() => normalise(serverSeconds));
+  const previousServerSeconds = useRef(normalise(serverSeconds));
+
+  useEffect(() => {
+    const next = normalise(serverSeconds);
+    const previous = previousServerSeconds.current;
+    previousServerSeconds.current = next;
+    setSeconds((current) => running && next >= previous ? Math.max(current, next) : next);
+  }, [serverSeconds, running]);
+
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setSeconds((current) => current + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+
+  return seconds;
+}
 function shortID(id: string): string { return id.length > 12 ? `${id.slice(0, 7)}…${id.slice(-3)}` : id; }
-function formatDuration(value: number): string { const seconds = Math.max(0, Math.floor(value)); if (seconds < 60) return `${seconds} 秒`; const minutes = Math.floor(seconds / 60); if (minutes < 60) return `${minutes} 分 ${seconds % 60} 秒`; const hours = Math.floor(minutes / 60); return `${hours} 小时 ${minutes % 60} 分`; }
+function formatDuration(value: number): string { const seconds = Math.max(0, Math.floor(value)); if (seconds < 60) return `${seconds} 秒`; const minutes = Math.floor(seconds / 60); if (minutes < 60) return `${minutes} 分 ${seconds % 60} 秒`; const hours = Math.floor(minutes / 60); return `${hours} 小时 ${minutes % 60} 分 ${seconds % 60} 秒`; }
 function formatDateTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("zh-CN", { hour12: false }); }
 function formatRecentTime(value: string): string { const date = new Date(value); const elapsed = Date.now() - date.getTime(); if (!value || Number.isNaN(date.getTime()) || date.getUTCFullYear() <= 1) return "暂无"; if (elapsed < 60_000) return "刚刚"; const minutes = Math.floor(elapsed / 60_000); if (minutes < 60) return `${minutes} 分钟前`; const hours = Math.floor(minutes / 60); if (hours < 24) return `${hours} 小时前`; const days = Math.floor(hours / 24); if (days < 30) return `${days} 天前`; return date.toLocaleDateString("zh-CN"); }
 function uniqueValues(values: string[]): string[] { return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN")); }
