@@ -16,6 +16,9 @@ func TestLastAssistantOutput(t *testing.T) {
 			},
 			Parts: []Part{
 				{Type: "reasoning", Text: "hidden"},
+				{Type: "text", Text: "I will run the tests"},
+				{Type: "tool", Text: "command and output"},
+				{Type: "reasoning", Text: "also hidden"},
 				{Type: "text", Text: "first"},
 				{Type: "text", Text: "second"},
 			},

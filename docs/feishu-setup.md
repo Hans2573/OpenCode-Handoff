@@ -78,7 +78,7 @@ Get-Content "$env:LOCALAPPDATA\Agent Handoff\logs\agent-handoff.log" -Tail 100
 
 如果绑定会话中只有一个 Open Handoff，可以直接发送普通文本继续它；多个 Session 同时等待时必须引用对应通知，避免串线。成功注入后，机器人会确认任务已发送到 OpenCode Session。
 
-通知卡片会在顶部显示 `Session ID` 和 OpenCode 的 Session Name，用完成 / 中断状态和项目字段帮助区分并发任务。最后一条 Assistant 输出位于默认收起的面板中，面板标题会显示当前 `handoff.max_output_chars` 限制；Handoff 不会发送完整 Conversation。
+通知卡片会在顶部显示 `Session ID` 和 OpenCode 的 Session Name，用完成 / 中断状态和项目字段帮助区分并发任务。最终答复的末尾预览位于默认收起的面板中，面板标题会显示当前 `handoff.max_output_chars` 限制。预览被截断时，可以点击“查看详细答复”，机器人会回复一个包含全部最终正文的折叠块；详情不会包含 reasoning、工具调用、执行命令或工具输出，也不会发送完整 Conversation。
 
 ### Finished 与 Error
 

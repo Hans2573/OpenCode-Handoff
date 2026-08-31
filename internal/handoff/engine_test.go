@@ -78,6 +78,50 @@ func TestEngineSendsOnceAndRoutesAuthorizedReply(t *testing.T) {
 	}
 }
 
+func TestEngineKeepsFullFinalOutputForReadOnlyDetail(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	finalText := strings.Repeat("结论内容", 800)
+	adapter := &fakeAdapter{
+		session: opencode.Session{ID: "ses_detail", Directory: "/work/project", Title: "Detailed result"},
+		messages: []opencode.Message{{
+			Info:  opencode.MessageInfo{ID: "msg_detail", Role: "assistant"},
+			Parts: []opencode.Part{{Type: "text", Text: finalText}},
+		}},
+	}
+	channel := &fakeChannel{}
+	engine := NewEngine(adapter, channel, database, EngineOptions{
+		MaxOutputChars: 5, NotifyIdle: true, AllowedUsers: []string{"ou_allowed"}, ChatID: "oc_allowed",
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := engine.handleSignal(ctx, Signal{SessionID: "ses_detail", Directory: "/work/project", Kind: SignalStopped}); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.sent) != 1 || channel.sent[0].LastAssistantText != finalText {
+		t.Fatalf("stored output was truncated: sent=%d runes=%d", len(channel.sent), len([]rune(channel.sent[0].LastAssistantText)))
+	}
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "evt_detail", ParentMessageID: "om_handoff", ChatID: "oc_allowed",
+		SenderID: "ou_allowed", CardAction: true, ViewOutput: true,
+		HandoffID: channel.sent[0].ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.outputDetails) != 1 || channel.outputDetails[0].Content != finalText {
+		t.Fatalf("detail output = %+v", channel.outputDetails)
+	}
+	stored, err := database.GetByID(ctx, channel.sent[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != domain.StatusOpen || len(adapter.prompts) != 0 {
+		t.Fatalf("viewing details changed handoff: status=%s prompts=%v", stored.Status, adapter.prompts)
+	}
+}
+
 func TestEngineIgnoresSubagentSession(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
@@ -813,6 +857,7 @@ type fakeChannel struct {
 	runningSessions []domain.RunningSessions
 	modelPages      []domain.ModelPage
 	variantPages    []domain.ModelVariantPage
+	outputDetails   []domain.AssistantOutputDetail
 	replyRefs       []domain.MessageRef
 }
 
@@ -856,6 +901,11 @@ func (f *fakeChannel) ReplyModelVariants(_ context.Context, _ string, page domai
 
 func (f *fakeChannel) ReplyRunningSessions(_ context.Context, _ string, running domain.RunningSessions) error {
 	f.runningSessions = append(f.runningSessions, running)
+	return nil
+}
+
+func (f *fakeChannel) ReplyAssistantOutput(_ context.Context, _ string, detail domain.AssistantOutputDetail) error {
+	f.outputDetails = append(f.outputDetails, detail)
 	return nil
 }
 

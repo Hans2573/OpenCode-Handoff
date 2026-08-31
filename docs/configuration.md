@@ -107,7 +107,7 @@ opencode:
 
 ## Handoff 通知
 
-`handoff.max_output_chars` 默认是 3000，用于限制通知中最后一条 Assistant 输出。四个 `notify_*` 开关控制对应类型；Permission 默认开启。旧配置如果曾显式关闭预留开关，需要改为：
+`handoff.max_output_chars` 默认是 3000，用于限制通知卡片中的末尾预览，不会截断本地保存的最终答复。预览被截断时，卡片会提供“查看详细答复”按钮，并回复一个包含全部最终正文的折叠块；详情只包含最后一次工具执行后的 Assistant 文本，不包含 reasoning、工具调用、命令或工具输出。四个 `notify_*` 开关控制对应类型；Permission 默认开启。旧配置如果曾显式关闭预留开关，需要改为：
 
 ```yaml
 handoff:

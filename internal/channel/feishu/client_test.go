@@ -40,7 +40,7 @@ func TestFormatHandoff(t *testing.T) {
 		"📁 Project: opsloop",
 		"⚠️ 执行异常",
 		"request timeout",
-		"💬 最后输出（1000）",
+		"💬 最后输出（末尾 1000 字）",
 		"running tests",
 		"↩️ 引用回复本消息可继续原 Session",
 	} {
@@ -74,7 +74,7 @@ func TestFormatFinishedHandoff(t *testing.T) {
 		"🏷️ Session Name: Untitled Session",
 		"✅ OpenCode · Task Finished",
 		"📁 Project: handoff",
-		"💬 最后输出（3000）",
+		"💬 最后输出（末尾 3000 字）",
 		"all tests passed",
 	} {
 		if !strings.Contains(message, expected) {
@@ -86,6 +86,46 @@ func TestFormatFinishedHandoff(t *testing.T) {
 	}
 	if card.Schema != "2.0" || !card.Config.UpdateMulti || card.Config.WidthMode != "fill" {
 		t.Fatalf("unexpected card config: %+v", card)
+	}
+}
+
+func TestFormatHandoffUsesTailPreviewAndOffersDetailedOutput(t *testing.T) {
+	content, err := formatHandoffCard(domain.Handoff{
+		ID: "hof_long", SessionID: "ses_long", ProjectName: "handoff", Type: domain.HandoffFinished,
+		LastAssistantText: "开头结论" + strings.Repeat("中", 20) + "末尾结论",
+	}, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := decodeHandoffCard(t, content)
+	message := cardContents(card.Body.Elements)
+	if strings.Contains(message, "开头结论") || !strings.Contains(message, "末尾结论") || !strings.Contains(message, "已省略前") {
+		t.Fatalf("tail preview = %q", message)
+	}
+	buttons := findCardElements(card.Body.Elements, "button")
+	if len(buttons) != 2 || buttons[0].Behaviors[0].Value["action"] != "assistant_output" || buttons[0].Behaviors[0].Value["handoff_id"] != "hof_long" {
+		t.Fatalf("handoff buttons = %+v", buttons)
+	}
+}
+
+func TestFormatAssistantOutputCardUsesCollapsedFullText(t *testing.T) {
+	content, err := formatAssistantOutputCard(domain.AssistantOutputDetail{
+		SessionID: "ses_1", SessionName: "Final answer",
+		Content: "仅包含最终答复正文",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := decodeHandoffCard(t, content)
+	message := cardContents(card.Body.Elements)
+	for _, expected := range []string{"详细答复", "Final answer", "ses_1", "展开查看全部最终答复", "仅包含最终答复正文"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("detail card %q does not contain %q", message, expected)
+		}
+	}
+	panel := findCardElement(card.Body.Elements, "collapsible_panel")
+	if panel == nil || panel.Expanded == nil || *panel.Expanded || len(findCardElements(card.Body.Elements, "button")) != 0 {
+		t.Fatalf("detail panel = %+v", panel)
 	}
 }
 
@@ -475,6 +515,29 @@ func TestOnCardActionRoutesPermissionDecision(t *testing.T) {
 	}
 	if response.Toast == nil || response.Toast.Type != "success" || !strings.Contains(response.Toast.Content, "始终允许") {
 		t.Fatalf("permission card response = %+v", response)
+	}
+}
+
+func TestOnCardActionRoutesAssistantOutputDetail(t *testing.T) {
+	client := &Client{replies: make(chan domain.UserReply, 1)}
+	event := &callback.CardActionTriggerEvent{Event: &callback.CardActionTriggerRequest{
+		Operator: &callback.Operator{OpenID: "ou_1"},
+		Context:  &callback.Context{OpenMessageID: "om_handoff", OpenChatID: "oc_chat"},
+		Action:   &callback.CallBackAction{Value: map[string]any{"action": "assistant_output", "handoff_id": "hof_1"}},
+	}}
+	go func() {
+		reply := <-client.replies
+		if !reply.ViewOutput || reply.HandoffID != "hof_1" || reply.ParentMessageID != "om_handoff" {
+			t.Errorf("assistant output card reply = %+v", reply)
+		}
+		reply.Result <- nil
+	}()
+	response, err := client.onCardAction(context.Background(), event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Toast == nil || response.Toast.Type != "success" || !strings.Contains(response.Toast.Content, "详细答复") {
+		t.Fatalf("assistant output response = %+v", response)
 	}
 }
 

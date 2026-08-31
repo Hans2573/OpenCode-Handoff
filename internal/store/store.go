@@ -19,6 +19,7 @@ type Store interface {
 	Create(context.Context, domain.Handoff) error
 	BindMessage(context.Context, string, domain.MessageRef) error
 	DeleteUnbound(context.Context, string) error
+	GetByID(context.Context, string) (domain.Handoff, error)
 	ClaimByMessage(context.Context, string, string) (domain.Handoff, error)
 	ClaimOnlyOpenByChat(context.Context, string, string) (domain.Handoff, error)
 	Reopen(context.Context, string) error

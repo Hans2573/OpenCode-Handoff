@@ -38,6 +38,16 @@ func TestSQLiteHandoffLifecycle(t *testing.T) {
 	if err := database.BindMessage(ctx, "hof_1", domain.MessageRef{ChatID: "oc_1", MessageID: "om_1"}); err != nil {
 		t.Fatal(err)
 	}
+	stored, err := database.GetByID(ctx, "hof_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.LastAssistantText != "done" || stored.FeishuMessageID != "om_1" || stored.Status != domain.StatusOpen {
+		t.Fatalf("stored handoff = %+v", stored)
+	}
+	if _, err := database.GetByID(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing GetByID() error = %v", err)
+	}
 
 	claimed, err := database.ClaimByMessage(ctx, "om_1", "om_reply")
 	if err != nil {

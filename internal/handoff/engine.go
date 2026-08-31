@@ -184,7 +184,7 @@ func (e *Engine) handleSignal(ctx context.Context, signal Signal) error {
 		ProjectName:            projectName(session),
 		Type:                   handoffType,
 		LastAssistantMessageID: messageID,
-		LastAssistantText:      truncateTail(output.Text, e.options.MaxOutputChars),
+		LastAssistantText:      strings.TrimSpace(output.Text),
 		ErrorText:              truncateTail(errorText, e.options.MaxOutputChars),
 		Status:                 domain.StatusOpen,
 		CreatedAt:              time.Now().UTC(),
@@ -331,7 +331,7 @@ func (e *Engine) sendWithRetry(ctx context.Context, handoff domain.Handoff) (dom
 
 func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error {
 	text := strings.TrimSpace(reply.Text)
-	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion && reply.PermissionReply == "" && !reply.AbortSession && !reply.ListProjects && !reply.CreateSession && !reply.ListRunning && !reply.ListModels && !reply.ListModelVariants && !reply.ApplyModel {
+	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion && reply.PermissionReply == "" && !reply.AbortSession && !reply.ListProjects && !reply.CreateSession && !reply.ListRunning && !reply.ListModels && !reply.ListModelVariants && !reply.ApplyModel && !reply.ViewOutput {
 		return nil
 	}
 	allowed, err := e.isAllowed(ctx, reply)
@@ -344,6 +344,9 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 			return errors.New("当前用户无权操作这条消息")
 		}
 		return nil
+	}
+	if reply.ViewOutput {
+		return e.handleAssistantOutput(ctx, reply)
 	}
 	if reply.ListProjects {
 		return e.handleProjectList(ctx, reply)
@@ -443,6 +446,33 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 		}
 	}
 	return nil
+}
+
+func (e *Engine) handleAssistantOutput(ctx context.Context, reply domain.UserReply) error {
+	handoffID := strings.TrimSpace(reply.HandoffID)
+	if handoffID == "" {
+		return errors.New("详细答复信息不完整")
+	}
+	handoff, err := e.store.GetByID(ctx, handoffID)
+	if errors.Is(err, store.ErrNotFound) {
+		return errors.New("详细答复已不存在")
+	}
+	if err != nil {
+		return fmt.Errorf("read detailed assistant output: %w", err)
+	}
+	content := strings.TrimSpace(handoff.LastAssistantText)
+	if content == "" {
+		return errors.New("这条通知没有可展示的详细答复")
+	}
+	messageID := reply.MessageID
+	if reply.CardAction && reply.ParentMessageID != "" {
+		messageID = reply.ParentMessageID
+	}
+	return e.channel.ReplyAssistantOutput(ctx, messageID, domain.AssistantOutputDetail{
+		SessionID:   handoff.SessionID,
+		SessionName: handoff.SessionName,
+		Content:     content,
+	})
 }
 
 const projectPageSize = 8

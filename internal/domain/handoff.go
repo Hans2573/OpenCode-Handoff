@@ -175,6 +175,12 @@ type RunningSessions struct {
 	FailedProjects  int
 }
 
+type AssistantOutputDetail struct {
+	SessionID   string
+	SessionName string
+	Content     string
+}
+
 type UserReply struct {
 	MessageID         string
 	ParentMessageID   string
@@ -198,6 +204,8 @@ type UserReply struct {
 	ModelContext      ModelContext
 	ListModelVariants bool
 	ApplyModel        bool
+	ViewOutput        bool
+	HandoffID         string
 	ProviderID        string
 	ModelID           string
 	ModelName         string

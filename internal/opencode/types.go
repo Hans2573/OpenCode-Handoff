@@ -150,8 +150,14 @@ func LastAssistantOutput(messages []Message) (AssistantOutput, bool) {
 		if message.Info.Role != "assistant" {
 			continue
 		}
+		start := 0
+		for index, part := range message.Parts {
+			if part.Type == "tool" {
+				start = index + 1
+			}
+		}
 		var chunks []string
-		for _, part := range message.Parts {
+		for _, part := range message.Parts[start:] {
 			if part.Type == "text" && strings.TrimSpace(part.Text) != "" {
 				chunks = append(chunks, part.Text)
 			}

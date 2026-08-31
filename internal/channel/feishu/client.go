@@ -272,6 +272,14 @@ func (c *Client) ReplyRunningSessions(ctx context.Context, messageID string, run
 	return c.sendCardReply(ctx, messageID, content)
 }
 
+func (c *Client) ReplyAssistantOutput(ctx context.Context, messageID string, detail domain.AssistantOutputDetail) error {
+	content, err := formatAssistantOutputCard(detail)
+	if err != nil {
+		return fmt.Errorf("encode assistant output card: %w", err)
+	}
+	return c.sendCardReply(ctx, messageID, content)
+}
+
 func (c *Client) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
 	if event == nil || event.Event == nil || event.Event.Message == nil || event.Event.Sender == nil {
 		return nil
@@ -415,7 +423,7 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		return cardToast("error", "无效的卡片操作"), nil
 	}
 	action := stringMapValue(event.Event.Action.Value, "action")
-	if action != "question_reply" && action != "question_custom_reply" && action != "question_reject" && action != "permission_reply" && action != "project_page" && action != "project_create" && action != "model_home" && action != "model_all" && action != "model_search" && action != "model_provider" && action != "model_page" && action != "model_variants" && action != "model_apply" && action != "session_models" {
+	if action != "question_reply" && action != "question_custom_reply" && action != "question_reject" && action != "permission_reply" && action != "project_page" && action != "project_create" && action != "model_home" && action != "model_all" && action != "model_search" && action != "model_provider" && action != "model_page" && action != "model_variants" && action != "model_apply" && action != "session_models" && action != "assistant_output" {
 		return cardToast("error", "不支持的卡片操作"), nil
 	}
 	messageID := ""
@@ -521,6 +529,12 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		reply.ProviderID = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "provider_id"))
 		reply.ModelID = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "model_id"))
 		reply.ModelVariant = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "variant"))
+	} else if action == "assistant_output" {
+		reply.ViewOutput = true
+		reply.HandoffID = strings.TrimSpace(stringMapValue(event.Event.Action.Value, "handoff_id"))
+		if reply.HandoffID == "" {
+			return cardToast("error", "详细答复信息无效"), nil
+		}
 	}
 	select {
 	case <-ctx.Done():
@@ -548,6 +562,9 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		}
 		if reply.ListModels || reply.ListModelVariants {
 			return cardToast("success", "模型选择已发送"), nil
+		}
+		if reply.ViewOutput {
+			return cardToast("success", "详细答复已发送"), nil
 		}
 		if reply.ApplyModel && reply.ModelContext.Target == domain.ModelTargetSwitch {
 			return cardToast("success", "模型将在下一条飞书任务中生效"), nil
@@ -846,13 +863,18 @@ func formatHandoffCard(handoff domain.Handoff, maxOutputChars int) (string, erro
 		})
 	}
 	if handoff.LastAssistantText != "" {
+		preview, omitted := tailOutputPreview(handoff.LastAssistantText, maxOutputChars)
 		expanded := false
+		panelContent := preview
+		if omitted > 0 {
+			panelContent = fmt.Sprintf("*已省略前 %d 字；可点击下方按钮查看详细答复。*\n\n%s", omitted, preview)
+		}
 		elements = append(elements, handoffCardElement{
 			Tag:      "collapsible_panel",
 			Expanded: &expanded,
 			Header: &handoffCardPanelHeader{Title: handoffCardText{
 				Tag:     "plain_text",
-				Content: fmt.Sprintf("💬 最后输出（%d）", maxOutputChars),
+				Content: fmt.Sprintf("💬 最后输出（末尾 %d 字）", maxOutputChars),
 			},
 				VerticalAlign: "center",
 				Icon: &handoffCardIcon{
@@ -871,14 +893,21 @@ func formatHandoffCard(handoff domain.Handoff, maxOutputChars int) (string, erro
 			Padding:         "8px 8px 8px 8px",
 			Elements: []handoffCardElement{{
 				Tag:     "markdown",
-				Content: handoff.LastAssistantText,
+				Content: panelContent,
 			}},
 		})
 	}
-	elements = append(elements, permissionButtonRow(callbackButton("切换模型（下一条任务生效）", map[string]any{
+	buttons := make([]handoffCardElement, 0, 2)
+	if len([]rune(strings.TrimSpace(handoff.LastAssistantText))) > maxOutputChars {
+		buttons = append(buttons, callbackButton("查看详细答复", map[string]any{
+			"action": "assistant_output", "handoff_id": handoff.ID,
+		}, "primary"))
+	}
+	buttons = append(buttons, callbackButton("切换模型（下一条任务生效）", map[string]any{
 		"action": "session_models", "target": string(domain.ModelTargetSwitch), "directory": handoff.Directory,
 		"session_id": handoff.SessionID, "session_name": sessionName,
-	}, "default")))
+	}, "default"))
+	elements = append(elements, permissionButtonRow(buttons...))
 	if handoff.Type == domain.HandoffError {
 		elements = append(elements, handoffCardElement{
 			Tag:     "markdown",
@@ -896,6 +925,47 @@ func formatHandoffCard(handoff domain.Handoff, maxOutputChars int) (string, erro
 			Padding:   "12px 12px 12px 12px",
 			Elements:  elements,
 		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func tailOutputPreview(text string, maxRunes int) (string, int) {
+	text = strings.TrimSpace(text)
+	runes := []rune(text)
+	if maxRunes <= 0 || len(runes) <= maxRunes {
+		return text, 0
+	}
+	return "...\n" + string(runes[len(runes)-maxRunes:]), len(runes) - maxRunes
+}
+
+func formatAssistantOutputCard(detail domain.AssistantOutputDetail) (string, error) {
+	sessionName := strings.TrimSpace(detail.SessionName)
+	if sessionName == "" {
+		sessionName = "Untitled Session"
+	}
+	expanded := false
+	elements := []handoffCardElement{
+		{Tag: "markdown", Content: fmt.Sprintf("💬 **详细答复**\n\n🏷️ %s\n🆔 `%s`", sessionName, detail.SessionID)},
+		{Tag: "hr"},
+		{
+			Tag:      "collapsible_panel",
+			Expanded: &expanded,
+			Header: &handoffCardPanelHeader{Title: handoffCardText{
+				Tag: "plain_text", Content: "展开查看全部最终答复",
+			}},
+			Border:          &handoffCardBorder{Color: "grey", CornerRadius: "5px"},
+			VerticalSpacing: "8px",
+			Padding:         "8px 8px 8px 8px",
+			Elements:        []handoffCardElement{{Tag: "markdown", Content: detail.Content}},
+		},
+	}
+	content, err := json.Marshal(handoffCard{
+		Schema: "2.0",
+		Config: handoffCardConfig{UpdateMulti: true, WidthMode: "fill"},
+		Body:   handoffCardBody{Direction: "vertical", Padding: "12px 12px 12px 12px", Elements: elements},
 	})
 	if err != nil {
 		return "", err

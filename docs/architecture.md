@@ -91,7 +91,7 @@ Signal
   └─ busy/retry → idle  → FINISHED
 ```
 
-Engine 会读取 Session 与最后一条 Assistant 消息、排除带 `parentID` 的子 Agent Session、应用项目路由和通知开关、截断最后输出、持久化记录，再调用 Channel 发送消息。
+Engine 会读取 Session 与最后一条 Assistant 消息、排除带 `parentID` 的子 Agent Session、应用项目路由和通知开关、提取最后一次工具执行后的最终文本、持久化记录，再调用 Channel 发送消息。Channel 按配置生成末尾预览；内容被截断时，可以通过只读卡片操作在折叠块中查看全部详细答复。
 
 ### Channel Adapter
 

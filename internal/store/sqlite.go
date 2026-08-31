@@ -40,6 +40,7 @@ func (s *SQLite) migrate(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS handoff_records (
 			id TEXT PRIMARY KEY,
 			session_id TEXT NOT NULL,
+			session_name TEXT NOT NULL DEFAULT '',
 			directory TEXT NOT NULL,
 			project_name TEXT NOT NULL,
 			feishu_chat_id TEXT NOT NULL DEFAULT '',
@@ -172,6 +173,7 @@ func (s *SQLite) migrate(ctx context.Context) error {
 		}
 	}
 	for name, definition := range map[string]string{
+		"session_name":    "TEXT NOT NULL DEFAULT ''",
 		"question_id":     "TEXT NOT NULL DEFAULT ''",
 		"question_json":   "TEXT NOT NULL DEFAULT '[]'",
 		"permission_id":   "TEXT NOT NULL DEFAULT ''",
@@ -226,13 +228,14 @@ func (s *SQLite) Create(ctx context.Context, handoff domain.Handoff) error {
 	}
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO handoff_records (
-			id, session_id, directory, project_name, handoff_type,
+			id, session_id, session_name, directory, project_name, handoff_type,
 			last_assistant_message_id, last_assistant_text, error_text,
 			question_id, question_json, permission_id, permission_json,
 			status, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		handoff.ID,
 		handoff.SessionID,
+		handoff.SessionName,
 		handoff.Directory,
 		handoff.ProjectName,
 		handoff.Type,
@@ -274,6 +277,25 @@ func (s *SQLite) DeleteUnbound(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *SQLite) GetByID(ctx context.Context, id string) (domain.Handoff, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, session_id, session_name, directory, project_name, feishu_chat_id,
+			feishu_message_id, handoff_type, last_assistant_message_id,
+			last_assistant_text, error_text, question_id, question_json,
+			permission_id, permission_json,
+			status, created_at, resolved_at
+		FROM handoff_records
+		WHERE id = ?`, id)
+	handoff, err := scanHandoff(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Handoff{}, ErrNotFound
+	}
+	if err != nil {
+		return domain.Handoff{}, fmt.Errorf("find handoff by id: %w", err)
+	}
+	return handoff, nil
+}
+
 func (s *SQLite) ClaimByMessage(ctx context.Context, messageID, resumeMessageID string) (domain.Handoff, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -282,7 +304,7 @@ func (s *SQLite) ClaimByMessage(ctx context.Context, messageID, resumeMessageID 
 	defer tx.Rollback()
 
 	row := tx.QueryRowContext(ctx, `
-		SELECT id, session_id, directory, project_name, feishu_chat_id,
+		SELECT id, session_id, session_name, directory, project_name, feishu_chat_id,
 			feishu_message_id, handoff_type, last_assistant_message_id,
 			last_assistant_text, error_text, question_id, question_json,
 			permission_id, permission_json,
@@ -358,7 +380,7 @@ func (s *SQLite) ClaimOnlyOpenByChat(ctx context.Context, chatID, resumeMessageI
 	}
 
 	row := tx.QueryRowContext(ctx, `
-		SELECT id, session_id, directory, project_name, feishu_chat_id,
+		SELECT id, session_id, session_name, directory, project_name, feishu_chat_id,
 			feishu_message_id, handoff_type, last_assistant_message_id,
 			last_assistant_text, error_text, question_id, question_json,
 			permission_id, permission_json,
@@ -537,6 +559,7 @@ func scanHandoff(row scanner) (domain.Handoff, error) {
 	err := row.Scan(
 		&handoff.ID,
 		&handoff.SessionID,
+		&handoff.SessionName,
 		&handoff.Directory,
 		&handoff.ProjectName,
 		&handoff.FeishuChatID,
