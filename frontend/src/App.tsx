@@ -302,7 +302,7 @@ function ProjectsPage({ projects, loading, onRoute, onRefresh }: { projects: Pro
 }
 
 type ExecutionMetric = "round" | "session";
-type ExecutionRankingItem = { key: string; title: string; project: string; duration: number; statusLabel: string; active: boolean; detail: string };
+type ExecutionRankingItem = { key: string; title: string; context: string; duration: number; statusLabel: string; active: boolean; detail: string };
 
 function SessionsPage({ sessions, executionRuns, executionSessions, retentionDays, onOpenSession, onRefresh, showToast }: {
   sessions: SessionView[];
@@ -325,6 +325,7 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
   const agents = uniqueValues(sessions.map((item) => item.agentName));
   const projects = uniqueValues(sessions.map((item) => item.projectName));
   const channels = uniqueValues(sessions.map((item) => item.channelName));
+  const sessionDetails = new Map(sessions.map((session) => [`${session.id}\u0000${session.directory}`, session]));
   const filtered = sessions.filter((session) => {
     const matches = `${session.title} ${session.projectName} ${session.id}`.toLowerCase().includes(query.toLowerCase());
     const updatedAt = new Date(session.updatedAt).getTime();
@@ -337,11 +338,11 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
       && withinRange;
   });
   const ranked: ExecutionRankingItem[] = (metric === "round"
-    ? executionRuns.map((run) => ({ key: run.active ? `active-${run.sessionId}-${run.directory}` : `${run.id}-${run.sessionId}-${run.startedAt}`, title: run.sessionTitle, project: run.projectName, duration: run.durationSeconds, statusLabel: run.statusLabel, active: run.active, detail: run.active ? "当前轮次" : formatRecentTime(run.endedAt) }))
-    : executionSessions.map((session) => ({ key: `${session.sessionId}-${session.directory}`, title: session.sessionTitle, project: session.projectName, duration: session.totalExecutionSeconds, statusLabel: session.statusLabel, active: session.active, detail: `${session.executionCount} 轮` })))
+    ? executionRuns.map((run) => { const session = sessionDetails.get(`${run.sessionId}\u0000${run.directory}`); return { key: run.active ? `active-${run.sessionId}-${run.directory}` : `${run.id}-${run.sessionId}-${run.startedAt}`, title: run.sessionTitle, context: session?.hasLastInput ? session.lastInput : "—", duration: run.durationSeconds, statusLabel: run.statusLabel, active: run.active, detail: run.active ? "当前轮次" : formatRecentTime(run.endedAt) }; })
+    : executionSessions.map((session) => ({ key: `${session.sessionId}-${session.directory}`, title: session.sessionTitle, context: session.projectName || "—", duration: session.totalExecutionSeconds, statusLabel: session.statusLabel, active: session.active, detail: `${session.executionCount} 轮` })))
     .filter((item) => item.duration > 0)
     .sort((a, b) => b.duration - a.duration)
-    .slice(0, 7);
+    .slice(0, 5);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(pageNumber, pageCount);
   const visibleSessions = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -369,13 +370,13 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
                   <span className="rank-medal">{[2, 1, 3][index]}</span>
                   <strong title={item.title}>{item.title}</strong>
                   <b><LiveDuration seconds={item.duration} running={item.active} /></b>
-                  <div><span>{item.project} · {item.detail}</span><span className={`status-pill ${rankingTone(item)}`}>{item.statusLabel}</span></div>
+                  <div><span title={`${metric === "round" ? "上次输入" : "项目"}：${item.context} · ${item.detail}`}>{metric === "round" ? "上次输入" : "项目"}：{item.context} · {item.detail}</span><span className={`status-pill ${rankingTone(item)}`}>{item.statusLabel}</span></div>
                 </article>
               ) : <span className="podium-placeholder" aria-hidden="true" key={`empty-rank-${index}`} />)}
             </div>
             <div className="leaderboard-list">
-              <div className="leaderboard-row leaderboard-head"><span>排名</span><span>Session 名称</span><span>自动执行时长</span></div>
-              {ranked.slice(3).map((item, index) => <div className="leaderboard-row" key={item.key}><span>{index + 4}</span><strong title={item.title}>{item.title}</strong><time><LiveDuration seconds={item.duration} running={item.active} /></time></div>)}
+              <div className="leaderboard-row leaderboard-head"><span>排名</span><span>Session 名称</span><span>{metric === "round" ? "上次输入" : "项目名称"}</span><span>自动执行时长</span></div>
+              {ranked.slice(3).map((item, index) => <div className="leaderboard-row" key={item.key}><span>{index + 4}</span><strong title={item.title}>{item.title}</strong><span className="leaderboard-context" title={item.context}>{item.context}</span><time><LiveDuration seconds={item.duration} running={item.active} /></time></div>)}
               {ranked.length <= 3 && <div className="leaderboard-empty">更多有运行记录的 Session 将显示在这里</div>}
               <button className="leaderboard-link" onClick={() => document.querySelector(".sessions-data-panel")?.scrollIntoView({ behavior: "smooth" })}>查看完整列表 <ChevronRight size={14} /></button>
             </div>

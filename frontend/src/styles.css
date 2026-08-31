@@ -186,9 +186,10 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .metric-switch button:hover { color: #c6d0db; }
 .metric-switch button.active { color: #eeefff; background: linear-gradient(135deg, #4949a7, #343a78); box-shadow: 0 2px 8px rgba(42,43,112,.28); }
 .leaderboard-content { display: grid; grid-template-columns: minmax(520px, 1.35fr) minmax(360px, .9fr); gap: 18px; }
-.podium-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); align-items: end; gap: 12px; padding-top: 10px; }
+.podium-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); align-items: start; gap: 12px; }
 .podium-card { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; min-height: 148px; padding: 13px 14px 12px; border: 1px solid #2a3542; border-radius: 7px; background: linear-gradient(145deg, #1a2430, #151d27); text-align: center; }
 .podium-card.rank-1 { min-height: 162px; border-color: #8e7420; background: radial-gradient(circle at 50% 26%, rgba(184,145,9,.22), transparent 50%), linear-gradient(145deg, #292718, #1a211f); box-shadow: 0 0 15px rgba(208,168,23,.16), inset 0 0 0 1px rgba(255,206,53,.07); }
+.podium-card.rank-2, .podium-card.rank-3 { margin-top: 14px; }
 .rank-medal { display: inline-flex; align-items: center; justify-content: center; width: 31px; height: 31px; margin-bottom: 10px; border: 1px solid #7d8997; border-radius: 50%; color: #111923; background: linear-gradient(#eef3f7, #9aa7b5); box-shadow: 0 3px 10px rgba(0,0,0,.28); font-size: 15px; font-weight: 700; }
 .rank-1 .rank-medal { color: #5d4600; border-color: #e6b825; background: linear-gradient(#fff17a, #e0a718); box-shadow: 0 0 14px rgba(242,190,23,.32); }
 .rank-3 .rank-medal { color: #57310f; border-color: #cb7e34; background: linear-gradient(#ffc274, #dc8031); }
@@ -197,12 +198,14 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .podium-card.rank-1 > b { color: #f1d827; }
 .podium-card.rank-2 > b { color: #8ebcff; }
 .podium-card > div { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; color: #8b98a6; font-size: 9px; }
-.podium-card > div > span:first-child { max-width: 57%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.podium-card .status-pill { padding: 3px 6px; font-size: 8px; }
+.podium-card > div > span:first-child { min-width: 0; flex: 1; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.podium-card .status-pill { flex: 0 0 auto; padding: 3px 6px; font-size: 8px; }
 .leaderboard-list { align-self: stretch; overflow: hidden; border: 1px solid #212d39; border-radius: 7px; background: rgba(18,27,38,.65); }
-.leaderboard-row { display: grid; grid-template-columns: 52px minmax(120px,1fr) 115px; align-items: center; gap: 8px; min-height: 39px; padding: 0 15px; border-bottom: 1px solid #1f2a35; color: #9ba7b4; font-size: 10px; }
+.leaderboard-row { display: grid; grid-template-columns: 42px minmax(0,1.1fr) minmax(0,.9fr) 96px; align-items: center; gap: 8px; min-height: 39px; padding: 0 15px; border-bottom: 1px solid #1f2a35; color: #9ba7b4; font-size: 10px; }
+.leaderboard-row > span, .leaderboard-row > strong, .leaderboard-row > time { min-width: 0; }
 .leaderboard-row strong { overflow: hidden; color: #b8c2cd; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-.leaderboard-row time { text-align: right; }
+.leaderboard-context { overflow: hidden; color: #82909e; text-overflow: ellipsis; white-space: nowrap; }
+.leaderboard-row time { text-align: right; white-space: nowrap; }
 .leaderboard-head { min-height: 36px; color: #818d9b; background: rgba(23,33,45,.72); }
 .leaderboard-empty { display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 8px 14px; color: #6f7d8c; text-align: center; font-size: 10px; }
 .leaderboard-empty.large { min-height: 130px; }
@@ -372,6 +375,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   .podium-grid { grid-template-columns: 1fr; align-items: stretch; }
   .podium-placeholder { display: none; }
   .podium-card, .podium-card.rank-1 { min-height: 128px; }
+  .podium-card.rank-2, .podium-card.rank-3 { margin-top: 0; }
   .podium-card.rank-1 { order: -1; }
   .sessions-filterbar .search-box { width: 100%; min-width: 100%; }
   .session-filter { flex: 1; }
