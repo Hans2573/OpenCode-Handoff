@@ -1,0 +1,21 @@
+README.md
+  s_855ba914fc7499::t_f954cb15f5c73e 19-41
+README.zh-CN.md
+  s_855ba914fc7499::t_75a3319ea3f1e3 19-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0c13f79dae1153e8994d7452cf5a280e5e6d8412",
+  "prompts": {},
+  "sessions": {
+    "s_855ba914fc7499": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05354-bb05-7f23-aae4-9faf6d584e54",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
