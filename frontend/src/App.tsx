@@ -11,7 +11,6 @@ import {
   Clock3,
   CodeXml,
   Download,
-  ExternalLink,
   FileClock,
   Folder,
   FolderCheck,
@@ -211,7 +210,7 @@ function App() {
             <div className="banner warning-banner"><SlidersHorizontal size={18} /><span>{dashboard.service.message}</span><button onClick={() => setPage("settings")}>打开设置</button></div>
           )}
 
-          {page === "overview" && <Overview dashboard={dashboard} loading={loading} onNavigate={setPage} onRoute={changeRoute} onRefresh={refreshProjects} onOpenSession={openSession} />}
+          {page === "overview" && <Overview dashboard={dashboard} loading={loading} onNavigate={setPage} onRoute={changeRoute} onRefresh={refreshProjects} />}
           {page === "projects" && <ProjectsPage projects={dashboard.projects ?? []} loading={loading} onRoute={changeRoute} onRefresh={refreshProjects} />}
           {page === "sessions" && <SessionsPage sessions={dashboard.sessions ?? []} executionRuns={dashboard.executionRuns ?? []} executionSessions={dashboard.executionSessions ?? []} retentionDays={dashboard.executionRetentionDays || 30} onOpenSession={openSession} onRefresh={() => void loadDashboard()} showToast={showToast} />}
           {page === "agents" && <IntegrationsPage title="Agents" description="本地 Agent 实例及连接状态" items={dashboard.agents ?? []} />}
@@ -225,13 +224,12 @@ function App() {
   );
 }
 
-function Overview({ dashboard, loading, onNavigate, onRoute, onRefresh, onOpenSession }: {
+function Overview({ dashboard, loading, onNavigate, onRoute, onRefresh }: {
   dashboard: Dashboard;
   loading: boolean;
   onNavigate: (page: Page) => void;
   onRoute: (id: string, enabled: boolean) => Promise<void>;
   onRefresh: () => Promise<void>;
-  onOpenSession: (session: SessionView) => Promise<void>;
 }) {
   const summaryCards = [
     { label: "已接入项目", value: dashboard.summary.connectedProjects, icon: Folder, tone: "blue" },
@@ -262,7 +260,7 @@ function Overview({ dashboard, loading, onNavigate, onRoute, onRefresh, onOpenSe
         <section className="panel sessions-panel">
           <PanelHeader title="Session 实时状态" action={<button className="text-button" onClick={() => onNavigate("sessions")}>查看全部 <ChevronRight size={15} /></button>} />
           <div className="session-list">
-            {activeSessions.length ? activeSessions.map((session) => <SessionCard key={session.id} session={session} compact onOpen={() => void onOpenSession(session)} />) : <EmptyState icon={Activity} title="当前没有运行中的 Session" text="已接入项目出现活动后会显示在这里。" />}
+            {activeSessions.length ? activeSessions.map((session) => <SessionCard key={session.id} session={session} compact />) : <EmptyState icon={Activity} title="当前没有运行中的 Session" text="已接入项目出现活动后会显示在这里。" />}
           </div>
         </section>
       </div>
@@ -583,7 +581,7 @@ function ProjectTable({ projects, onRoute, roomy = false }: { projects: ProjectV
   );
 }
 
-function SessionCard({ session, compact = false, onOpen }: { session: SessionView; compact?: boolean; onOpen: () => void }) {
+function SessionCard({ session, compact = false }: { session: SessionView; compact?: boolean }) {
   const tone = statusTone(session.status);
   const modelLabel = `${session.currentModel || "OpenCode 默认/尚未识别"}${session.currentVariant ? ` · ${session.currentVariant}` : ""}`;
   const busy = isSessionBusy(session);
@@ -597,7 +595,6 @@ function SessionCard({ session, compact = false, onOpen }: { session: SessionVie
       <div className="session-model-row" title={`模型：${modelLabel}`}><Bot size={14} /><span>模型：{modelLabel}</span></div>
       <div className="session-time-row"><span>{busy ? `当前忙碌 ${formatDuration(busyForSeconds)}` : "当前未忙碌"}</span><span>{session.hasLastInput ? `距最后用户输入 ${formatDuration(sinceLastInputSeconds)}` : "暂无用户输入"}</span></div>
       {!compact && session.hasLastInput && <details className="last-input"><summary>完整最后输入</summary><pre>{session.lastInput}</pre></details>}
-      <div className="session-actions"><button className="secondary-button" onClick={onOpen}><ExternalLink size={15} />在 OpenCode 中打开</button></div>
     </article>
   );
 }

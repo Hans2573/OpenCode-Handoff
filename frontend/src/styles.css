@@ -163,7 +163,6 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .last-input { margin-top: 12px; border: 1px solid #2b3947; border-radius: 6px; background: #0f1720; }
 .last-input summary { padding: 8px 10px; color: #aab7c3; cursor: pointer; font-size: 11px; }
 .last-input pre { max-height: 220px; margin: 0; padding: 10px; overflow: auto; border-top: 1px solid #263441; color: #d5dee7; white-space: pre-wrap; word-break: break-word; font: 11px/1.55 Consolas, monospace; }
-.session-actions { display: flex; justify-content: flex-end; margin-top: 11px; }
 .compact .session-time-row { margin-left: 42px; }
 
 /* Sessions analytics */
