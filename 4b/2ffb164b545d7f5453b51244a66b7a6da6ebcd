@@ -1,0 +1,53 @@
+docs/architecture.md
+  s_9ffe78948e394b::t_127bdfe2d1d85d 94
+docs/configuration.md
+  s_9ffe78948e394b::t_6e1beb0e7e8f4c 110
+docs/feishu-setup.md
+  s_9ffe78948e394b::t_56dfccf2b99ca4 81
+internal/channel/feishu/client.go
+  s_9ffe78948e394b::t_740a406f77d793 275-282,426,532-537,566-568,866,868-871,877,896,900-906,909-910,935-975
+internal/domain/handoff.go
+  s_9ffe78948e394b::t_89820d7a513e69 178-183,207-208
+internal/handoff/engine.go
+  s_9ffe78948e394b::t_41f0f093e73b92 187,334,348-350,451-477
+internal/handoff/engine_test.go
+  s_9ffe78948e394b::t_0a70072ed4dd24 81-124,860,907-911
+internal/channel/channel.go
+  s_8c298e777c61b8::t_cffb714a77c7fd 15
+internal/channel/feishu/client_test.go
+  s_8c298e777c61b8::t_0bd3f150f177aa 43,77,92-131,521-543
+internal/opencode/types.go
+  s_8c298e777c61b8::t_e9dad0ea32488a 153-158,160
+internal/opencode/types_test.go
+  s_8c298e777c61b8::t_b1e19caed3cf25 19-21
+internal/store/sqlite.go
+  s_8c298e777c61b8::t_4b8c29604f5f04 43,176,231,235,238,280-298,307,383,562
+internal/store/sqlite_test.go
+  s_8c298e777c61b8::t_50a2f975fd3d0b 41-50
+internal/store/store.go
+  s_8c298e777c61b8::t_069ca9ab78cfc3 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4b2ffb164b545d7f5453b51244a66b7a6da6ebcd",
+  "prompts": {},
+  "sessions": {
+    "s_8c298e777c61b8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05724-1d09-7cd0-8c77-3fa093fd5a19",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    },
+    "s_9ffe78948e394b": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa93e4bfcffeh60dv5YJ20b300",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
