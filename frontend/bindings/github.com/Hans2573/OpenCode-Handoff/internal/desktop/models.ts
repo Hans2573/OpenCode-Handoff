@@ -61,6 +61,12 @@ export interface ExecutionSessionView {
     "active": boolean;
 }
 
+export interface FileSizes {
+    "config": number;
+    "store": number;
+    "log": number;
+}
+
 export interface IntegrationView {
     "id": string;
     "type": string;
@@ -151,6 +157,7 @@ export interface SettingsInput {
 
 export interface SettingsView {
     "paths": Paths;
+    "fileSizes": FileSizes;
     "openCodeBaseUrl": string;
     "openCodeDirectory": string;
     "openCodeUsername": string;

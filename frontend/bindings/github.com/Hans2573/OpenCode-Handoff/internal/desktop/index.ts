@@ -8,6 +8,7 @@ export type {
     EventView,
     ExecutionRunView,
     ExecutionSessionView,
+    FileSizes,
     IntegrationView,
     Paths,
     ProjectView,

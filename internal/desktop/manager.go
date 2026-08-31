@@ -863,7 +863,7 @@ func (m *Manager) GetSettings() SettingsView {
 	configError := m.configError
 	m.mu.RUnlock()
 	return SettingsView{
-		Paths: m.paths, OpenCodeBaseURL: cfg.OpenCode.BaseURL, OpenCodeDirectory: cfg.OpenCode.Directory,
+		Paths: m.paths, FileSizes: fileSizes(m.paths), OpenCodeBaseURL: cfg.OpenCode.BaseURL, OpenCodeDirectory: cfg.OpenCode.Directory,
 		OpenCodeUsername: cfg.OpenCode.Username, OpenCodePasswordSet: cfg.OpenCode.Password != "",
 		AllowRemote: cfg.OpenCode.AllowRemote, FeishuAppID: cfg.Feishu.AppID,
 		FeishuAppSecretSet: cfg.Feishu.AppSecret != "", FeishuChatID: cfg.Feishu.ChatID,

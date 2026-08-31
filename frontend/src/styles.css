@@ -317,10 +317,11 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .toggle-row p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }
 .plaintext-warning { display: flex; align-items: flex-start; gap: 9px; margin: 13px 0; padding: 10px; color: #f3c77f; border: 1px solid rgba(234,191,50,.28); border-radius: 6px; background: rgba(234,191,50,.07); font-size: 10px; line-height: 1.5; }
 .path-list { margin: 12px 0; border: 1px solid var(--line-soft); border-radius: 7px; overflow: hidden; }
-.path-row { display: grid; grid-template-columns: 65px minmax(0,1fr); gap: 10px; padding: 9px 10px; border-bottom: 1px solid var(--line-soft); font-size: 10px; }
+.path-row { display: grid; grid-template-columns: 65px minmax(0,1fr) 72px; align-items: center; gap: 10px; padding: 9px 10px; border-bottom: 1px solid var(--line-soft); font-size: 10px; }
 .path-row:last-child { border-bottom: 0; }
 .path-row span { color: var(--muted); }
 .path-row code { overflow: hidden; color: #b9c5d0; text-overflow: ellipsis; white-space: nowrap; }
+.path-row .path-size { color: #8fa0af; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .desktop-actions { display: flex; align-items: center; gap: 9px; }
 .settings-savebar { position: sticky; bottom: -28px; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: -64px -24px -28px; padding: 14px 25px; border-top: 1px solid var(--line); background: rgba(12,18,25,.95); backdrop-filter: blur(14px); }
 .settings-savebar span { color: var(--muted); font-size: 11px; }

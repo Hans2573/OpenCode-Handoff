@@ -39,3 +39,23 @@ func TestBootstrapPathsImportsLegacyFilesWithoutOverwriting(t *testing.T) {
 		t.Fatalf("second bootstrap overwrote config: %q", configData)
 	}
 }
+
+func TestFileSizesReportsExistingFilesAndTreatsMissingFilesAsEmpty(t *testing.T) {
+	directory := t.TempDir()
+	paths := Paths{
+		ConfigPath: filepath.Join(directory, "config.yaml"),
+		StorePath:  filepath.Join(directory, "opencode-handoff.db"),
+		LogPath:    filepath.Join(directory, "missing.log"),
+	}
+	if err := os.WriteFile(paths.ConfigPath, []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.StorePath, []byte("123456789"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	sizes := fileSizes(paths)
+	if sizes.Config != 5 || sizes.Store != 9 || sizes.Log != 0 {
+		t.Fatalf("unexpected file sizes: %+v", sizes)
+	}
+}

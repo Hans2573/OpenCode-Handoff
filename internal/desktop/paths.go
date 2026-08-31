@@ -101,6 +101,22 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
+func fileSizes(paths Paths) FileSizes {
+	return FileSizes{
+		Config: fileSize(paths.ConfigPath),
+		Store:  fileSize(paths.StorePath),
+		Log:    fileSize(paths.LogPath),
+	}
+}
+
+func fileSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return 0
+	}
+	return info.Size()
+}
+
 func copyFile(source, target string, mode os.FileMode) error {
 	input, err := os.Open(source)
 	if err != nil {

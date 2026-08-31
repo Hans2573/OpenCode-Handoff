@@ -557,7 +557,7 @@ function SettingsPage({ showToast, onSaved }: { showToast: (message: string) => 
           <h2>桌面应用</h2>
           <ToggleRow label="开机自动启动" description="默认关闭；启用后以托盘模式启动" checked={autostart} onChange={(value) => void toggleAutostart(value)} />
           <FormField label="日志级别"><select value={form.loggingLevel} onChange={(event) => update("loggingLevel", event.target.value)}><option value="debug">Debug</option><option value="info">Info</option><option value="warn">Warn</option><option value="error">Error</option></select></FormField>
-          <div className="path-list"><PathRow label="配置文件" value={settings.paths.configPath} /><PathRow label="数据库" value={settings.paths.storePath} /><PathRow label="日志" value={settings.paths.logPath} /></div>
+          <div className="path-list"><PathRow label="配置文件" value={settings.paths.configPath} size={settings.fileSizes.config} /><PathRow label="数据库" value={settings.paths.storePath} size={settings.fileSizes.store} /><PathRow label="日志" value={settings.paths.logPath} size={settings.fileSizes.log} /></div>
           <div className="desktop-actions"><button className="secondary-button" onClick={() => void AppService.OpenDataDirectory()}><Folder size={16} />打开数据目录</button><button className="danger-button" onClick={() => { if (window.confirm("退出后将停止 Handoff 服务，确定继续吗？")) AppService.Quit(); }}><Power size={16} />退出应用</button></div>
         </section>
       </div>
@@ -611,7 +611,7 @@ function SearchBox({ value, onChange, placeholder }: { value: string; onChange: 
 function Switch({ checked, disabled, onChange }: { checked: boolean; disabled?: boolean; onChange: () => void }) { return <button type="button" role="switch" aria-checked={checked} disabled={disabled} className={`switch ${checked ? "checked" : ""}`} onClick={onChange}><span /></button>; }
 function ToggleRow({ label, description, checked, disabled, onChange }: { label: string; description?: string; checked: boolean; disabled?: boolean; onChange: (value: boolean) => void }) { return <div className="toggle-row"><div><strong>{label}</strong>{description && <p>{description}</p>}</div><Switch checked={checked} disabled={disabled} onChange={() => onChange(!checked)} /></div>; }
 function FormField({ label, hint, lockedBy, children }: { label: string; hint?: string; lockedBy?: string; children: React.ReactNode }) { return <label className="form-field"><span>{label}{lockedBy && <em>由 {lockedBy} 控制</em>}</span>{children}{hint && <small>{hint}</small>}</label>; }
-function PathRow({ label, value }: { label: string; value: string }) { return <div className="path-row"><span>{label}</span><code title={value}>{value}</code></div>; }
+function PathRow({ label, value, size }: { label: string; value: string; size: number }) { return <div className="path-row"><span>{label}</span><code title={value}>{value}</code><span className="path-size" title={`${size.toLocaleString("zh-CN")} 字节`}>{formatFileSize(size)}</span></div>; }
 function EmptyState({ icon: Icon, title, text }: { icon: typeof Activity; title: string; text: string }) { return <div className="empty-state"><Icon size={27} /><strong>{title}</strong><p>{text}</p></div>; }
 
 function settingsToInput(settings: SettingsView): SettingsInput {
@@ -665,6 +665,7 @@ function useLiveSeconds(serverSeconds: number, running: boolean): number {
 }
 function shortID(id: string): string { return id.length > 12 ? `${id.slice(0, 7)}…${id.slice(-3)}` : id; }
 function formatDuration(value: number): string { const seconds = Math.max(0, Math.floor(value)); if (seconds < 60) return `${seconds} 秒`; const minutes = Math.floor(seconds / 60); if (minutes < 60) return `${minutes} 分 ${seconds % 60} 秒`; const hours = Math.floor(minutes / 60); return `${hours} 小时 ${minutes % 60} 分 ${seconds % 60} 秒`; }
+function formatFileSize(bytes: number): string { const value = Math.max(0, bytes); if (value < 1024) return `${value} B`; const units = ["KB", "MB", "GB", "TB"]; const unitIndex = Math.min(Math.floor(Math.log(value) / Math.log(1024)) - 1, units.length - 1); const amount = value / 1024 ** (unitIndex + 1); return `${amount.toLocaleString("zh-CN", { maximumFractionDigits: 1 })} ${units[unitIndex]}`; }
 function formatDateTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("zh-CN", { hour12: false }); }
 function formatRecentTime(value: string): string { const date = new Date(value); const elapsed = Date.now() - date.getTime(); if (!value || Number.isNaN(date.getTime()) || date.getUTCFullYear() <= 1) return "暂无"; if (elapsed < 60_000) return "刚刚"; const minutes = Math.floor(elapsed / 60_000); if (minutes < 60) return `${minutes} 分钟前`; const hours = Math.floor(minutes / 60); if (hours < 24) return `${hours} 小时前`; const days = Math.floor(hours / 24); if (days < 30) return `${days} 天前`; return date.toLocaleDateString("zh-CN"); }
 function uniqueValues(values: string[]): string[] { return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN")); }

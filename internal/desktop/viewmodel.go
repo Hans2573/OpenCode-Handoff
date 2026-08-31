@@ -110,6 +110,7 @@ type IntegrationView struct {
 
 type SettingsView struct {
 	Paths                  Paths             `json:"paths"`
+	FileSizes              FileSizes         `json:"fileSizes"`
 	OpenCodeBaseURL        string            `json:"openCodeBaseUrl"`
 	OpenCodeDirectory      string            `json:"openCodeDirectory"`
 	OpenCodeUsername       string            `json:"openCodeUsername"`
@@ -129,6 +130,12 @@ type SettingsView struct {
 	ExecutionRetentionDays int               `json:"executionRetentionDays"`
 	EnvironmentOverrides   map[string]string `json:"environmentOverrides"`
 	ConfigError            string            `json:"configError"`
+}
+
+type FileSizes struct {
+	Config int64 `json:"config"`
+	Store  int64 `json:"store"`
+	Log    int64 `json:"log"`
 }
 
 type SettingsInput struct {
