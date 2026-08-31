@@ -16,7 +16,29 @@ and continue the **same OpenCode session** remotely.
 
 </div>
 
-![OpenCode Handoff desktop dashboard](./docs/images/opencode-handoff-dashboard.png)
+<p align="center">
+  <a href="./docs/images/dashboard-overview.png">
+    <img src="./docs/images/dashboard-overview.png" alt="OpenCode Handoff desktop command center" width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <strong>Your agents, projects, channels, and live sessions — visible at a glance.</strong>
+</p>
+
+## See It in Action
+
+### Live session control, without losing context
+
+Track execution time, status, model, recent activity, and the latest input across every session — then jump straight into the one that needs attention.
+
+<p align="center">
+  <a href="./docs/images/sessions-overview.png">
+    <img src="./docs/images/sessions-overview.png" alt="OpenCode Handoff sessions dashboard with execution ranking and live status" width="100%">
+  </a>
+  <br>
+  <sub>Sessions dashboard — click the image to view it full size.</sub>
+</p>
 
 ## What is OpenCode Handoff?
 

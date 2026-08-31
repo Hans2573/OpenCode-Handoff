@@ -16,7 +16,29 @@
 
 </div>
 
-![OpenCode Handoff 桌面端主界面](./docs/images/opencode-handoff-dashboard.png)
+<p align="center">
+  <a href="./docs/images/dashboard-overview.png">
+    <img src="./docs/images/dashboard-overview.png" alt="OpenCode Handoff 桌面端控制中心" width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <strong>Agent、项目、渠道与实时 Session，一屏尽览。</strong>
+</p>
+
+## 产品一览
+
+### Session 实时掌控，上下文始终在线
+
+集中查看每个 Session 的执行时长、状态、模型、最近活动与最新输入，快速定位真正需要关注的任务。
+
+<p align="center">
+  <a href="./docs/images/sessions-overview.png">
+    <img src="./docs/images/sessions-overview.png" alt="OpenCode Handoff Session 执行排行与实时状态" width="100%">
+  </a>
+  <br>
+  <sub>Sessions 仪表盘 · 点击图片可查看原始大图</sub>
+</p>
 
 ## OpenCode Handoff 是什么？
 
