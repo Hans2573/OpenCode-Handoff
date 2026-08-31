@@ -1,0 +1,41 @@
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/index.ts
+  s_4758f88b5affbf::t_72fcfd4ae35b09 11
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/models.ts
+  s_4758f88b5affbf::t_d669eafbefd1ba 64-69,160
+frontend/src/App.tsx
+  s_e829e1cd99eb2b::t_ca3d2f96d1e8fb 560,614,668
+frontend/src/styles.css
+  s_4758f88b5affbf::t_b60b85fbb85913 320,324
+internal/desktop/manager.go
+  s_4758f88b5affbf::t_46bd8f370f48f4 866
+internal/desktop/paths.go
+  s_4758f88b5affbf::t_9330512ad81f92 104-119
+internal/desktop/paths_test.go
+  s_4758f88b5affbf::t_d098c8804fce80 42-61
+internal/desktop/viewmodel.go
+  s_4758f88b5affbf::t_acf8ee6e7a8474 113,135-140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "08953acf9a4df2c107451bea1c93ca1b6393834f",
+  "prompts": {},
+  "sessions": {
+    "s_4758f88b5affbf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05732-eed1-7342-8711-587d36787039",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    },
+    "s_e829e1cd99eb2b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d5c-8bb1-72d2-bad8-945ee13db8eb",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
