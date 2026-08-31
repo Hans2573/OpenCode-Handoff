@@ -5,6 +5,7 @@ import {
   Bot,
   Boxes,
   Check,
+  ChevronLeft,
   ChevronRight,
   CircleAlert,
   Clock3,
@@ -15,13 +16,14 @@ import {
   Folder,
   FolderCheck,
   Link2,
-  ListFilter,
   LoaderCircle,
+  Info,
   MessageSquareText,
   Minus,
   PanelLeftClose,
   Play,
   Power,
+  Plus,
   RefreshCw,
   RotateCcw,
   Search,
@@ -29,6 +31,7 @@ import {
   ShieldAlert,
   SlidersHorizontal,
   Trash2,
+  Trophy,
   Unplug,
   Waypoints,
   X,
@@ -36,6 +39,8 @@ import {
 import * as AppService from "../bindings/github.com/Hans2573/OpenCode-Handoff/appservice";
 import type {
   Dashboard,
+  ExecutionRunView,
+  ExecutionSessionView,
   EventView,
   IntegrationView,
   ProjectView,
@@ -72,6 +77,9 @@ const emptyDashboard: Dashboard = {
   summary: { connectedProjects: 0, runningSessions: 0, pendingActions: 0, connectedChannels: 0 },
   projects: [],
   sessions: [],
+  executionRuns: [],
+  executionSessions: [],
+  executionRetentionDays: 30,
   agents: [],
   channels: [],
 };
@@ -205,7 +213,7 @@ function App() {
 
           {page === "overview" && <Overview dashboard={dashboard} loading={loading} onNavigate={setPage} onRoute={changeRoute} onRefresh={refreshProjects} onOpenSession={openSession} />}
           {page === "projects" && <ProjectsPage projects={dashboard.projects ?? []} loading={loading} onRoute={changeRoute} onRefresh={refreshProjects} />}
-          {page === "sessions" && <SessionsPage sessions={dashboard.sessions ?? []} onOpenSession={openSession} />}
+          {page === "sessions" && <SessionsPage sessions={dashboard.sessions ?? []} executionRuns={dashboard.executionRuns ?? []} executionSessions={dashboard.executionSessions ?? []} retentionDays={dashboard.executionRetentionDays || 30} onOpenSession={openSession} onRefresh={() => void loadDashboard()} showToast={showToast} />}
           {page === "agents" && <IntegrationsPage title="Agents" description="本地 Agent 实例及连接状态" items={dashboard.agents ?? []} />}
           {page === "channels" && <IntegrationsPage title="渠道" description="项目事件可以路由到一个或多个通信渠道" items={dashboard.channels ?? []} />}
           {page === "events" && <EventsPage showToast={showToast} />}
@@ -293,37 +301,143 @@ function ProjectsPage({ projects, loading, onRoute, onRefresh }: { projects: Pro
   );
 }
 
-function SessionsPage({ sessions, onOpenSession }: { sessions: SessionView[]; onOpenSession: (session: SessionView) => Promise<void> }) {
+type ExecutionMetric = "round" | "session";
+type ExecutionRankingItem = { key: string; title: string; project: string; duration: number; statusLabel: string; active: boolean; detail: string };
+
+function SessionsPage({ sessions, executionRuns, executionSessions, retentionDays, onOpenSession, onRefresh, showToast }: {
+  sessions: SessionView[];
+  executionRuns: ExecutionRunView[];
+  executionSessions: ExecutionSessionView[];
+  retentionDays: number;
+  onOpenSession: (session: SessionView) => Promise<void>;
+  onRefresh: () => void;
+  showToast: (message: string) => void;
+}) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
+  const [agent, setAgent] = useState("all");
+  const [project, setProject] = useState("all");
+  const [channel, setChannel] = useState("all");
+  const [timeRange, setTimeRange] = useState("7");
+  const [metric, setMetric] = useState<ExecutionMetric>("round");
+  const [pageNumber, setPageNumber] = useState(1);
+  const pageSize = 8;
+  const agents = uniqueValues(sessions.map((item) => item.agentName));
+  const projects = uniqueValues(sessions.map((item) => item.projectName));
+  const channels = uniqueValues(sessions.map((item) => item.channelName));
   const filtered = sessions.filter((session) => {
     const matches = `${session.title} ${session.projectName} ${session.id}`.toLowerCase().includes(query.toLowerCase());
-    return matches && (status === "all" || session.status === status);
+    const updatedAt = new Date(session.updatedAt).getTime();
+    const withinRange = timeRange === "all" || (!Number.isNaN(updatedAt) && Date.now() - updatedAt <= Number(timeRange) * 86_400_000);
+    return matches
+      && (status === "all" || session.status === status)
+      && (agent === "all" || session.agentName === agent)
+      && (project === "all" || session.projectName === project)
+      && (channel === "all" || session.channelName === channel)
+      && withinRange;
   });
+  const ranked: ExecutionRankingItem[] = (metric === "round"
+    ? executionRuns.map((run) => ({ key: `${run.id || "active"}-${run.sessionId}-${run.startedAt}`, title: run.sessionTitle, project: run.projectName, duration: run.durationSeconds, statusLabel: run.statusLabel, active: run.active, detail: run.active ? "当前轮次" : formatRecentTime(run.endedAt) }))
+    : executionSessions.map((session) => ({ key: `${session.sessionId}-${session.directory}`, title: session.sessionTitle, project: session.projectName, duration: session.totalExecutionSeconds, statusLabel: session.statusLabel, active: session.active, detail: `${session.executionCount} 轮` })))
+    .filter((item) => item.duration > 0)
+    .sort((a, b) => b.duration - a.duration)
+    .slice(0, 7);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(pageNumber, pageCount);
+  const visibleSessions = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const updateFilter = (setter: (value: string) => void, value: string) => { setter(value); setPageNumber(1); };
   return (
-    <section className="page">
-      <PageHeader title="Sessions" description="查看 Session 状态；可在飞书查看模型目录，并为新建或已有 Session 选择模型。" />
-      <section className="panel architecture-note model-note">
-        <Bot size={22} />
-        <div>
-          <strong>飞书模型选择的生效规则</strong>
-          <p>发送 /models 只会展示 OpenCode 返回的脱敏模型信息，不会展示 API Key 或连接参数。</p>
-          <p>/project 创建的是空 Session：所选模型先显示为“待使用”，发送第一条任务时才真正生效。</p>
-          <p>已有 Session 切换模型不会中断当前执行，将从下一条通过飞书发送的普通任务起生效。</p>
+    <section className="page sessions-page-v2">
+      <div className="sessions-heading">
+        <PageHeader title="Sessions" description="管理 Session 并分析无人参与时的自动执行效果，持续优化 Agent 的自主执行能力。" />
+        <button className="new-session-button" onClick={() => showToast("请在 OpenCode 中新建 Session，创建后将自动同步到这里")}><Plus size={16} />新建 Session</button>
+      </div>
+
+      <section className="session-leaderboard">
+        <div className="leaderboard-title">
+          <Trophy size={19} />
+          <div><strong>{metric === "round" ? "单轮自主执行时长排行榜" : "Session 累计自主执行时长排行榜"}</strong><p>{metric === "round" ? "每次用户输入触发一轮计时，到完成或需要人工介入时结束。" : `汇总每个 Session 最近 ${retentionDays} 天内的全部自主执行轮次。`}</p></div>
+          <Info size={15} className="leaderboard-info" />
+          <span className="retention-note">保留 {retentionDays} 天</span>
+          <div className="metric-switch" role="group" aria-label="统计维度"><button className={metric === "round" ? "active" : ""} onClick={() => setMetric("round")}>单轮执行</button><button className={metric === "session" ? "active" : ""} onClick={() => setMetric("session")}>Session 累计</button></div>
         </div>
+        {ranked.length ? (
+          <div className="leaderboard-content">
+            <div className="podium-grid">
+              {[ranked[1], ranked[0], ranked[2]].map((item, index) => item ? (
+                <article className={`podium-card rank-${[2, 1, 3][index]}`} key={item.key}>
+                  <span className="rank-medal">{[2, 1, 3][index]}</span>
+                  <strong title={item.title}>{item.title}</strong>
+                  <b>{formatDuration(item.duration)}</b>
+                  <div><span>{item.project} · {item.detail}</span><span className={`status-pill ${rankingTone(item)}`}>{item.statusLabel}</span></div>
+                </article>
+              ) : <span className="podium-placeholder" aria-hidden="true" key={`empty-rank-${index}`} />)}
+            </div>
+            <div className="leaderboard-list">
+              <div className="leaderboard-row leaderboard-head"><span>排名</span><span>Session 名称</span><span>自动执行时长</span></div>
+              {ranked.slice(3).map((item, index) => <div className="leaderboard-row" key={item.key}><span>{index + 4}</span><strong title={item.title}>{item.title}</strong><time>{formatDuration(item.duration)}</time></div>)}
+              {ranked.length <= 3 && <div className="leaderboard-empty">更多有运行记录的 Session 将显示在这里</div>}
+              <button className="leaderboard-link" onClick={() => document.querySelector(".sessions-data-panel")?.scrollIntoView({ behavior: "smooth" })}>查看完整列表 <ChevronRight size={14} /></button>
+            </div>
+          </div>
+        ) : <div className="leaderboard-empty large">产生自主执行记录后，这里会展示{metric === "round" ? "单轮" : "Session 累计"}时长排行。</div>}
       </section>
-      <section className="panel full-panel">
-        <div className="toolbar">
-          <SearchBox value={query} onChange={setQuery} placeholder="搜索 Session、项目或 ID" />
-          <label className="select-control"><ListFilter size={16} /><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">全部状态</option><option value="running">运行中</option><option value="waiting_permission">等待权限</option><option value="waiting_answer">等待回答</option><option value="retrying">重试中</option><option value="idle">空闲</option><option value="unmonitored">未监控</option></select></label>
-          <span className="toolbar-count">{filtered.length} 个 Session</span>
+
+      <section className="sessions-filterbar">
+        <SearchBox value={query} onChange={(value) => updateFilter(setQuery, value)} placeholder="搜索 Session 名称、项目或 ID" />
+        <FilterSelect label="状态" value={status} onChange={(value) => updateFilter(setStatus, value)} options={[...statusOptions]} />
+        <FilterSelect label="Agent" value={agent} onChange={(value) => updateFilter(setAgent, value)} options={agents.map((value) => ({ value, label: value }))} />
+        <FilterSelect label="项目" value={project} onChange={(value) => updateFilter(setProject, value)} options={projects.map((value) => ({ value, label: value }))} />
+        <FilterSelect label="渠道" value={channel} onChange={(value) => updateFilter(setChannel, value)} options={channels.map((value) => ({ value, label: value }))} />
+        <span className="filter-spacer" />
+        <FilterSelect label="时间范围" value={timeRange} onChange={(value) => updateFilter(setTimeRange, value)} options={[{ value: "7", label: "近 7 天" }, { value: "30", label: "近 30 天" }]} />
+        <button className="filter-refresh" onClick={onRefresh} aria-label="刷新 Session" title="刷新 Session"><RefreshCw size={15} /></button>
+      </section>
+
+      <section className="sessions-data-panel">
+        <div className="sessions-table" role="table" aria-label="Session 列表">
+          <div className="sessions-table-row sessions-table-head" role="row"><span>Session</span><span>状态</span><span>{metric === "round" ? "本轮 / 最近一次" : "累计自主执行"}</span><span>最近输入</span><span>当前模型</span><span>最后活跃</span><span>操作</span></div>
+          {visibleSessions.map((session) => <SessionTableRow key={`${session.directory}-${session.id}`} session={session} metric={metric} onOpen={() => void onOpenSession(session)} />)}
+          {!visibleSessions.length && <EmptyState icon={MessageSquareText} title="没有匹配的 Session" text="更改筛选条件，或先在 OpenCode 中创建 Session。" />}
         </div>
-        <div className="session-grid">
-          {filtered.length ? filtered.map((session) => <SessionCard key={`${session.directory}-${session.id}`} session={session} onOpen={() => void onOpenSession(session)} />) : <EmptyState icon={MessageSquareText} title="没有匹配的 Session" text="更改筛选条件，或先在 OpenCode 中创建 Session。" />}
-        </div>
+        <div className="sessions-pagination"><span>共 {filtered.length} 条记录</span><nav aria-label="分页"><button disabled={currentPage === 1} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}><ChevronLeft size={15} /></button>{paginationItems(currentPage, pageCount).map((item, index) => item === "…" ? <span className="pagination-ellipsis" key={`ellipsis-${index}`}>…</span> : <button className={currentPage === item ? "active" : ""} key={item} onClick={() => setPageNumber(Number(item))}>{item}</button>)}<button disabled={currentPage === pageCount} onClick={() => setPageNumber((value) => Math.min(pageCount, value + 1))}><ChevronRight size={15} /></button></nav></div>
       </section>
     </section>
   );
+}
+
+const statusOptions = [
+  { value: "running", label: "运行中" },
+  { value: "waiting_permission", label: "等待权限" },
+  { value: "waiting_answer", label: "等待回答" },
+  { value: "retrying", label: "重试中" },
+  { value: "idle", label: "空闲" },
+  { value: "unmonitored", label: "未监控" },
+];
+
+function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }> }) {
+  return <label className="session-filter"><span>{label}：</span><select value={value} onChange={(event) => onChange(event.target.value)}><option value="all">全部</option>{options.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>;
+}
+
+function SessionTableRow({ session, metric, onOpen }: { session: SessionView; metric: ExecutionMetric; onOpen: () => void }) {
+  const tone = statusTone(session.status);
+  const modelLabel = `${session.currentModel || "默认模型"}${session.currentVariant ? ` · ${session.currentVariant}` : ""}`;
+  const duration = metric === "round" ? session.latestExecutionSeconds : session.totalExecutionSeconds;
+  return <article className="sessions-table-row" role="row">
+    <div className="table-session-cell"><span className={`session-run-icon ${tone}`}>{session.status === "running" ? <Play size={15} /> : <Activity size={15} />}</span><div><strong title={session.title}>{session.title}</strong><span>项目：{session.projectName}<i />Agent：{session.agentName}<i />渠道：{session.channelName}</span><code>{shortID(session.id)}</code></div></div>
+    <span><span className={`table-status ${tone}`}>{tone === "running" && <i className="health-dot online" />}{session.statusLabel}</span>{session.statusDetail && <small title={session.statusDetail}>{session.statusDetail}</small>}</span>
+    <span className="duration-cell">{duration > 0 ? formatDuration(duration) : "—"}{session.busyForSeconds > 0 && metric === "round" ? <small>↑ LIVE</small> : session.executionCount > 0 && <small>{session.executionCount} 轮</small>}</span>
+    <span className="last-input-cell" title={session.hasLastInput ? session.lastInput : "暂无用户输入"}>{session.hasLastInput ? session.lastInput : "—"}</span>
+    <span className="model-cell" title={modelLabel}>{modelLabel}</span>
+    <time>{formatRecentTime(session.updatedAt)}</time>
+    <button className="table-action" onClick={onOpen}>查看详情</button>
+  </article>;
+}
+
+function rankingTone(item: ExecutionRankingItem): string {
+  if (item.active) return "running";
+  if (item.statusLabel === "需要介入") return "question";
+  return "success";
 }
 
 function IntegrationsPage({ title, description, items }: { title: string; description: string; items: IntegrationView[] }) {
@@ -432,6 +546,7 @@ function SettingsPage({ showToast, onSaved }: { showToast: (message: string) => 
         <section className="panel settings-section">
           <h2>Handoff 与通知</h2>
           <div className="form-grid two"><FormField label="轮询间隔"><input value={form.pollingInterval} onChange={(event) => update("pollingInterval", event.target.value)} /></FormField><FormField label="最大输出字符" lockedBy={locked("handoff.max_output_chars")}><input type="number" value={form.maxOutputChars} disabled={!!locked("handoff.max_output_chars")} onChange={(event) => update("maxOutputChars", Number(event.target.value))} /></FormField></div>
+          <FormField label="自主执行记录保留天数" hint="默认 30 天；保存后会立即清理超过保留期的统计记录" lockedBy={locked("analytics.retention_days")}><input type="number" min="1" max="3650" value={form.executionRetentionDays} disabled={!!locked("analytics.retention_days")} onChange={(event) => update("executionRetentionDays", Number(event.target.value))} /></FormField>
           <ToggleRow label="通知 Session 空闲" checked={form.notifyIdle} disabled={!!locked("handoff.notify_idle")} onChange={(value) => update("notifyIdle", value)} />
           <ToggleRow label="通知运行错误" checked={form.notifyError} disabled={!!locked("handoff.notify_error")} onChange={(value) => update("notifyError", value)} />
           <ToggleRow label="转发 Question" checked={form.notifyQuestion} disabled={!!locked("handoff.notify_question")} onChange={(value) => update("notifyQuestion", value)} />
@@ -516,10 +631,11 @@ function settingsToInput(settings: SettingsView): SettingsInput {
     notifyQuestion: settings.notifyQuestion,
     notifyPermission: settings.notifyPermission,
     loggingLevel: settings.loggingLevel,
+    executionRetentionDays: settings.executionRetentionDays,
   };
 }
 
-function normaliseDashboard(value: Dashboard): Dashboard { return { ...value, projects: value.projects ?? [], sessions: value.sessions ?? [], agents: value.agents ?? [], channels: value.channels ?? [] }; }
+function normaliseDashboard(value: Dashboard): Dashboard { return { ...value, projects: value.projects ?? [], sessions: value.sessions ?? [], executionRuns: value.executionRuns ?? [], executionSessions: value.executionSessions ?? [], agents: value.agents ?? [], channels: value.channels ?? [] }; }
 function errorMessage(reason: unknown): string { return reason instanceof Error ? reason.message : String(reason); }
 function serviceStateLabel(state: string): string { return ({ conflict: "等待关闭 CLI", config_error: "配置待完善", error: "服务异常", stopped: "服务已停止", loading: "正在启动" } as Record<string, string>)[state] ?? "未运行"; }
 function statusTone(status: string): string { return ({ running: "running", waiting_permission: "permission", waiting_answer: "question", retrying: "retry", idle: "idle", unmonitored: "neutral" } as Record<string, string>)[status] ?? "neutral"; }
@@ -527,5 +643,12 @@ function shortID(id: string): string { return id.length > 12 ? `${id.slice(0, 7)
 function formatDuration(value: number): string { const seconds = Math.max(0, Math.floor(value)); if (seconds < 60) return `${seconds} 秒`; const minutes = Math.floor(seconds / 60); if (minutes < 60) return `${minutes} 分 ${seconds % 60} 秒`; const hours = Math.floor(minutes / 60); return `${hours} 小时 ${minutes % 60} 分`; }
 function formatDateTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("zh-CN", { hour12: false }); }
 function formatRecentTime(value: string): string { const date = new Date(value); const elapsed = Date.now() - date.getTime(); if (!value || Number.isNaN(date.getTime()) || date.getUTCFullYear() <= 1) return "暂无"; if (elapsed < 60_000) return "刚刚"; const minutes = Math.floor(elapsed / 60_000); if (minutes < 60) return `${minutes} 分钟前`; const hours = Math.floor(minutes / 60); if (hours < 24) return `${hours} 小时前`; const days = Math.floor(hours / 24); if (days < 30) return `${days} 天前`; return date.toLocaleDateString("zh-CN"); }
+function uniqueValues(values: string[]): string[] { return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN")); }
+function paginationItems(current: number, total: number): Array<number | "…"> {
+  if (total <= 5) return Array.from({ length: total }, (_, index) => index + 1);
+  if (current <= 3) return [1, 2, 3, "…", total];
+  if (current >= total - 2) return [1, "…", total - 2, total - 1, total];
+  return [1, "…", current, "…", total];
+}
 
 export default App;

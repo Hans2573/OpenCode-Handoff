@@ -7,6 +7,9 @@ export interface Dashboard {
     "summary": DashboardSummary;
     "projects": ProjectView[] | null;
     "sessions": SessionView[] | null;
+    "executionRuns": ExecutionRunView[] | null;
+    "executionSessions": ExecutionSessionView[] | null;
+    "executionRetentionDays": number;
     "agents": IntegrationView[] | null;
     "channels": IntegrationView[] | null;
 }
@@ -30,6 +33,32 @@ export interface EventView {
     "message": string;
     "metadata"?: { [_ in string]?: any } | null;
     "createdAt": string;
+}
+
+export interface ExecutionRunView {
+    "id": number;
+    "sessionId": string;
+    "sessionTitle": string;
+    "directory": string;
+    "projectName": string;
+    "durationSeconds": number;
+    "startedAt": string;
+    "endedAt": string;
+    "endReason": string;
+    "statusLabel": string;
+    "active": boolean;
+}
+
+export interface ExecutionSessionView {
+    "sessionId": string;
+    "sessionTitle": string;
+    "directory": string;
+    "projectName": string;
+    "latestExecutionSeconds": number;
+    "totalExecutionSeconds": number;
+    "executionCount": number;
+    "statusLabel": string;
+    "active": boolean;
 }
 
 export interface IntegrationView {
@@ -94,6 +123,9 @@ export interface SessionView {
     "hasLastInput": boolean;
     "currentModel": string;
     "currentVariant": string;
+    "latestExecutionSeconds": number;
+    "totalExecutionSeconds": number;
+    "executionCount": number;
 }
 
 export interface SettingsInput {
@@ -114,6 +146,7 @@ export interface SettingsInput {
     "notifyQuestion": boolean;
     "notifyPermission": boolean;
     "loggingLevel": string;
+    "executionRetentionDays": number;
 }
 
 export interface SettingsView {
@@ -134,6 +167,7 @@ export interface SettingsView {
     "notifyQuestion": boolean;
     "notifyPermission": boolean;
     "loggingLevel": string;
+    "executionRetentionDays": number;
     "environmentOverrides": { [_ in string]?: string } | null;
     "configError": string;
 }

@@ -6,6 +6,8 @@ export type {
     DashboardSummary,
     EventPage,
     EventView,
+    ExecutionRunView,
+    ExecutionSessionView,
     IntegrationView,
     Paths,
     ProjectView,

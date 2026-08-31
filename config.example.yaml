@@ -36,6 +36,10 @@ security:
   # 可选。留空时，只有持有本机一次性配对码的用户能够完成绑定。
   allowed_users: []
 
+analytics:
+  # 自主执行轮次与 Session 累计统计的保留天数，可用 ANALYTICS_RETENTION_DAYS 覆盖。
+  retention_days: 30
+
 store:
   path: opencode-handoff.db
 

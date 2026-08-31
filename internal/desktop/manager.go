@@ -44,8 +44,8 @@ type Manager struct {
 }
 
 type sessionTracker struct {
-	status string
-	since  time.Time
+	startedAt   time.Time
+	lastInputAt time.Time
 }
 
 func NewManager(parent context.Context, paths Paths, logger *slog.Logger) (*Manager, error) {
@@ -110,6 +110,7 @@ func NewManager(parent context.Context, paths Paths, logger *slog.Logger) (*Mana
 	manager.startEngine()
 	_ = manager.appendEvent("info", "app.started", "desktop", "Agent Handoff 桌面应用已启动", nil)
 	_ = manager.store.CleanupEvents(ctx, 30*24*time.Hour, 10_000)
+	_ = manager.cleanupSessionExecutions(ctx)
 	go manager.refreshLoop()
 	return manager, nil
 }
@@ -122,13 +123,17 @@ func (m *Manager) Close() error {
 
 func (m *Manager) refreshLoop() {
 	ticker := time.NewTicker(15 * time.Second)
+	cleanupTicker := time.NewTicker(6 * time.Hour)
 	defer ticker.Stop()
+	defer cleanupTicker.Stop()
 	for {
 		select {
 		case <-m.ctx.Done():
 			return
 		case <-ticker.C:
 			_ = m.RefreshProjects()
+		case <-cleanupTicker.C:
+			_ = m.cleanupSessionExecutions(m.ctx)
 		}
 	}
 }
@@ -371,6 +376,10 @@ func (m *Manager) GetDashboard() (Dashboard, error) {
 		})
 	}
 	sessions, online := m.collectSessions(ctx, routes)
+	executionRuns, executionSessions, err := m.executionViews(ctx, sessions)
+	if err != nil {
+		return Dashboard{}, err
+	}
 	sortProjectsByRecentConversation(projects, sessions)
 	m.mu.Lock()
 	m.opencodeOnline = online
@@ -396,7 +405,9 @@ func (m *Manager) GetDashboard() (Dashboard, error) {
 	return Dashboard{
 		GeneratedAt: time.Now().UTC(), Service: service, Summary: summary,
 		Projects: projects, Sessions: sessions,
-		Agents: m.agentViews(service), Channels: m.channelViews(service),
+		ExecutionRuns: executionRuns, ExecutionSessions: executionSessions,
+		ExecutionRetentionDays: m.executionRetentionDays(),
+		Agents:                 m.agentViews(service), Channels: m.channelViews(service),
 	}, nil
 }
 
@@ -428,6 +439,122 @@ func sortProjectsByRecentConversation(projects []ProjectView, sessions []Session
 		}
 		return strings.ToLower(projects[left].Directory) < strings.ToLower(projects[right].Directory)
 	})
+}
+
+func (m *Manager) executionViews(ctx context.Context, sessions []SessionView) ([]ExecutionRunView, []ExecutionSessionView, error) {
+	maxAge := time.Duration(m.executionRetentionDays()) * 24 * time.Hour
+	stats, err := m.store.ListSessionExecutionStats(ctx, maxAge)
+	if err != nil {
+		return nil, nil, err
+	}
+	statsBySession := make(map[string]domain.SessionExecutionStats, len(stats))
+	summaryBySession := make(map[string]ExecutionSessionView, len(stats)+len(sessions))
+	for _, item := range stats {
+		key := item.SessionID + "\x00" + routeKey(item.Directory)
+		statsBySession[key] = item
+		summaryBySession[key] = ExecutionSessionView{
+			SessionID: item.SessionID, SessionTitle: item.SessionTitle, Directory: item.Directory,
+			ProjectName: item.ProjectName, LatestExecutionSeconds: item.LatestExecutionSeconds,
+			TotalExecutionSeconds: item.TotalExecutionSeconds, ExecutionCount: item.ExecutionCount,
+			StatusLabel: "已结束",
+		}
+	}
+	for index := range sessions {
+		key := sessions[index].ID + "\x00" + routeKey(sessions[index].Directory)
+		item := statsBySession[key]
+		sessions[index].LatestExecutionSeconds = item.LatestExecutionSeconds
+		sessions[index].TotalExecutionSeconds = item.TotalExecutionSeconds
+		sessions[index].ExecutionCount = item.ExecutionCount
+		if sessions[index].BusyForSeconds > 0 {
+			sessions[index].LatestExecutionSeconds = sessions[index].BusyForSeconds
+			sessions[index].TotalExecutionSeconds += sessions[index].BusyForSeconds
+			sessions[index].ExecutionCount++
+		}
+		if sessions[index].ExecutionCount > 0 {
+			summaryBySession[key] = ExecutionSessionView{
+				SessionID: sessions[index].ID, SessionTitle: sessions[index].Title,
+				Directory: sessions[index].Directory, ProjectName: sessions[index].ProjectName,
+				LatestExecutionSeconds: sessions[index].LatestExecutionSeconds,
+				TotalExecutionSeconds:  sessions[index].TotalExecutionSeconds,
+				ExecutionCount:         sessions[index].ExecutionCount, StatusLabel: sessions[index].StatusLabel,
+				Active: sessions[index].BusyForSeconds > 0,
+			}
+		}
+	}
+
+	stored, err := m.store.ListSessionExecutionRuns(ctx, maxAge, 200)
+	if err != nil {
+		return nil, nil, err
+	}
+	result := make([]ExecutionRunView, 0, len(stored)+len(sessions))
+	for _, run := range stored {
+		result = append(result, ExecutionRunView{
+			ID: run.ID, SessionID: run.SessionID, SessionTitle: run.SessionTitle,
+			Directory: run.Directory, ProjectName: run.ProjectName,
+			DurationSeconds: run.DurationSeconds, StartedAt: run.StartedAt, EndedAt: run.EndedAt,
+			EndReason: run.EndReason, StatusLabel: executionStatusLabel(run.EndReason),
+		})
+	}
+	for _, session := range sessions {
+		if session.BusyForSeconds <= 0 {
+			continue
+		}
+		result = append(result, ExecutionRunView{
+			SessionID: session.ID, SessionTitle: session.Title, Directory: session.Directory,
+			ProjectName: session.ProjectName, DurationSeconds: session.BusyForSeconds,
+			StartedAt:   time.Now().UTC().Add(-time.Duration(session.BusyForSeconds) * time.Second),
+			StatusLabel: "运行中", Active: true,
+		})
+	}
+	sort.SliceStable(result, func(left, right int) bool {
+		if result[left].DurationSeconds != result[right].DurationSeconds {
+			return result[left].DurationSeconds > result[right].DurationSeconds
+		}
+		return result[left].StartedAt.After(result[right].StartedAt)
+	})
+	if len(result) > 200 {
+		result = result[:200]
+	}
+	summaries := make([]ExecutionSessionView, 0, len(summaryBySession))
+	for _, item := range summaryBySession {
+		summaries = append(summaries, item)
+	}
+	sort.SliceStable(summaries, func(left, right int) bool {
+		if summaries[left].TotalExecutionSeconds != summaries[right].TotalExecutionSeconds {
+			return summaries[left].TotalExecutionSeconds > summaries[right].TotalExecutionSeconds
+		}
+		return summaries[left].SessionTitle < summaries[right].SessionTitle
+	})
+	return result, summaries, nil
+}
+
+func executionStatusLabel(reason string) string {
+	switch reason {
+	case "completed":
+		return "已完成"
+	case "human_intervention":
+		return "需要介入"
+	case "new_input":
+		return "已切换轮次"
+	case "unmonitored":
+		return "停止监控"
+	default:
+		return "已结束"
+	}
+}
+
+func (m *Manager) executionRetentionDays() int {
+	m.mu.RLock()
+	days := m.cfg.Analytics.RetentionDays
+	m.mu.RUnlock()
+	if days < 1 {
+		return 30
+	}
+	return days
+}
+
+func (m *Manager) cleanupSessionExecutions(ctx context.Context) error {
+	return m.store.CleanupSessionExecutions(ctx, time.Duration(m.executionRetentionDays())*24*time.Hour)
 }
 
 func (m *Manager) serviceStatus() ServiceStatus {
@@ -541,9 +668,11 @@ func (m *Manager) collectDirectory(ctx context.Context, route domain.ProjectRout
 		} else {
 			view.ChannelName = "—"
 		}
+		var lastInputAt time.Time
 		if route.RouteEnabled && (index < 6 || status != "idle") {
 			if messages, err := client.GetMessages(ctx, session.ID, route.Directory, 50); err == nil {
 				if at, text, model, ok := lastUserMessage(messages); ok {
+					lastInputAt = at
 					view.HasLastInput = true
 					view.LastInput = text
 					view.SinceLastInputSeconds = maxInt64(0, int64(time.Since(at).Seconds()))
@@ -554,7 +683,7 @@ func (m *Manager) collectDirectory(ctx context.Context, route domain.ProjectRout
 				}
 			}
 		}
-		view.BusyForSeconds = m.trackBusy(session.ID, status, view.UpdatedAt)
+		view.BusyForSeconds = m.trackExecution(ctx, view, lastInputAt)
 		result = append(result, view)
 	}
 	return directoryResult{sessions: result, online: true}
@@ -581,24 +710,87 @@ func mapSessionStatus(enabled bool, status opencode.SessionStatus) (string, stri
 	}
 }
 
-func (m *Manager) trackBusy(sessionID, status string, fallback time.Time) int64 {
-	now := time.Now()
+func (m *Manager) trackExecution(ctx context.Context, view SessionView, lastInputAt time.Time) int64 {
+	now := time.Now().UTC()
+	key := view.ID + "\x00" + routeKey(view.Directory)
+	active := view.Status == "running" || view.Status == "retrying"
+	var closeAt time.Time
+	var closeReason string
+	var startAt time.Time
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if status != "running" && status != "retrying" {
-		delete(m.trackers, sessionID)
+	tracker, tracked := m.trackers[key]
+	if active {
+		newInput := tracked && !lastInputAt.IsZero() && lastInputAt.After(tracker.startedAt) &&
+			(tracker.lastInputAt.IsZero() || lastInputAt.After(tracker.lastInputAt))
+		if newInput {
+			closeAt, closeReason = lastInputAt, "new_input"
+			delete(m.trackers, key)
+			tracked = false
+		}
+		if !tracked {
+			startAt = executionStartTime(now, lastInputAt, view.UpdatedAt)
+			tracker = sessionTracker{startedAt: startAt, lastInputAt: lastInputAt}
+			m.trackers[key] = tracker
+		} else if lastInputAt.After(tracker.lastInputAt) {
+			tracker.lastInputAt = lastInputAt
+			m.trackers[key] = tracker
+		}
+	} else {
+		closeAt = executionEndTime(now, view.UpdatedAt, tracker.startedAt)
+		closeReason = executionEndReason(view.Status)
+		delete(m.trackers, key)
+	}
+	m.mu.Unlock()
+
+	if !closeAt.IsZero() {
+		if err := m.store.CompleteOpenSessionExecutions(ctx, view.ID, view.Directory, closeAt, closeReason); err != nil {
+			m.logger.Warn("complete session execution", "session", view.ID, "error", err)
+		}
+	}
+	if !startAt.IsZero() {
+		_, err := m.store.StartSessionExecution(ctx, domain.SessionExecutionRun{
+			SessionID: view.ID, Directory: view.Directory, ProjectName: view.ProjectName,
+			SessionTitle: view.Title, StartedAt: startAt,
+		})
+		if err != nil {
+			m.logger.Warn("start session execution", "session", view.ID, "error", err)
+		}
+	}
+	if !active {
 		return 0
 	}
-	tracker, ok := m.trackers[sessionID]
-	if !ok || tracker.status != status {
-		since := now
-		if !fallback.IsZero() && fallback.Before(now) {
-			since = fallback
-		}
-		tracker = sessionTracker{status: status, since: since}
-		m.trackers[sessionID] = tracker
+	return maxInt64(0, int64(now.Sub(tracker.startedAt).Seconds()))
+}
+
+func executionStartTime(now, lastInputAt, fallback time.Time) time.Time {
+	if !lastInputAt.IsZero() && lastInputAt.Before(now) {
+		return lastInputAt.UTC().Truncate(time.Millisecond)
 	}
-	return maxInt64(0, int64(now.Sub(tracker.since).Seconds()))
+	if !fallback.IsZero() && fallback.Before(now) {
+		return fallback.UTC().Truncate(time.Millisecond)
+	}
+	return now.Truncate(time.Millisecond)
+}
+
+func executionEndTime(now, updatedAt, startedAt time.Time) time.Time {
+	if !updatedAt.IsZero() && !updatedAt.After(now) && (startedAt.IsZero() || updatedAt.After(startedAt)) {
+		return updatedAt.UTC().Truncate(time.Millisecond)
+	}
+	return now.Truncate(time.Millisecond)
+}
+
+func executionEndReason(status string) string {
+	switch status {
+	case "idle":
+		return "completed"
+	case "waiting_permission", "waiting_answer":
+		return "human_intervention"
+	case "unmonitored":
+		return "unmonitored"
+	default:
+		return "stopped"
+	}
 }
 
 func lastUserMessage(messages []opencode.Message) (time.Time, string, *opencode.ModelRef, bool) {
@@ -679,7 +871,8 @@ func (m *Manager) GetSettings() SettingsView {
 		PollingInterval: cfg.Watcher.PollingInterval.Duration.String(), MaxOutputChars: cfg.Handoff.MaxOutputChars,
 		NotifyIdle: cfg.Handoff.NotifyIdle, NotifyError: cfg.Handoff.NotifyError,
 		NotifyQuestion: cfg.Handoff.NotifyQuestion, NotifyPermission: cfg.Handoff.NotifyPermission,
-		LoggingLevel: cfg.Logging.Level, EnvironmentOverrides: config.EnvironmentOverrides(), ConfigError: configError,
+		LoggingLevel: cfg.Logging.Level, ExecutionRetentionDays: cfg.Analytics.RetentionDays,
+		EnvironmentOverrides: config.EnvironmentOverrides(), ConfigError: configError,
 	}
 }
 
@@ -732,6 +925,9 @@ func (m *Manager) SaveSettings(input SettingsInput) error {
 	if _, locked := overrides["handoff.notify_permission"]; !locked {
 		next.Handoff.NotifyPermission = input.NotifyPermission
 	}
+	if _, locked := overrides["analytics.retention_days"]; !locked {
+		next.Analytics.RetentionDays = input.ExecutionRetentionDays
+	}
 	if value, err := time.ParseDuration(strings.TrimSpace(input.PollingInterval)); err == nil {
 		next.Watcher.PollingInterval = config.Duration{Duration: value}
 	} else {
@@ -755,6 +951,9 @@ func (m *Manager) SaveSettings(input SettingsInput) error {
 	m.configError = ""
 	m.mu.Unlock()
 	if err := m.store.EnsureDesktopDefaults(m.ctx, next.OpenCode.BaseURL); err != nil {
+		return err
+	}
+	if err := m.cleanupSessionExecutions(m.ctx); err != nil {
 		return err
 	}
 	m.RestartService()

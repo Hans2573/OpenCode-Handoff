@@ -154,6 +154,67 @@ func TestSQLiteDesktopRoutesAndEvents(t *testing.T) {
 	}
 }
 
+func TestSQLiteSessionExecutionLifecycleAndRetention(t *testing.T) {
+	ctx := context.Background()
+	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	first := domain.SessionExecutionRun{
+		SessionID: "ses_1", Directory: "/work/a", ProjectName: "Alpha",
+		SessionTitle: "First session", StartedAt: now.Add(-10 * time.Minute),
+	}
+	if _, err := database.StartSessionExecution(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteOpenSessionExecutions(ctx, first.SessionID, first.Directory, now.Add(-5*time.Minute), "completed"); err != nil {
+		t.Fatal(err)
+	}
+	second := first
+	second.StartedAt = now.Add(-time.Minute)
+	if _, err := database.StartSessionExecution(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteOpenSessionExecutions(ctx, second.SessionID, second.Directory, now, "human_intervention"); err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := database.ListSessionExecutionRuns(ctx, 30*24*time.Hour, 20)
+	if err != nil || len(runs) != 2 {
+		t.Fatalf("execution runs = %+v, err = %v", runs, err)
+	}
+	if runs[0].DurationSeconds != 300 || runs[1].DurationSeconds != 60 {
+		t.Fatalf("execution durations = %d, %d", runs[0].DurationSeconds, runs[1].DurationSeconds)
+	}
+	stats, err := database.ListSessionExecutionStats(ctx, 30*24*time.Hour)
+	if err != nil || len(stats) != 1 {
+		t.Fatalf("execution stats = %+v, err = %v", stats, err)
+	}
+	if stats[0].ExecutionCount != 2 || stats[0].TotalExecutionSeconds != 360 || stats[0].LatestExecutionSeconds != 60 {
+		t.Fatalf("execution stats = %+v", stats[0])
+	}
+
+	old := first
+	old.SessionID = "ses_old"
+	old.StartedAt = now.Add(-40 * 24 * time.Hour)
+	if _, err := database.StartSessionExecution(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteOpenSessionExecutions(ctx, old.SessionID, old.Directory, now.Add(-39*24*time.Hour), "completed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CleanupSessionExecutions(ctx, 30*24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	stats, err = database.ListSessionExecutionStats(ctx, 365*24*time.Hour)
+	if err != nil || len(stats) != 1 || stats[0].SessionID != "ses_1" {
+		t.Fatalf("stats after cleanup = %+v, err = %v", stats, err)
+	}
+}
+
 func TestSQLiteProjectRoutesRequireExplicitOptIn(t *testing.T) {
 	ctx := context.Background()
 	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))

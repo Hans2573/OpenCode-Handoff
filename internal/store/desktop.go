@@ -261,6 +261,120 @@ func (s *SQLite) ListRecentModels(ctx context.Context, limit int) ([]domain.Sess
 	return result, nil
 }
 
+func (s *SQLite) StartSessionExecution(ctx context.Context, run domain.SessionExecutionRun) (int64, error) {
+	startedAt := run.StartedAt
+	if startedAt.IsZero() {
+		startedAt = time.Now().UTC()
+	}
+	startedAt = startedAt.UTC().Truncate(time.Millisecond)
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO session_execution_runs (
+			session_id, directory, project_name, session_title, started_at
+		) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(session_id, directory, started_at) DO UPDATE SET
+			project_name = excluded.project_name,
+			session_title = excluded.session_title`,
+		run.SessionID, run.Directory, run.ProjectName, run.SessionTitle, startedAt.UnixMilli()); err != nil {
+		return 0, fmt.Errorf("start session execution %s: %w", run.SessionID, err)
+	}
+	var id int64
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT id FROM session_execution_runs
+		WHERE session_id = ? AND directory = ? AND started_at = ?`,
+		run.SessionID, run.Directory, startedAt.UnixMilli()).Scan(&id); err != nil {
+		return 0, fmt.Errorf("read session execution %s: %w", run.SessionID, err)
+	}
+	return id, nil
+}
+
+func (s *SQLite) CompleteOpenSessionExecutions(ctx context.Context, sessionID, directory string, endedAt time.Time, reason string) error {
+	if endedAt.IsZero() {
+		endedAt = time.Now().UTC()
+	}
+	endedAtMillis := endedAt.UTC().UnixMilli()
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE session_execution_runs SET
+			ended_at = ?,
+			duration_seconds = CASE WHEN ? > started_at THEN (? - started_at) / 1000 ELSE 0 END,
+			end_reason = ?
+		WHERE session_id = ? AND directory = ? AND ended_at IS NULL`,
+		endedAtMillis, endedAtMillis, endedAtMillis, reason, sessionID, directory); err != nil {
+		return fmt.Errorf("complete session execution %s: %w", sessionID, err)
+	}
+	return nil
+}
+
+func (s *SQLite) ListSessionExecutionRuns(ctx context.Context, maxAge time.Duration, limit int) ([]domain.SessionExecutionRun, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	cutoff := time.Now().UTC().Add(-maxAge).UnixMilli()
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, session_id, directory, project_name, session_title,
+			started_at, ended_at, duration_seconds, end_reason
+		FROM session_execution_runs
+		WHERE ended_at IS NOT NULL AND ended_at >= ?
+		ORDER BY duration_seconds DESC, ended_at DESC, id DESC
+		LIMIT ?`, cutoff, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list session executions: %w", err)
+	}
+	defer rows.Close()
+	var result []domain.SessionExecutionRun
+	for rows.Next() {
+		var item domain.SessionExecutionRun
+		var startedAt, endedAt int64
+		if err := rows.Scan(&item.ID, &item.SessionID, &item.Directory, &item.ProjectName, &item.SessionTitle,
+			&startedAt, &endedAt, &item.DurationSeconds, &item.EndReason); err != nil {
+			return nil, fmt.Errorf("scan session execution: %w", err)
+		}
+		item.StartedAt = time.UnixMilli(startedAt).UTC()
+		item.EndedAt = time.UnixMilli(endedAt).UTC()
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *SQLite) ListSessionExecutionStats(ctx context.Context, maxAge time.Duration) ([]domain.SessionExecutionStats, error) {
+	cutoff := time.Now().UTC().Add(-maxAge).UnixMilli()
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.session_id, r.directory, MAX(r.project_name), MAX(r.session_title),
+			COUNT(*), SUM(r.duration_seconds),
+			COALESCE((
+				SELECT latest.duration_seconds FROM session_execution_runs latest
+				WHERE latest.session_id = r.session_id AND latest.directory = r.directory
+					AND latest.ended_at IS NOT NULL AND latest.ended_at >= ?
+				ORDER BY latest.ended_at DESC, latest.id DESC LIMIT 1
+			), 0)
+		FROM session_execution_runs r
+		WHERE r.ended_at IS NOT NULL AND r.ended_at >= ?
+		GROUP BY r.session_id, r.directory`, cutoff, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("summarise session executions: %w", err)
+	}
+	defer rows.Close()
+	var result []domain.SessionExecutionStats
+	for rows.Next() {
+		var item domain.SessionExecutionStats
+		if err := rows.Scan(&item.SessionID, &item.Directory, &item.ProjectName, &item.SessionTitle,
+			&item.ExecutionCount, &item.TotalExecutionSeconds, &item.LatestExecutionSeconds); err != nil {
+			return nil, fmt.Errorf("scan session execution summary: %w", err)
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *SQLite) CleanupSessionExecutions(ctx context.Context, maxAge time.Duration) error {
+	cutoff := time.Now().UTC().Add(-maxAge).UnixMilli()
+	if _, err := s.db.ExecContext(ctx, `
+		DELETE FROM session_execution_runs
+		WHERE COALESCE(ended_at, started_at) < ?`, cutoff); err != nil {
+		return fmt.Errorf("delete expired session executions: %w", err)
+	}
+	return nil
+}
+
 func (s *SQLite) AppendEvent(ctx context.Context, event domain.EventLog) error {
 	metadata, err := json.Marshal(event.Metadata)
 	if err != nil {

@@ -3,13 +3,16 @@ package desktop
 import "time"
 
 type Dashboard struct {
-	GeneratedAt time.Time         `json:"generatedAt"`
-	Service     ServiceStatus     `json:"service"`
-	Summary     DashboardSummary  `json:"summary"`
-	Projects    []ProjectView     `json:"projects"`
-	Sessions    []SessionView     `json:"sessions"`
-	Agents      []IntegrationView `json:"agents"`
-	Channels    []IntegrationView `json:"channels"`
+	GeneratedAt            time.Time              `json:"generatedAt"`
+	Service                ServiceStatus          `json:"service"`
+	Summary                DashboardSummary       `json:"summary"`
+	Projects               []ProjectView          `json:"projects"`
+	Sessions               []SessionView          `json:"sessions"`
+	ExecutionRuns          []ExecutionRunView     `json:"executionRuns"`
+	ExecutionSessions      []ExecutionSessionView `json:"executionSessions"`
+	ExecutionRetentionDays int                    `json:"executionRetentionDays"`
+	Agents                 []IntegrationView      `json:"agents"`
+	Channels               []IntegrationView      `json:"channels"`
 }
 
 type ServiceStatus struct {
@@ -46,23 +49,52 @@ type ProjectView struct {
 }
 
 type SessionView struct {
-	ID                    string    `json:"id"`
-	Title                 string    `json:"title"`
-	ProjectName           string    `json:"projectName"`
-	Directory             string    `json:"directory"`
-	AgentName             string    `json:"agentName"`
-	ChannelName           string    `json:"channelName"`
-	Status                string    `json:"status"`
-	StatusLabel           string    `json:"statusLabel"`
-	StatusDetail          string    `json:"statusDetail"`
-	RouteEnabled          bool      `json:"routeEnabled"`
-	UpdatedAt             time.Time `json:"updatedAt"`
-	BusyForSeconds        int64     `json:"busyForSeconds"`
-	SinceLastInputSeconds int64     `json:"sinceLastInputSeconds"`
-	LastInput             string    `json:"lastInput"`
-	HasLastInput          bool      `json:"hasLastInput"`
-	CurrentModel          string    `json:"currentModel"`
-	CurrentVariant        string    `json:"currentVariant"`
+	ID                     string    `json:"id"`
+	Title                  string    `json:"title"`
+	ProjectName            string    `json:"projectName"`
+	Directory              string    `json:"directory"`
+	AgentName              string    `json:"agentName"`
+	ChannelName            string    `json:"channelName"`
+	Status                 string    `json:"status"`
+	StatusLabel            string    `json:"statusLabel"`
+	StatusDetail           string    `json:"statusDetail"`
+	RouteEnabled           bool      `json:"routeEnabled"`
+	UpdatedAt              time.Time `json:"updatedAt"`
+	BusyForSeconds         int64     `json:"busyForSeconds"`
+	SinceLastInputSeconds  int64     `json:"sinceLastInputSeconds"`
+	LastInput              string    `json:"lastInput"`
+	HasLastInput           bool      `json:"hasLastInput"`
+	CurrentModel           string    `json:"currentModel"`
+	CurrentVariant         string    `json:"currentVariant"`
+	LatestExecutionSeconds int64     `json:"latestExecutionSeconds"`
+	TotalExecutionSeconds  int64     `json:"totalExecutionSeconds"`
+	ExecutionCount         int       `json:"executionCount"`
+}
+
+type ExecutionRunView struct {
+	ID              int64     `json:"id"`
+	SessionID       string    `json:"sessionId"`
+	SessionTitle    string    `json:"sessionTitle"`
+	Directory       string    `json:"directory"`
+	ProjectName     string    `json:"projectName"`
+	DurationSeconds int64     `json:"durationSeconds"`
+	StartedAt       time.Time `json:"startedAt"`
+	EndedAt         time.Time `json:"endedAt"`
+	EndReason       string    `json:"endReason"`
+	StatusLabel     string    `json:"statusLabel"`
+	Active          bool      `json:"active"`
+}
+
+type ExecutionSessionView struct {
+	SessionID              string `json:"sessionId"`
+	SessionTitle           string `json:"sessionTitle"`
+	Directory              string `json:"directory"`
+	ProjectName            string `json:"projectName"`
+	LatestExecutionSeconds int64  `json:"latestExecutionSeconds"`
+	TotalExecutionSeconds  int64  `json:"totalExecutionSeconds"`
+	ExecutionCount         int    `json:"executionCount"`
+	StatusLabel            string `json:"statusLabel"`
+	Active                 bool   `json:"active"`
 }
 
 type IntegrationView struct {
@@ -77,45 +109,47 @@ type IntegrationView struct {
 }
 
 type SettingsView struct {
-	Paths                Paths             `json:"paths"`
-	OpenCodeBaseURL      string            `json:"openCodeBaseUrl"`
-	OpenCodeDirectory    string            `json:"openCodeDirectory"`
-	OpenCodeUsername     string            `json:"openCodeUsername"`
-	OpenCodePasswordSet  bool              `json:"openCodePasswordSet"`
-	AllowRemote          bool              `json:"allowRemote"`
-	FeishuAppID          string            `json:"feishuAppId"`
-	FeishuAppSecretSet   bool              `json:"feishuAppSecretSet"`
-	FeishuChatID         string            `json:"feishuChatId"`
-	AllowedUsers         []string          `json:"allowedUsers"`
-	PollingInterval      string            `json:"pollingInterval"`
-	MaxOutputChars       int               `json:"maxOutputChars"`
-	NotifyIdle           bool              `json:"notifyIdle"`
-	NotifyError          bool              `json:"notifyError"`
-	NotifyQuestion       bool              `json:"notifyQuestion"`
-	NotifyPermission     bool              `json:"notifyPermission"`
-	LoggingLevel         string            `json:"loggingLevel"`
-	EnvironmentOverrides map[string]string `json:"environmentOverrides"`
-	ConfigError          string            `json:"configError"`
+	Paths                  Paths             `json:"paths"`
+	OpenCodeBaseURL        string            `json:"openCodeBaseUrl"`
+	OpenCodeDirectory      string            `json:"openCodeDirectory"`
+	OpenCodeUsername       string            `json:"openCodeUsername"`
+	OpenCodePasswordSet    bool              `json:"openCodePasswordSet"`
+	AllowRemote            bool              `json:"allowRemote"`
+	FeishuAppID            string            `json:"feishuAppId"`
+	FeishuAppSecretSet     bool              `json:"feishuAppSecretSet"`
+	FeishuChatID           string            `json:"feishuChatId"`
+	AllowedUsers           []string          `json:"allowedUsers"`
+	PollingInterval        string            `json:"pollingInterval"`
+	MaxOutputChars         int               `json:"maxOutputChars"`
+	NotifyIdle             bool              `json:"notifyIdle"`
+	NotifyError            bool              `json:"notifyError"`
+	NotifyQuestion         bool              `json:"notifyQuestion"`
+	NotifyPermission       bool              `json:"notifyPermission"`
+	LoggingLevel           string            `json:"loggingLevel"`
+	ExecutionRetentionDays int               `json:"executionRetentionDays"`
+	EnvironmentOverrides   map[string]string `json:"environmentOverrides"`
+	ConfigError            string            `json:"configError"`
 }
 
 type SettingsInput struct {
-	OpenCodeBaseURL       string   `json:"openCodeBaseUrl"`
-	OpenCodeDirectory     string   `json:"openCodeDirectory"`
-	OpenCodeUsername      string   `json:"openCodeUsername"`
-	OpenCodePassword      string   `json:"openCodePassword"`
-	ClearOpenCodePassword bool     `json:"clearOpenCodePassword"`
-	AllowRemote           bool     `json:"allowRemote"`
-	FeishuAppID           string   `json:"feishuAppId"`
-	FeishuAppSecret       string   `json:"feishuAppSecret"`
-	FeishuChatID          string   `json:"feishuChatId"`
-	AllowedUsers          []string `json:"allowedUsers"`
-	PollingInterval       string   `json:"pollingInterval"`
-	MaxOutputChars        int      `json:"maxOutputChars"`
-	NotifyIdle            bool     `json:"notifyIdle"`
-	NotifyError           bool     `json:"notifyError"`
-	NotifyQuestion        bool     `json:"notifyQuestion"`
-	NotifyPermission      bool     `json:"notifyPermission"`
-	LoggingLevel          string   `json:"loggingLevel"`
+	OpenCodeBaseURL        string   `json:"openCodeBaseUrl"`
+	OpenCodeDirectory      string   `json:"openCodeDirectory"`
+	OpenCodeUsername       string   `json:"openCodeUsername"`
+	OpenCodePassword       string   `json:"openCodePassword"`
+	ClearOpenCodePassword  bool     `json:"clearOpenCodePassword"`
+	AllowRemote            bool     `json:"allowRemote"`
+	FeishuAppID            string   `json:"feishuAppId"`
+	FeishuAppSecret        string   `json:"feishuAppSecret"`
+	FeishuChatID           string   `json:"feishuChatId"`
+	AllowedUsers           []string `json:"allowedUsers"`
+	PollingInterval        string   `json:"pollingInterval"`
+	MaxOutputChars         int      `json:"maxOutputChars"`
+	NotifyIdle             bool     `json:"notifyIdle"`
+	NotifyError            bool     `json:"notifyError"`
+	NotifyQuestion         bool     `json:"notifyQuestion"`
+	NotifyPermission       bool     `json:"notifyPermission"`
+	LoggingLevel           string   `json:"loggingLevel"`
+	ExecutionRetentionDays int      `json:"executionRetentionDays"`
 }
 
 type EventPage struct {

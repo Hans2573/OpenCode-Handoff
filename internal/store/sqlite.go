@@ -144,6 +144,22 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			created_at INTEGER NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_event_logs_created_at ON event_logs(created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS session_execution_runs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT NOT NULL,
+			directory TEXT NOT NULL,
+			project_name TEXT NOT NULL DEFAULT '',
+			session_title TEXT NOT NULL DEFAULT '',
+			started_at INTEGER NOT NULL,
+			ended_at INTEGER,
+			duration_seconds INTEGER NOT NULL DEFAULT 0,
+			end_reason TEXT NOT NULL DEFAULT '',
+			UNIQUE(session_id, directory, started_at)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_session_execution_runs_ended_at
+			ON session_execution_runs(ended_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_session_execution_runs_session
+			ON session_execution_runs(session_id, directory, started_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS app_settings (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL,

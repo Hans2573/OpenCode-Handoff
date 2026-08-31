@@ -32,14 +32,15 @@ func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 }
 
 type Config struct {
-	OpenCode OpenCodeConfig `yaml:"opencode"`
-	Watcher  WatcherConfig  `yaml:"watcher"`
-	Handoff  HandoffConfig  `yaml:"handoff"`
-	Channel  ChannelConfig  `yaml:"channel"`
-	Feishu   FeishuConfig   `yaml:"feishu"`
-	Security SecurityConfig `yaml:"security"`
-	Store    StoreConfig    `yaml:"store"`
-	Logging  LoggingConfig  `yaml:"logging"`
+	OpenCode  OpenCodeConfig  `yaml:"opencode"`
+	Watcher   WatcherConfig   `yaml:"watcher"`
+	Handoff   HandoffConfig   `yaml:"handoff"`
+	Channel   ChannelConfig   `yaml:"channel"`
+	Feishu    FeishuConfig    `yaml:"feishu"`
+	Security  SecurityConfig  `yaml:"security"`
+	Analytics AnalyticsConfig `yaml:"analytics"`
+	Store     StoreConfig     `yaml:"store"`
+	Logging   LoggingConfig   `yaml:"logging"`
 }
 
 type OpenCodeConfig struct {
@@ -78,6 +79,10 @@ type SecurityConfig struct {
 	AllowedUsers []string `yaml:"allowed_users"`
 }
 
+type AnalyticsConfig struct {
+	RetentionDays int `yaml:"retention_days"`
+}
+
 type StoreConfig struct {
 	Path string `yaml:"path"`
 }
@@ -101,9 +106,10 @@ func Default() Config {
 			NotifyQuestion:   true,
 			NotifyPermission: true,
 		},
-		Channel: ChannelConfig{Type: "feishu"},
-		Store:   StoreConfig{Path: "opencode-handoff.db"},
-		Logging: LoggingConfig{Level: "info"},
+		Channel:   ChannelConfig{Type: "feishu"},
+		Analytics: AnalyticsConfig{RetentionDays: 30},
+		Store:     StoreConfig{Path: "opencode-handoff.db"},
+		Logging:   LoggingConfig{Level: "info"},
 	}
 }
 
@@ -283,6 +289,7 @@ func EnvironmentOverrides() map[string]string {
 		"handoff.notify_error":      "HANDOFF_NOTIFY_ERROR",
 		"handoff.notify_question":   "HANDOFF_NOTIFY_QUESTION",
 		"handoff.notify_permission": "HANDOFF_NOTIFY_PERMISSION",
+		"analytics.retention_days":  "ANALYTICS_RETENTION_DAYS",
 	}
 	if _, primary := os.LookupEnv("FEISHU_ALLOWED_USERS"); !primary {
 		candidates["security.allowed_users"] = "FEISHU_ALLOWED_USER"
@@ -313,6 +320,9 @@ func applyEnvironmentOverrides(cfg *Config) error {
 		cfg.Security.AllowedUsers = splitCommaSeparated(value)
 	}
 	if err := overrideInt("HANDOFF_MAX_OUTPUT_CHARS", &cfg.Handoff.MaxOutputChars); err != nil {
+		return err
+	}
+	if err := overrideInt("ANALYTICS_RETENTION_DAYS", &cfg.Analytics.RetentionDays); err != nil {
 		return err
 	}
 	for name, target := range map[string]*bool{
@@ -389,6 +399,9 @@ func (c Config) Validate() error {
 	}
 	if c.Handoff.MaxOutputChars <= 0 {
 		return errors.New("handoff.max_output_chars must be positive")
+	}
+	if c.Analytics.RetentionDays < 1 || c.Analytics.RetentionDays > 3650 {
+		return errors.New("analytics.retention_days must be between 1 and 3650")
 	}
 	if c.Channel.Type != "feishu" {
 		return fmt.Errorf("unsupported channel.type %q", c.Channel.Type)

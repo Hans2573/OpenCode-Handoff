@@ -41,6 +41,9 @@ store:
 	if cfg.Watcher.PollingInterval.Duration != 3*time.Second {
 		t.Fatalf("unexpected polling interval: %s", cfg.Watcher.PollingInterval.Duration)
 	}
+	if cfg.Analytics.RetentionDays != 30 {
+		t.Fatalf("unexpected analytics retention: %d", cfg.Analytics.RetentionDays)
+	}
 	wantStore := filepath.Join(directory, "state", "handoff.db")
 	if cfg.Store.Path != wantStore {
 		t.Fatalf("store path = %q, want %q", cfg.Store.Path, wantStore)
@@ -92,6 +95,7 @@ func TestEnvironmentOverridesLiteralYAML(t *testing.T) {
 	t.Setenv("HANDOFF_MAX_OUTPUT_CHARS", "1200")
 	t.Setenv("HANDOFF_NOTIFY_QUESTION", "false")
 	t.Setenv("HANDOFF_NOTIFY_PERMISSION", "false")
+	t.Setenv("ANALYTICS_RETENTION_DAYS", "45")
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := `
@@ -126,6 +130,9 @@ security:
 	}
 	if cfg.Handoff.MaxOutputChars != 1200 || cfg.Handoff.NotifyQuestion || cfg.Handoff.NotifyPermission {
 		t.Fatalf("handoff env overrides not applied: %+v", cfg.Handoff)
+	}
+	if cfg.Analytics.RetentionDays != 45 {
+		t.Fatalf("analytics env override not applied: %+v", cfg.Analytics)
 	}
 }
 
@@ -224,6 +231,7 @@ func clearAutomaticOverrides(t *testing.T) {
 		"HANDOFF_NOTIFY_ERROR",
 		"HANDOFF_NOTIFY_QUESTION",
 		"HANDOFF_NOTIFY_PERMISSION",
+		"ANALYTICS_RETENTION_DAYS",
 	} {
 		value, existed := os.LookupEnv(name)
 		if err := os.Unsetenv(name); err != nil {
