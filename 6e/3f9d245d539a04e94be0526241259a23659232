@@ -1,0 +1,21 @@
+frontend/src/App.tsx
+  s_e829e1cd99eb2b::t_226c5a1915f2e4 305,328,341-342,345,373,378-379
+frontend/src/styles.css
+  s_e829e1cd99eb2b::t_9041b9b640bc55 189,192,201-202,204-205,207-208,378
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "6e3f9d245d539a04e94be0526241259a23659232",
+  "prompts": {},
+  "sessions": {
+    "s_e829e1cd99eb2b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d5c-8bb1-72d2-bad8-945ee13db8eb",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
