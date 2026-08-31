@@ -1,0 +1,35 @@
+frontend/dist/assets/index-Chwyg_1k.js
+  s_a4df44721dc7c6::t_41e959b833887b 14
+frontend/dist/assets/index-DsryfsWc.css
+  s_a4df44721dc7c6::t_68a5c532f863ae 1
+frontend/dist/index.html
+  s_a4df44721dc7c6::t_caa614fe706651 8-9
+frontend/src/styles.css
+  s_a4df44721dc7c6::t_8c67f8c5f1d2ef 29-34
+frontend/src/App.tsx
+  s_e829e1cd99eb2b::t_45385a895ffa06 340,371,378,425-426,588-590,597,646-667,669
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "06026b50fc4d19acbecf726fdf21f6aa994a1dd8",
+  "prompts": {},
+  "sessions": {
+    "s_a4df44721dc7c6": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa97eb9c5ffe09zEaPsVpD8Dsx",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    },
+    "s_e829e1cd99eb2b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04d5c-8bb1-72d2-bad8-945ee13db8eb",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
