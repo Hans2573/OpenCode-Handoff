@@ -84,6 +84,7 @@ export interface GoalLoopEventView {
     "id": number;
     "type": string;
     "message": string;
+    "metadata"?: { [_ in string]?: any } | null;
     "createdAt": string;
 }
 
@@ -94,6 +95,12 @@ export interface GoalLoopInput {
     "modelProviderId": string;
     "modelId": string;
     "modelVariant": string;
+    "sessionId": string;
+    "automationMode": string;
+    "allowedDirectories": string[] | null;
+    "supervisorModelProviderId": string;
+    "supervisorModelId": string;
+    "supervisorModelVariant": string;
     "failureLimit": number;
     "requireCompletionConfirmation": boolean;
     "goalCommandConfirmed": boolean;
@@ -120,6 +127,16 @@ export interface GoalLoopView {
     "modelName": string;
     "modelVariant": string;
     "sessionId": string;
+    "attachedSession": boolean;
+    "automationMode": string;
+    "allowedDirectories": string[] | null;
+    "supervisorModelProviderId": string;
+    "supervisorModelId": string;
+    "supervisorModelName": string;
+    "supervisorModelVariant": string;
+    "supervisorSessionId": string;
+    "pendingRequestId": string;
+    "pendingRequestType": string;
     "status": string;
     "statusLabel": string;
     "requireCompletionConfirmation": boolean;
@@ -157,6 +174,7 @@ export interface LoopApprovalView {
     "type": string;
     "sessionId": string;
     "loopId": string;
+    "autonomous": boolean;
     "projectName": string;
     "directory": string;
     "questions": ApprovalQuestionView[] | null;
@@ -204,6 +222,12 @@ export interface ServiceStatus {
     "openCodeUrl": string;
 }
 
+export interface SessionModelView {
+    "providerId": string;
+    "modelId": string;
+    "variant": string;
+}
+
 export interface SessionView {
     "id": string;
     "title": string;
@@ -225,6 +249,8 @@ export interface SessionView {
     "latestExecutionSeconds": number;
     "totalExecutionSeconds": number;
     "executionCount": number;
+    "goalLoopId": string;
+    "goalLoopActive": boolean;
 }
 
 export interface SettingsInput {

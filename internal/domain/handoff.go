@@ -12,6 +12,7 @@ const (
 	HandoffError          HandoffType = "ERROR"
 	HandoffStalled        HandoffType = "STALLED"
 	HandoffGoalCompletion HandoffType = "GOAL_COMPLETION"
+	HandoffGoalStatus     HandoffType = "GOAL_STATUS"
 )
 
 type HandoffStatus string

@@ -178,6 +178,33 @@ func TestClientDirectoryDiscoveryAndPrompt(t *testing.T) {
 	}
 }
 
+func TestSendPromptNoToolsDisablesExecutionTools(t *testing.T) {
+	var tools map[string]bool
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Tools map[string]bool `json:"tools"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		tools = body.Tools
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	client, err := NewClient(ClientOptions{BaseURL: server.URL, HTTP: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SendPromptNoTools(context.Background(), "ses_supervisor", "/work", "decide", &ModelRef{ProviderID: "p", ModelID: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"read", "write", "edit", "bash", "task", "question"} {
+		if allowed, exists := tools[name]; !exists || allowed {
+			t.Fatalf("tool %s was not disabled: %+v", name, tools)
+		}
+	}
+}
+
 func TestWatchGlobalEvents(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/global/event" {

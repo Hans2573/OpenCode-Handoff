@@ -110,6 +110,24 @@ func TestFormatGoalCompletionHandoff(t *testing.T) {
 	}
 }
 
+func TestFormatGoalStatusHandoffHasNoInteractiveReplyActions(t *testing.T) {
+	content, err := formatHandoffCard(domain.Handoff{
+		ID: "hof_goal_status", SessionID: "ses_goal", SessionName: "Ship feature", ProjectName: "handoff",
+		Directory: "/work/project", Type: domain.HandoffGoalStatus, LastAssistantText: "Goal 已启动",
+	}, 3000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := decodeHandoffCard(t, content)
+	message := cardContents(card.Body.Elements)
+	if !strings.Contains(message, "Goal Loop · 状态更新") || !strings.Contains(message, "Goal 已启动") {
+		t.Fatalf("Goal status card = %q", message)
+	}
+	if buttons := findCardElements(card.Body.Elements, "button"); len(buttons) != 0 {
+		t.Fatalf("Goal status must not create reply actions: %+v", buttons)
+	}
+}
+
 func TestOnCardActionRoutesGoalContinuation(t *testing.T) {
 	client := &Client{replies: make(chan domain.UserReply, 1)}
 	event := &callback.CardActionTriggerEvent{Event: &callback.CardActionTriggerRequest{

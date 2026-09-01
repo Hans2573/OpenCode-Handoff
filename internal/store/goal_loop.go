@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,17 +12,29 @@ import (
 )
 
 func (s *SQLite) CreateGoalLoop(ctx context.Context, loop domain.GoalLoop) error {
-	_, err := s.db.ExecContext(ctx, `
+	allowedDirectories, err := json.Marshal(loop.AllowedDirectories)
+	if err != nil {
+		return fmt.Errorf("encode Goal Loop allowed directories: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO goal_loops (
 			id, name, goal, project_id, project_name, directory, agent_id, agent_name,
-			model_provider_id, model_id, model_name, model_variant,
-			session_id, status, require_completion_confirmation, failure_limit,
+			model_provider_id, model_id, model_name, model_variant, session_id,
+			attached_session, automation_mode, allowed_directories_json,
+			supervisor_model_provider_id, supervisor_model_id, supervisor_model_name,
+			supervisor_model_variant, supervisor_session_id, pending_request_id,
+			pending_request_type, supervisor_last_message_id, pending_feedback,
+			status, require_completion_confirmation, failure_limit,
 			consecutive_failures, cycle_count, last_assistant_message_id, last_error,
 			retry_at, created_at, updated_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		loop.ID, loop.Name, loop.Goal, loop.ProjectID, loop.ProjectName, loop.Directory,
 		loop.AgentID, loop.AgentName, loop.ModelProviderID, loop.ModelID, loop.ModelName, loop.ModelVariant,
-		loop.SessionID, loop.Status, boolInt(loop.RequireCompletionConfirmation),
+		loop.SessionID, boolInt(loop.AttachedSession), loop.AutomationMode, string(allowedDirectories),
+		loop.SupervisorModelProviderID, loop.SupervisorModelID, loop.SupervisorModelName,
+		loop.SupervisorModelVariant, loop.SupervisorSessionID, loop.PendingRequestID,
+		loop.PendingRequestType, loop.SupervisorLastMessageID, loop.PendingFeedback,
+		loop.Status, boolInt(loop.RequireCompletionConfirmation),
 		loop.FailureLimit, loop.ConsecutiveFailures, loop.CycleCount, loop.LastAssistantMessageID,
 		loop.LastError, nullableTime(loop.RetryAt), loop.CreatedAt.UTC().UnixMilli(),
 		loop.UpdatedAt.UTC().UnixMilli(), nullableTime(loop.CompletedAt))
@@ -32,18 +45,29 @@ func (s *SQLite) CreateGoalLoop(ctx context.Context, loop domain.GoalLoop) error
 }
 
 func (s *SQLite) SaveGoalLoop(ctx context.Context, loop domain.GoalLoop) error {
+	allowedDirectories, err := json.Marshal(loop.AllowedDirectories)
+	if err != nil {
+		return fmt.Errorf("encode Goal Loop allowed directories: %w", err)
+	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE goal_loops SET
 			name = ?, goal = ?, project_id = ?, project_name = ?, directory = ?,
 			agent_id = ?, agent_name = ?, model_provider_id = ?, model_id = ?,
-			model_name = ?, model_variant = ?, session_id = ?, status = ?,
+			model_name = ?, model_variant = ?, session_id = ?, attached_session = ?,
+			automation_mode = ?, allowed_directories_json = ?,
+			supervisor_model_provider_id = ?, supervisor_model_id = ?, supervisor_model_name = ?,
+			supervisor_model_variant = ?, supervisor_session_id = ?, pending_request_id = ?,
+			pending_request_type = ?, supervisor_last_message_id = ?, pending_feedback = ?, status = ?,
 			require_completion_confirmation = ?, failure_limit = ?, consecutive_failures = ?,
 			cycle_count = ?, last_assistant_message_id = ?, last_error = ?, retry_at = ?,
 			updated_at = ?, completed_at = ?
 		WHERE id = ?`,
 		loop.Name, loop.Goal, loop.ProjectID, loop.ProjectName, loop.Directory,
 		loop.AgentID, loop.AgentName, loop.ModelProviderID, loop.ModelID, loop.ModelName, loop.ModelVariant,
-		loop.SessionID, loop.Status,
+		loop.SessionID, boolInt(loop.AttachedSession), loop.AutomationMode, string(allowedDirectories),
+		loop.SupervisorModelProviderID, loop.SupervisorModelID, loop.SupervisorModelName,
+		loop.SupervisorModelVariant, loop.SupervisorSessionID, loop.PendingRequestID,
+		loop.PendingRequestType, loop.SupervisorLastMessageID, loop.PendingFeedback, loop.Status,
 		boolInt(loop.RequireCompletionConfirmation), loop.FailureLimit, loop.ConsecutiveFailures,
 		loop.CycleCount, loop.LastAssistantMessageID, loop.LastError, nullableTime(loop.RetryAt),
 		loop.UpdatedAt.UTC().UnixMilli(), nullableTime(loop.CompletedAt), loop.ID)
@@ -107,6 +131,13 @@ func (s *SQLite) CloseGoalCompletionHandoff(ctx context.Context, sessionID strin
 	return nil
 }
 
+func (s *SQLite) CloseGoalStatusHandoff(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE handoff_records SET status = ?, resolved_at = ? WHERE id = ?`,
+		domain.StatusClosed, time.Now().UTC().UnixMilli(), id)
+	return err
+}
+
 func (s *SQLite) ListGoalLoops(ctx context.Context) ([]domain.GoalLoop, error) {
 	rows, err := s.db.QueryContext(ctx, goalLoopSelect+` ORDER BY updated_at DESC, created_at DESC`)
 	if err != nil {
@@ -133,9 +164,17 @@ func (s *SQLite) DeleteGoalLoop(ctx context.Context, id string) error {
 }
 
 func (s *SQLite) AppendGoalLoopEvent(ctx context.Context, loopID, eventType, message string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO goal_loop_events (loop_id, event_type, message, created_at)
-		VALUES (?, ?, ?, ?)`, loopID, eventType, message, time.Now().UTC().UnixMilli())
+	return s.AppendGoalLoopEventDetails(ctx, loopID, eventType, message, nil)
+}
+
+func (s *SQLite) AppendGoalLoopEventDetails(ctx context.Context, loopID, eventType, message string, metadata map[string]any) error {
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("encode Goal Loop event metadata: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO goal_loop_events (loop_id, event_type, message, metadata_json, created_at)
+		VALUES (?, ?, ?, ?, ?)`, loopID, eventType, message, string(encoded), time.Now().UTC().UnixMilli())
 	if err != nil {
 		return fmt.Errorf("append goal loop event: %w", err)
 	}
@@ -147,7 +186,7 @@ func (s *SQLite) ListGoalLoopEvents(ctx context.Context, loopID string, limit in
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, loop_id, event_type, message, created_at
+		SELECT id, loop_id, event_type, message, metadata_json, created_at
 		FROM goal_loop_events WHERE loop_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`, loopID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list goal loop events: %w", err)
@@ -157,10 +196,12 @@ func (s *SQLite) ListGoalLoopEvents(ctx context.Context, loopID string, limit in
 	for rows.Next() {
 		var item domain.GoalLoopEvent
 		var createdAt int64
-		if err := rows.Scan(&item.ID, &item.LoopID, &item.Type, &item.Message, &createdAt); err != nil {
+		var metadataJSON string
+		if err := rows.Scan(&item.ID, &item.LoopID, &item.Type, &item.Message, &metadataJSON, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan goal loop event: %w", err)
 		}
 		item.CreatedAt = time.UnixMilli(createdAt).UTC()
+		_ = json.Unmarshal([]byte(metadataJSON), &item.Metadata)
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -198,8 +239,12 @@ func (s *SQLite) GetOpenHandoffByRequest(ctx context.Context, requestID string) 
 
 const goalLoopSelect = `
 	SELECT id, name, goal, project_id, project_name, directory, agent_id, agent_name,
-		model_provider_id, model_id, model_name, model_variant,
-		session_id, status, require_completion_confirmation, failure_limit,
+		model_provider_id, model_id, model_name, model_variant, session_id,
+		attached_session, automation_mode, allowed_directories_json,
+		supervisor_model_provider_id, supervisor_model_id, supervisor_model_name,
+		supervisor_model_variant, supervisor_session_id, pending_request_id,
+		pending_request_type, supervisor_last_message_id, pending_feedback,
+		status, require_completion_confirmation, failure_limit,
 		consecutive_failures, cycle_count, last_assistant_message_id, last_error,
 		retry_at, created_at, updated_at, completed_at
 	FROM goal_loops`
@@ -211,12 +256,18 @@ type rowScanner interface {
 func scanGoalLoop(row rowScanner) (domain.GoalLoop, error) {
 	var loop domain.GoalLoop
 	var requireConfirmation int
+	var attachedSession int
+	var allowedDirectoriesJSON string
 	var retryAt, completedAt sql.NullInt64
 	var createdAt, updatedAt int64
 	err := row.Scan(
 		&loop.ID, &loop.Name, &loop.Goal, &loop.ProjectID, &loop.ProjectName, &loop.Directory,
 		&loop.AgentID, &loop.AgentName, &loop.ModelProviderID, &loop.ModelID, &loop.ModelName, &loop.ModelVariant,
-		&loop.SessionID, &loop.Status, &requireConfirmation,
+		&loop.SessionID, &attachedSession, &loop.AutomationMode, &allowedDirectoriesJSON,
+		&loop.SupervisorModelProviderID, &loop.SupervisorModelID, &loop.SupervisorModelName,
+		&loop.SupervisorModelVariant, &loop.SupervisorSessionID, &loop.PendingRequestID,
+		&loop.PendingRequestType, &loop.SupervisorLastMessageID, &loop.PendingFeedback,
+		&loop.Status, &requireConfirmation,
 		&loop.FailureLimit, &loop.ConsecutiveFailures, &loop.CycleCount,
 		&loop.LastAssistantMessageID, &loop.LastError, &retryAt, &createdAt, &updatedAt, &completedAt,
 	)
@@ -224,6 +275,11 @@ func scanGoalLoop(row rowScanner) (domain.GoalLoop, error) {
 		return domain.GoalLoop{}, err
 	}
 	loop.RequireCompletionConfirmation = requireConfirmation != 0
+	loop.AttachedSession = attachedSession != 0
+	_ = json.Unmarshal([]byte(allowedDirectoriesJSON), &loop.AllowedDirectories)
+	if loop.AutomationMode == "" {
+		loop.AutomationMode = domain.GoalLoopManual
+	}
 	loop.CreatedAt = time.UnixMilli(createdAt).UTC()
 	loop.UpdatedAt = time.UnixMilli(updatedAt).UTC()
 	if retryAt.Valid {

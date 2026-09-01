@@ -13,13 +13,27 @@ import (
 )
 
 type RouteRegistry struct {
-	mu           sync.RWMutex
-	directories  map[string]struct{}
-	goalSessions map[string]struct{}
+	mu                     sync.RWMutex
+	directories            map[string]struct{}
+	goalSessions           map[string]struct{}
+	autonomousGoalSessions map[string]struct{}
 }
 
 func NewRouteRegistry() *RouteRegistry {
-	return &RouteRegistry{directories: make(map[string]struct{}), goalSessions: make(map[string]struct{})}
+	return &RouteRegistry{directories: make(map[string]struct{}), goalSessions: make(map[string]struct{}), autonomousGoalSessions: make(map[string]struct{})}
+}
+
+func (r *RouteRegistry) ReplaceAutonomousGoalSessions(items map[string]struct{}) {
+	r.mu.Lock()
+	r.autonomousGoalSessions = items
+	r.mu.Unlock()
+}
+
+func (r *RouteRegistry) AutonomousGoalSession(directory, sessionID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.autonomousGoalSessions[routeKey(directory)+"\x00"+sessionID]
+	return ok
 }
 
 func (r *RouteRegistry) ReplaceGoalSessions(items map[string]struct{}) {
@@ -135,6 +149,34 @@ func (a *RoutedAdapter) ListSessions(ctx context.Context, directory string) ([]o
 	return result, nil
 }
 
+func (a *RoutedAdapter) ListQuestions(ctx context.Context, directory string) ([]opencode.QuestionRequest, error) {
+	items, err := a.Adapter.ListQuestions(ctx, directory)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]opencode.QuestionRequest, 0, len(items))
+	for _, item := range items {
+		if !a.routes.AutonomousGoalSession(directory, item.SessionID) {
+			result = append(result, item)
+		}
+	}
+	return result, nil
+}
+
+func (a *RoutedAdapter) ListPermissions(ctx context.Context, directory string) ([]opencode.PermissionRequest, error) {
+	items, err := a.Adapter.ListPermissions(ctx, directory)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]opencode.PermissionRequest, 0, len(items))
+	for _, item := range items {
+		if !a.routes.AutonomousGoalSession(directory, item.SessionID) {
+			result = append(result, item)
+		}
+	}
+	return result, nil
+}
+
 func (a *RoutedAdapter) WatchEvents(ctx context.Context, handler func(opencode.Event)) error {
 	return a.Adapter.WatchEvents(ctx, func(event opencode.Event) {
 		if a.routes.Enabled(event.Directory) && !a.isGoalLifecycleEvent(event) {
@@ -156,6 +198,18 @@ func (a *RoutedAdapter) isGoalLifecycleEvent(event opencode.Event) bool {
 		if json.Unmarshal(event.Properties, &payload) == nil {
 			sessionID = payload.SessionID
 		}
+	case "question.asked":
+		var payload opencode.QuestionRequest
+		if json.Unmarshal(event.Properties, &payload) == nil && a.routes.AutonomousGoalSession(event.Directory, payload.SessionID) {
+			return true
+		}
+		return false
+	case "permission.asked":
+		var payload opencode.PermissionRequest
+		if json.Unmarshal(event.Properties, &payload) == nil && a.routes.AutonomousGoalSession(event.Directory, payload.SessionID) {
+			return true
+		}
+		return false
 	default:
 		return false
 	}

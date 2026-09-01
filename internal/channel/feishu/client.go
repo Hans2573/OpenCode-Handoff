@@ -856,6 +856,8 @@ func formatHandoffCard(handoff domain.Handoff, maxOutputChars int) (string, erro
 		title = "🚨 OpenCode · Interrupted"
 	} else if handoff.Type == domain.HandoffGoalCompletion {
 		title = "🎯 Goal Loop · 等待完成确认"
+	} else if handoff.Type == domain.HandoffGoalStatus {
+		title = "♾️ Goal Loop · 状态更新"
 	}
 	sessionName := strings.TrimSpace(handoff.SessionName)
 	if sessionName == "" {
@@ -920,13 +922,15 @@ func formatHandoffCard(handoff domain.Handoff, maxOutputChars int) (string, erro
 			callbackButton("✅ 确认完成", map[string]any{"action": "goal_complete"}, "primary"),
 			callbackButton("▶️ 继续 Goal", map[string]any{"action": "goal_continue"}, "default"),
 		)
-	} else {
+	} else if handoff.Type != domain.HandoffGoalStatus {
 		buttons = append(buttons, callbackButton("切换模型（下一条任务生效）", map[string]any{
 			"action": "session_models", "target": string(domain.ModelTargetSwitch), "directory": handoff.Directory,
 			"session_id": handoff.SessionID, "session_name": sessionName,
 		}, "default"))
 	}
-	elements = append(elements, permissionButtonRow(buttons...))
+	if len(buttons) > 0 {
+		elements = append(elements, permissionButtonRow(buttons...))
+	}
 	if handoff.Type == domain.HandoffError {
 		elements = append(elements, handoffCardElement{
 			Tag:     "markdown",

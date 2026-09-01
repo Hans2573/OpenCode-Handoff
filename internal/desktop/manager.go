@@ -382,6 +382,7 @@ func (m *Manager) GetDashboard() (Dashboard, error) {
 		})
 	}
 	sessions, online := m.collectSessions(ctx, routes)
+	sessions = m.annotateGoalSessions(ctx, sessions)
 	executionRuns, executionSessions, err := m.executionViews(ctx, sessions)
 	if err != nil {
 		return Dashboard{}, err
@@ -415,6 +416,35 @@ func (m *Manager) GetDashboard() (Dashboard, error) {
 		ExecutionRetentionDays: m.executionRetentionDays(),
 		Agents:                 m.agentViews(service), Channels: m.channelViews(service),
 	}, nil
+}
+
+func (m *Manager) annotateGoalSessions(ctx context.Context, sessions []SessionView) []SessionView {
+	loops, err := m.store.ListGoalLoops(ctx)
+	if err != nil {
+		return sessions
+	}
+	active := make(map[string]domain.GoalLoop)
+	supervisors := make(map[string]struct{})
+	for _, loop := range loops {
+		if loop.SupervisorSessionID != "" {
+			supervisors[routeKey(loop.Directory)+"\x00"+loop.SupervisorSessionID] = struct{}{}
+		}
+		if goalLoopActive(loop.Status) && loop.SessionID != "" {
+			active[routeKey(loop.Directory)+"\x00"+loop.SessionID] = loop
+		}
+	}
+	result := make([]SessionView, 0, len(sessions))
+	for _, session := range sessions {
+		key := routeKey(session.Directory) + "\x00" + session.ID
+		if _, hidden := supervisors[key]; hidden {
+			continue
+		}
+		if loop, ok := active[key]; ok {
+			session.GoalLoopID, session.GoalLoopActive = loop.ID, true
+		}
+		result = append(result, session)
+	}
+	return result
 }
 
 func sortProjectsByRecentConversation(projects []ProjectView, sessions []SessionView) {

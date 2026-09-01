@@ -92,6 +92,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
+	const [goalSession, setGoalSession] = useState<SessionView | null>(null);
   const polling = useRef(false);
 
   const showToast = useCallback((message: string) => {
@@ -215,9 +216,9 @@ function App() {
 
           {page === "overview" && <Overview dashboard={dashboard} loading={loading} onNavigate={setPage} onRoute={changeRoute} onRefresh={refreshProjects} />}
           {page === "projects" && <ProjectsPage projects={dashboard.projects ?? []} loading={loading} onRoute={changeRoute} onRefresh={refreshProjects} />}
-          {page === "sessions" && <SessionsPage sessions={dashboard.sessions ?? []} executionRuns={dashboard.executionRuns ?? []} executionSessions={dashboard.executionSessions ?? []} retentionDays={dashboard.executionRetentionDays || 30} onOpenSession={openSession} onRefresh={() => void loadDashboard()} showToast={showToast} />}
+          {page === "sessions" && <SessionsPage sessions={dashboard.sessions ?? []} executionRuns={dashboard.executionRuns ?? []} executionSessions={dashboard.executionSessions ?? []} retentionDays={dashboard.executionRetentionDays || 30} onOpenSession={openSession} onAddToGoal={(session) => { setGoalSession(session); setPage("loops"); }} onRefresh={() => void loadDashboard()} showToast={showToast} />}
           {page === "agents" && <IntegrationsPage title="Agents" description="本地 Agent 实例及连接状态" items={dashboard.agents ?? []} />}
-          {page === "loops" && <LoopsPage projects={dashboard.projects ?? []} showToast={showToast} />}
+          {page === "loops" && <LoopsPage projects={dashboard.projects ?? []} sessions={dashboard.sessions ?? []} initialSession={goalSession} onInitialSessionConsumed={() => setGoalSession(null)} showToast={showToast} />}
           {page === "channels" && <IntegrationsPage title="渠道" description="项目事件可以路由到一个或多个通信渠道" items={dashboard.channels ?? []} />}
           {page === "events" && <EventsPage showToast={showToast} />}
           {page === "settings" && <SettingsPage showToast={showToast} onSaved={() => void loadDashboard()} />}
@@ -306,12 +307,13 @@ function ProjectsPage({ projects, loading, onRoute, onRefresh }: { projects: Pro
 type ExecutionMetric = "round" | "session";
 type ExecutionRankingItem = { key: string; title: string; context: string; duration: number; statusLabel: string; active: boolean; detail: string };
 
-function SessionsPage({ sessions, executionRuns, executionSessions, retentionDays, onOpenSession, onRefresh, showToast }: {
+function SessionsPage({ sessions, executionRuns, executionSessions, retentionDays, onOpenSession, onAddToGoal, onRefresh, showToast }: {
   sessions: SessionView[];
   executionRuns: ExecutionRunView[];
   executionSessions: ExecutionSessionView[];
   retentionDays: number;
   onOpenSession: (session: SessionView) => Promise<void>;
+	onAddToGoal: (session: SessionView) => void;
   onRefresh: () => void;
   showToast: (message: string) => void;
 }) {
@@ -400,7 +402,7 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
       <section className="sessions-data-panel">
         <div className="sessions-table" role="table" aria-label="Session 列表">
           <div className="sessions-table-row sessions-table-head" role="row"><span>Session</span><span>状态</span><span>{metric === "round" ? "本轮 / 最近一次" : "累计自主执行"}</span><span>最近输入</span><span>当前模型</span><span>最后活跃</span><span>操作</span></div>
-          {visibleSessions.map((session) => <SessionTableRow key={`${session.directory}-${session.id}`} session={session} metric={metric} onOpen={() => void onOpenSession(session)} />)}
+          {visibleSessions.map((session) => <SessionTableRow key={`${session.directory}-${session.id}`} session={session} metric={metric} onOpen={() => void onOpenSession(session)} onAddToGoal={() => onAddToGoal(session)} />)}
           {!visibleSessions.length && <EmptyState icon={MessageSquareText} title="没有匹配的 Session" text="更改筛选条件，或先在 OpenCode 中创建 Session。" />}
         </div>
         <div className="sessions-pagination"><span>共 {filtered.length} 条记录</span><nav aria-label="分页"><button disabled={currentPage === 1} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}><ChevronLeft size={15} /></button>{paginationItems(currentPage, pageCount).map((item, index) => item === "…" ? <span className="pagination-ellipsis" key={`ellipsis-${index}`}>…</span> : <button className={currentPage === item ? "active" : ""} key={item} onClick={() => setPageNumber(Number(item))}>{item}</button>)}<button disabled={currentPage === pageCount} onClick={() => setPageNumber((value) => Math.min(pageCount, value + 1))}><ChevronRight size={15} /></button></nav></div>
@@ -422,7 +424,7 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
   return <label className="session-filter"><span>{label}：</span><select value={value} onChange={(event) => onChange(event.target.value)}><option value="all">全部</option>{options.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>;
 }
 
-function SessionTableRow({ session, metric, onOpen }: { session: SessionView; metric: ExecutionMetric; onOpen: () => void }) {
+function SessionTableRow({ session, metric, onOpen, onAddToGoal }: { session: SessionView; metric: ExecutionMetric; onOpen: () => void; onAddToGoal: () => void }) {
   const tone = statusTone(session.status);
   const modelLabel = `${session.currentModel || "默认模型"}${session.currentVariant ? ` · ${session.currentVariant}` : ""}`;
   const serverDuration = metric === "round" ? session.latestExecutionSeconds : session.totalExecutionSeconds;
@@ -434,7 +436,7 @@ function SessionTableRow({ session, metric, onOpen }: { session: SessionView; me
     <span className="last-input-cell" title={session.hasLastInput ? session.lastInput : "暂无用户输入"}>{session.hasLastInput ? session.lastInput : "—"}</span>
     <span className="model-cell" title={modelLabel}>{modelLabel}</span>
     <time>{formatRecentTime(session.updatedAt)}</time>
-    <button className="table-action" onClick={onOpen}>查看详情</button>
+    <div className="table-actions"><button className="table-action" onClick={onOpen}>查看</button><button className="table-action goal-action" disabled={session.goalLoopActive || !session.routeEnabled} title={session.goalLoopActive ? "已加入活动 Goal Loop" : !session.routeEnabled ? "请先在项目接入中启用该项目" : "将当前 Session 接入 Goal Loop"} onClick={onAddToGoal}>{session.goalLoopActive ? "已接入" : "加入 Goal"}</button></div>
   </article>;
 }
 

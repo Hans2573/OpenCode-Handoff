@@ -57,6 +57,10 @@ export function GetGoalModels(): $CancellablePromise<desktop$0.GoalModelView[] |
     return $Call.ByID(2905334567);
 }
 
+export function GetSessionModel(sessionID: string, directory: string): $CancellablePromise<desktop$0.SessionModelView> {
+    return $Call.ByID(3485186231, sessionID, directory);
+}
+
 export function GetSettings(): $CancellablePromise<desktop$0.SettingsView> {
     return $Call.ByID(3018893939);
 }
@@ -127,6 +131,10 @@ export function StartGoalLoop(loopID: string, goalCommandConfirmed: boolean): $C
 
 export function TerminateGoalLoop(loopID: string): $CancellablePromise<desktop$0.GoalLoopPage> {
     return $Call.ByID(3473154644, loopID);
+}
+
+export function TerminateGoalLoopAndSession(loopID: string): $CancellablePromise<desktop$0.GoalLoopPage> {
+    return $Call.ByID(2098501511, loopID);
 }
 
 export function UpdateGoalLoop(loopID: string, input: desktop$0.GoalLoopInput): $CancellablePromise<desktop$0.GoalLoopPage> {

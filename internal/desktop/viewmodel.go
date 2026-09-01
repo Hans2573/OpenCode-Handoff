@@ -69,6 +69,8 @@ type SessionView struct {
 	LatestExecutionSeconds int64     `json:"latestExecutionSeconds"`
 	TotalExecutionSeconds  int64     `json:"totalExecutionSeconds"`
 	ExecutionCount         int       `json:"executionCount"`
+	GoalLoopID             string    `json:"goalLoopId"`
+	GoalLoopActive         bool      `json:"goalLoopActive"`
 }
 
 type ExecutionRunView struct {
@@ -193,6 +195,16 @@ type GoalLoopView struct {
 	ModelName                     string    `json:"modelName"`
 	ModelVariant                  string    `json:"modelVariant"`
 	SessionID                     string    `json:"sessionId"`
+	AttachedSession               bool      `json:"attachedSession"`
+	AutomationMode                string    `json:"automationMode"`
+	AllowedDirectories            []string  `json:"allowedDirectories"`
+	SupervisorModelProviderID     string    `json:"supervisorModelProviderId"`
+	SupervisorModelID             string    `json:"supervisorModelId"`
+	SupervisorModelName           string    `json:"supervisorModelName"`
+	SupervisorModelVariant        string    `json:"supervisorModelVariant"`
+	SupervisorSessionID           string    `json:"supervisorSessionId"`
+	PendingRequestID              string    `json:"pendingRequestId"`
+	PendingRequestType            string    `json:"pendingRequestType"`
 	Status                        string    `json:"status"`
 	StatusLabel                   string    `json:"statusLabel"`
 	RequireCompletionConfirmation bool      `json:"requireCompletionConfirmation"`
@@ -207,16 +219,22 @@ type GoalLoopView struct {
 }
 
 type GoalLoopInput struct {
-	Goal                          string `json:"goal"`
-	ProjectID                     string `json:"projectId"`
-	AgentID                       string `json:"agentId"`
-	ModelProviderID               string `json:"modelProviderId"`
-	ModelID                       string `json:"modelId"`
-	ModelVariant                  string `json:"modelVariant"`
-	FailureLimit                  int    `json:"failureLimit"`
-	RequireCompletionConfirmation bool   `json:"requireCompletionConfirmation"`
-	GoalCommandConfirmed          bool   `json:"goalCommandConfirmed"`
-	StartNow                      bool   `json:"startNow"`
+	Goal                          string   `json:"goal"`
+	ProjectID                     string   `json:"projectId"`
+	AgentID                       string   `json:"agentId"`
+	ModelProviderID               string   `json:"modelProviderId"`
+	ModelID                       string   `json:"modelId"`
+	ModelVariant                  string   `json:"modelVariant"`
+	SessionID                     string   `json:"sessionId"`
+	AutomationMode                string   `json:"automationMode"`
+	AllowedDirectories            []string `json:"allowedDirectories"`
+	SupervisorModelProviderID     string   `json:"supervisorModelProviderId"`
+	SupervisorModelID             string   `json:"supervisorModelId"`
+	SupervisorModelVariant        string   `json:"supervisorModelVariant"`
+	FailureLimit                  int      `json:"failureLimit"`
+	RequireCompletionConfirmation bool     `json:"requireCompletionConfirmation"`
+	GoalCommandConfirmed          bool     `json:"goalCommandConfirmed"`
+	StartNow                      bool     `json:"startNow"`
 }
 
 type GoalModelView struct {
@@ -227,11 +245,18 @@ type GoalModelView struct {
 	Variants     []string `json:"variants"`
 }
 
+type SessionModelView struct {
+	ProviderID string `json:"providerId"`
+	ModelID    string `json:"modelId"`
+	Variant    string `json:"variant"`
+}
+
 type GoalLoopEventView struct {
-	ID        int64     `json:"id"`
-	Type      string    `json:"type"`
-	Message   string    `json:"message"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID        int64          `json:"id"`
+	Type      string         `json:"type"`
+	Message   string         `json:"message"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+	CreatedAt time.Time      `json:"createdAt"`
 }
 
 type LoopApprovalView struct {
@@ -239,6 +264,7 @@ type LoopApprovalView struct {
 	Type           string                 `json:"type"`
 	SessionID      string                 `json:"sessionId"`
 	LoopID         string                 `json:"loopId"`
+	Autonomous     bool                   `json:"autonomous"`
 	ProjectName    string                 `json:"projectName"`
 	Directory      string                 `json:"directory"`
 	Questions      []ApprovalQuestionView `json:"questions"`

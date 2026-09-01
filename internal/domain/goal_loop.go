@@ -7,10 +7,18 @@ const (
 	GoalLoopRunning              = "running"
 	GoalLoopRetrying             = "retrying"
 	GoalLoopWaitingApproval      = "waiting_approval"
+	GoalLoopWaitingTakeover      = "waiting_takeover"
+	GoalLoopDeciding             = "deciding"
 	GoalLoopPaused               = "paused"
 	GoalLoopAwaitingConfirmation = "awaiting_confirmation"
 	GoalLoopCompleted            = "completed"
+	GoalLoopBlocked              = "blocked"
 	GoalLoopTerminated           = "terminated"
+)
+
+const (
+	GoalLoopAutonomous = "autonomous"
+	GoalLoopManual     = "manual"
 )
 
 type GoalLoop struct {
@@ -27,6 +35,18 @@ type GoalLoop struct {
 	ModelName                     string
 	ModelVariant                  string
 	SessionID                     string
+	AttachedSession               bool
+	AutomationMode                string
+	AllowedDirectories            []string
+	SupervisorModelProviderID     string
+	SupervisorModelID             string
+	SupervisorModelName           string
+	SupervisorModelVariant        string
+	SupervisorSessionID           string
+	PendingRequestID              string
+	PendingRequestType            string
+	SupervisorLastMessageID       string
+	PendingFeedback               string
 	Status                        string
 	RequireCompletionConfirmation bool
 	FailureLimit                  int
@@ -45,5 +65,6 @@ type GoalLoopEvent struct {
 	LoopID    string
 	Type      string
 	Message   string
+	Metadata  map[string]any
 	CreatedAt time.Time
 }

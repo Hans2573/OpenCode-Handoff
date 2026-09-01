@@ -84,6 +84,10 @@ func (s *AppService) GetGoalModels() ([]desktop.GoalModelView, error) {
 	return s.manager.GetGoalModels()
 }
 
+func (s *AppService) GetSessionModel(sessionID, directory string) (desktop.SessionModelView, error) {
+	return s.manager.GetSessionModel(sessionID, directory)
+}
+
 func (s *AppService) GetGoalLoopEvents(loopID string) ([]desktop.GoalLoopEventView, error) {
 	return s.manager.GetGoalLoopEvents(loopID)
 }
@@ -110,6 +114,10 @@ func (s *AppService) ResumeGoalLoop(loopID string) (desktop.GoalLoopPage, error)
 
 func (s *AppService) TerminateGoalLoop(loopID string) (desktop.GoalLoopPage, error) {
 	return s.manager.TerminateGoalLoop(loopID)
+}
+
+func (s *AppService) TerminateGoalLoopAndSession(loopID string) (desktop.GoalLoopPage, error) {
+	return s.manager.TerminateGoalLoopAndSession(loopID)
 }
 
 func (s *AppService) ConfirmGoalLoopComplete(loopID string) (desktop.GoalLoopPage, error) {

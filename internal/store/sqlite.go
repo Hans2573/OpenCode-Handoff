@@ -175,6 +175,18 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			model_name TEXT NOT NULL DEFAULT '',
 			model_variant TEXT NOT NULL DEFAULT '',
 			session_id TEXT NOT NULL DEFAULT '',
+			attached_session INTEGER NOT NULL DEFAULT 0,
+			automation_mode TEXT NOT NULL DEFAULT 'manual',
+			allowed_directories_json TEXT NOT NULL DEFAULT '[]',
+			supervisor_model_provider_id TEXT NOT NULL DEFAULT '',
+			supervisor_model_id TEXT NOT NULL DEFAULT '',
+			supervisor_model_name TEXT NOT NULL DEFAULT '',
+			supervisor_model_variant TEXT NOT NULL DEFAULT '',
+			supervisor_session_id TEXT NOT NULL DEFAULT '',
+			pending_request_id TEXT NOT NULL DEFAULT '',
+			pending_request_type TEXT NOT NULL DEFAULT '',
+			supervisor_last_message_id TEXT NOT NULL DEFAULT '',
+			pending_feedback TEXT NOT NULL DEFAULT '',
 			status TEXT NOT NULL,
 			require_completion_confirmation INTEGER NOT NULL DEFAULT 0,
 			failure_limit INTEGER NOT NULL DEFAULT 3,
@@ -194,6 +206,7 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			loop_id TEXT NOT NULL,
 			event_type TEXT NOT NULL,
 			message TEXT NOT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
 			created_at INTEGER NOT NULL,
 			FOREIGN KEY (loop_id) REFERENCES goal_loops(id) ON DELETE CASCADE
 		)`,
@@ -221,14 +234,29 @@ func (s *SQLite) migrate(ctx context.Context) error {
 		}
 	}
 	for name, definition := range map[string]string{
-		"model_provider_id": "TEXT NOT NULL DEFAULT ''",
-		"model_id":          "TEXT NOT NULL DEFAULT ''",
-		"model_name":        "TEXT NOT NULL DEFAULT ''",
-		"model_variant":     "TEXT NOT NULL DEFAULT ''",
+		"model_provider_id":            "TEXT NOT NULL DEFAULT ''",
+		"model_id":                     "TEXT NOT NULL DEFAULT ''",
+		"model_name":                   "TEXT NOT NULL DEFAULT ''",
+		"model_variant":                "TEXT NOT NULL DEFAULT ''",
+		"attached_session":             "INTEGER NOT NULL DEFAULT 0",
+		"automation_mode":              "TEXT NOT NULL DEFAULT 'manual'",
+		"allowed_directories_json":     "TEXT NOT NULL DEFAULT '[]'",
+		"supervisor_model_provider_id": "TEXT NOT NULL DEFAULT ''",
+		"supervisor_model_id":          "TEXT NOT NULL DEFAULT ''",
+		"supervisor_model_name":        "TEXT NOT NULL DEFAULT ''",
+		"supervisor_model_variant":     "TEXT NOT NULL DEFAULT ''",
+		"supervisor_session_id":        "TEXT NOT NULL DEFAULT ''",
+		"pending_request_id":           "TEXT NOT NULL DEFAULT ''",
+		"pending_request_type":         "TEXT NOT NULL DEFAULT ''",
+		"supervisor_last_message_id":   "TEXT NOT NULL DEFAULT ''",
+		"pending_feedback":             "TEXT NOT NULL DEFAULT ''",
 	} {
 		if err := s.ensureColumn(ctx, "goal_loops", name, definition); err != nil {
 			return err
 		}
+	}
+	if err := s.ensureColumn(ctx, "goal_loop_events", "metadata_json", "TEXT NOT NULL DEFAULT '{}'"); err != nil {
+		return err
 	}
 	return nil
 }
