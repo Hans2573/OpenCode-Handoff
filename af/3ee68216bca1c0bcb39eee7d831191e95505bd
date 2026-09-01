@@ -1,0 +1,49 @@
+internal/desktop/goal_loop.go
+  s_2c03873c13628a::t_0e40f176652da8 512-515,533-534,600-603,925,1058-1060,1238-1239
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/models.ts
+  s_336b10696b9219::t_7431c71c0b35d0 100,133
+frontend/dist/assets/index-BW3A_KRc.js
+  s_336b10696b9219::t_2c6cbf86db54aa 1,3,6,8-9,14-15,17-18
+frontend/dist/index.html
+  s_336b10696b9219::t_837cc94bd216ea 8
+frontend/src/LoopsPage.tsx
+  s_336b10696b9219::t_219a538c714ae3 222-223,225,275,327,352-360
+internal/desktop/goal_loop_test.go
+  s_336b10696b9219::t_696854ac4cf9db 93-143
+internal/desktop/goal_supervisor.go
+  s_336b10696b9219::t_5b02ccdd1e26ad 49,58-71
+internal/desktop/viewmodel.go
+  s_336b10696b9219::t_0b1cf2641339be 200,231
+internal/domain/goal_loop.go
+  s_336b10696b9219::t_9b47dbd2ae57cb 24-28,45
+internal/store/goal_loop.go
+  s_336b10696b9219::t_7a59e30bc96420 23,30,33,57,67,243,266,283-285
+internal/store/goal_loop_test.go
+  s_336b10696b9219::t_8d6e9f1d66fa54 25,46
+internal/store/sqlite.go
+  s_336b10696b9219::t_bca2cb19fa5386 180,244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "af3ee68216bca1c0bcb39eee7d831191e95505bd",
+  "prompts": {},
+  "sessions": {
+    "s_2c03873c13628a": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa548a6b6ffeksrKBBMUI900L5",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    },
+    "s_336b10696b9219": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05838-be97-7a30-8437-72f86e397c13",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
