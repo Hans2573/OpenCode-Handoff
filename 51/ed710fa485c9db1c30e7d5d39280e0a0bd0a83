@@ -1,0 +1,19 @@
+internal/desktop/goal_supervisor.go
+  s_336b10696b9219::t_d3df900036f8bd 13,235-283,285-286,288-299,301-304,306,309,312,315,317,370-373,405,424-434
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "51ed710fa485c9db1c30e7d5d39280e0a0bd0a83",
+  "prompts": {},
+  "sessions": {
+    "s_336b10696b9219": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05838-be97-7a30-8437-72f86e397c13",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
