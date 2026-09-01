@@ -33,6 +33,9 @@ type Store interface {
 	ClearPendingSessionModel(context.Context, string) error
 	RecordRecentModel(context.Context, domain.SessionModel) error
 	ListRecentModels(context.Context, int) ([]domain.SessionModel, error)
+	GetGoalLoopBySession(context.Context, string, string) (domain.GoalLoop, error)
+	SaveGoalLoop(context.Context, domain.GoalLoop) error
+	AppendGoalLoopEvent(context.Context, string, string, string) error
 	GetChannelBinding(context.Context) (domain.ChannelBinding, error)
 	BindChannel(context.Context, domain.ChannelBinding) error
 	Close() error

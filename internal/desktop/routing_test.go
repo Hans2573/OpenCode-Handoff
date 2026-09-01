@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/Hans2573/OpenCode-Handoff/internal/domain"
@@ -12,10 +13,43 @@ type routeAdapterStub struct {
 	opencode.Adapter
 	projects []opencode.Project
 	events   []opencode.Event
+	sessions []opencode.Session
+}
+
+func (s routeAdapterStub) ListSessions(context.Context, string) ([]opencode.Session, error) {
+	return s.sessions, nil
 }
 
 func (s routeAdapterStub) ListProjects(context.Context) ([]opencode.Project, error) {
 	return s.projects, nil
+}
+
+func TestRoutedAdapterHidesGoalSessionLifecycleButKeepsApprovals(t *testing.T) {
+	registry := NewRouteRegistry()
+	directory := `D:\work\enabled`
+	registry.Replace([]domain.ProjectRoute{{Directory: directory, RouteEnabled: true}})
+	registry.ReplaceGoalSessions(map[string]struct{}{routeKey(directory) + "\x00ses_goal": {}})
+	idle, _ := json.Marshal(opencode.SessionEvent{SessionID: "ses_goal"})
+	question, _ := json.Marshal(map[string]any{"id": "que_1", "sessionID": "ses_goal"})
+	stub := routeAdapterStub{
+		sessions: []opencode.Session{{ID: "ses_goal"}, {ID: "ses_normal"}},
+		events: []opencode.Event{
+			{Directory: directory, Type: "session.idle", Properties: idle},
+			{Directory: directory, Type: "question.asked", Properties: question},
+		},
+	}
+	adapter := NewRoutedAdapter(stub, registry)
+	sessions, err := adapter.ListSessions(context.Background(), directory)
+	if err != nil || len(sessions) != 1 || sessions[0].ID != "ses_normal" {
+		t.Fatalf("sessions=%+v err=%v", sessions, err)
+	}
+	var events []opencode.Event
+	if err := adapter.WatchEvents(context.Background(), func(event opencode.Event) { events = append(events, event) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Type != "question.asked" {
+		t.Fatalf("events=%+v", events)
+	}
 }
 
 func (s routeAdapterStub) ListDirectories(context.Context) ([]string, error) {

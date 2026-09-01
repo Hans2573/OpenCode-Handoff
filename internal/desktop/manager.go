@@ -41,6 +41,7 @@ type Manager struct {
 	trackers       map[string]sessionTracker
 
 	engineMu sync.Mutex
+	goalMu   sync.Mutex
 }
 
 type sessionTracker struct {
@@ -103,6 +104,10 @@ func NewManager(parent context.Context, paths Paths, logger *slog.Logger) (*Mana
 		manager.Close()
 		return nil, err
 	}
+	if err := manager.syncGoalSessions(ctx); err != nil {
+		manager.Close()
+		return nil, err
+	}
 	if routesReset {
 		_ = manager.appendEvent("info", "routes.opt_in_initialized", "projects", "项目接入已初始化为全部未接入", nil)
 	}
@@ -112,6 +117,7 @@ func NewManager(parent context.Context, paths Paths, logger *slog.Logger) (*Mana
 	_ = manager.store.CleanupEvents(ctx, 30*24*time.Hour, 10_000)
 	_ = manager.cleanupSessionExecutions(ctx)
 	go manager.refreshLoop()
+	go manager.goalLoopSupervisor()
 	return manager, nil
 }
 

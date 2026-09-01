@@ -17,6 +17,18 @@ export function ConfigFileName(): $CancellablePromise<string> {
     return $Call.ByID(733907929);
 }
 
+export function ConfirmGoalLoopComplete(loopID: string): $CancellablePromise<desktop$0.GoalLoopPage> {
+    return $Call.ByID(3277248528, loopID);
+}
+
+export function CreateGoalLoop(input: desktop$0.GoalLoopInput): $CancellablePromise<desktop$0.GoalLoopPage> {
+    return $Call.ByID(3597947391, input);
+}
+
+export function DeleteGoalLoop(loopID: string): $CancellablePromise<desktop$0.GoalLoopPage> {
+    return $Call.ByID(4275652508, loopID);
+}
+
 export function ExportEvents(search: string): $CancellablePromise<string> {
     return $Call.ByID(3419046745, search);
 }
@@ -33,6 +45,18 @@ export function GetEvents(search: string, limit: number): $CancellablePromise<de
     return $Call.ByID(2252229875, search, limit);
 }
 
+export function GetGoalLoopEvents(loopID: string): $CancellablePromise<desktop$0.GoalLoopEventView[] | null> {
+    return $Call.ByID(1674797394, loopID);
+}
+
+export function GetGoalLoops(): $CancellablePromise<desktop$0.GoalLoopPage> {
+    return $Call.ByID(1624491852);
+}
+
+export function GetGoalModels(): $CancellablePromise<desktop$0.GoalModelView[] | null> {
+    return $Call.ByID(2905334567);
+}
+
 export function GetSettings(): $CancellablePromise<desktop$0.SettingsView> {
     return $Call.ByID(3018893939);
 }
@@ -45,8 +69,16 @@ export function OpenDataDirectory(): $CancellablePromise<void> {
     return $Call.ByID(3108161697);
 }
 
+export function OpenLoopGuide(): $CancellablePromise<void> {
+    return $Call.ByID(4173064136);
+}
+
 export function OpenSession(sessionID: string, directory: string): $CancellablePromise<void> {
     return $Call.ByID(1275588758, sessionID, directory);
+}
+
+export function PauseGoalLoop(loopID: string): $CancellablePromise<desktop$0.GoalLoopPage> {
+    return $Call.ByID(531823213, loopID);
 }
 
 export function Quit(): $CancellablePromise<void> {
@@ -55,6 +87,18 @@ export function Quit(): $CancellablePromise<void> {
 
 export function RefreshProjects(): $CancellablePromise<desktop$0.Dashboard> {
     return $Call.ByID(2777852827);
+}
+
+export function ReplyLoopPermission(requestID: string, directory: string, decision: string): $CancellablePromise<desktop$0.GoalLoopPage> {
+    return $Call.ByID(3485617427, requestID, directory, decision);
+}
+
+export function ReplyLoopQuestion(input: desktop$0.QuestionReplyInput): $CancellablePromise<desktop$0.GoalLoopPage> {
+    return $Call.ByID(1140528592, input);
+}
+
+export function ResumeGoalLoop(loopID: string): $CancellablePromise<desktop$0.GoalLoopPage> {
+    return $Call.ByID(4207873420, loopID);
 }
 
 export function RetryService(): $CancellablePromise<desktop$0.Dashboard> {
@@ -75,4 +119,16 @@ export function SetProjectRoute(projectID: string, enabled: boolean): $Cancellab
 
 export function ShowWindow(): $CancellablePromise<void> {
     return $Call.ByID(3051797087);
+}
+
+export function StartGoalLoop(loopID: string, goalCommandConfirmed: boolean): $CancellablePromise<desktop$0.GoalLoopPage> {
+    return $Call.ByID(1989153699, loopID, goalCommandConfirmed);
+}
+
+export function TerminateGoalLoop(loopID: string): $CancellablePromise<desktop$0.GoalLoopPage> {
+    return $Call.ByID(3473154644, loopID);
+}
+
+export function UpdateGoalLoop(loopID: string, input: desktop$0.GoalLoopInput): $CancellablePromise<desktop$0.GoalLoopPage> {
+    return $Call.ByID(570541202, loopID, input);
 }

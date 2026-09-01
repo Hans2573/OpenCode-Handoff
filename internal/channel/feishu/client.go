@@ -423,7 +423,7 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		return cardToast("error", "无效的卡片操作"), nil
 	}
 	action := stringMapValue(event.Event.Action.Value, "action")
-	if action != "question_reply" && action != "question_custom_reply" && action != "question_reject" && action != "permission_reply" && action != "project_page" && action != "project_create" && action != "model_home" && action != "model_all" && action != "model_search" && action != "model_provider" && action != "model_page" && action != "model_variants" && action != "model_apply" && action != "session_models" && action != "assistant_output" {
+	if action != "question_reply" && action != "question_custom_reply" && action != "question_reject" && action != "permission_reply" && action != "project_page" && action != "project_create" && action != "model_home" && action != "model_all" && action != "model_search" && action != "model_provider" && action != "model_page" && action != "model_variants" && action != "model_apply" && action != "session_models" && action != "assistant_output" && action != "goal_complete" && action != "goal_continue" {
 		return cardToast("error", "不支持的卡片操作"), nil
 	}
 	messageID := ""
@@ -464,6 +464,10 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 			return cardToast("error", "权限决定无效"), nil
 		}
 		reply.PermissionReply = decision
+	} else if action == "goal_complete" {
+		reply.GoalComplete = true
+	} else if action == "goal_continue" {
+		reply.GoalContinue = true
 	} else if action == "project_page" {
 		reply.ListProjects = true
 		reply.ProjectPage = intMapValue(event.Event.Action.Value, "page")
@@ -574,6 +578,12 @@ func (c *Client) onCardAction(ctx context.Context, event *callback.CardActionTri
 		}
 		if reply.CreateSession {
 			return cardToast("success", "OpenCode Session 已创建"), nil
+		}
+		if reply.GoalComplete {
+			return cardToast("success", "Goal 已确认完成"), nil
+		}
+		if reply.GoalContinue {
+			return cardToast("success", "Goal 已在原 Session 中继续"), nil
 		}
 		return cardToast("success", "答案已提交到原 Session"), nil
 	case <-ctx.Done():
@@ -844,6 +854,8 @@ func formatHandoffCard(handoff domain.Handoff, maxOutputChars int) (string, erro
 	title := "✅ OpenCode · Task Finished"
 	if handoff.Type == domain.HandoffError {
 		title = "🚨 OpenCode · Interrupted"
+	} else if handoff.Type == domain.HandoffGoalCompletion {
+		title = "🎯 Goal Loop · 等待完成确认"
 	}
 	sessionName := strings.TrimSpace(handoff.SessionName)
 	if sessionName == "" {
@@ -903,15 +915,27 @@ func formatHandoffCard(handoff domain.Handoff, maxOutputChars int) (string, erro
 			"action": "assistant_output", "handoff_id": handoff.ID,
 		}, "primary"))
 	}
-	buttons = append(buttons, callbackButton("切换模型（下一条任务生效）", map[string]any{
-		"action": "session_models", "target": string(domain.ModelTargetSwitch), "directory": handoff.Directory,
-		"session_id": handoff.SessionID, "session_name": sessionName,
-	}, "default"))
+	if handoff.Type == domain.HandoffGoalCompletion {
+		buttons = append(buttons,
+			callbackButton("✅ 确认完成", map[string]any{"action": "goal_complete"}, "primary"),
+			callbackButton("▶️ 继续 Goal", map[string]any{"action": "goal_continue"}, "default"),
+		)
+	} else {
+		buttons = append(buttons, callbackButton("切换模型（下一条任务生效）", map[string]any{
+			"action": "session_models", "target": string(domain.ModelTargetSwitch), "directory": handoff.Directory,
+			"session_id": handoff.SessionID, "session_name": sessionName,
+		}, "default"))
+	}
 	elements = append(elements, permissionButtonRow(buttons...))
 	if handoff.Type == domain.HandoffError {
 		elements = append(elements, handoffCardElement{
 			Tag:     "markdown",
 			Content: "↩️ 引用回复本消息可继续原 Session",
+		})
+	} else if handoff.Type == domain.HandoffGoalCompletion {
+		elements = append(elements, handoffCardElement{
+			Tag:     "markdown",
+			Content: "💡 可点击按钮；也可引用回复“确认完成”或“继续”。若当前只有一个待办，直接 @机器人 回复也会路由到这个 Goal。",
 		})
 	}
 	content, err := json.Marshal(handoffCard{

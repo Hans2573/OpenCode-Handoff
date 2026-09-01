@@ -172,3 +172,96 @@ type EventView struct {
 	Metadata  map[string]any `json:"metadata,omitempty"`
 	CreatedAt time.Time      `json:"createdAt"`
 }
+
+type GoalLoopPage struct {
+	GeneratedAt time.Time          `json:"generatedAt"`
+	Loops       []GoalLoopView     `json:"loops"`
+	Approvals   []LoopApprovalView `json:"approvals"`
+}
+
+type GoalLoopView struct {
+	ID                            string    `json:"id"`
+	Name                          string    `json:"name"`
+	Goal                          string    `json:"goal"`
+	ProjectID                     string    `json:"projectId"`
+	ProjectName                   string    `json:"projectName"`
+	Directory                     string    `json:"directory"`
+	AgentID                       string    `json:"agentId"`
+	AgentName                     string    `json:"agentName"`
+	ModelProviderID               string    `json:"modelProviderId"`
+	ModelID                       string    `json:"modelId"`
+	ModelName                     string    `json:"modelName"`
+	ModelVariant                  string    `json:"modelVariant"`
+	SessionID                     string    `json:"sessionId"`
+	Status                        string    `json:"status"`
+	StatusLabel                   string    `json:"statusLabel"`
+	RequireCompletionConfirmation bool      `json:"requireCompletionConfirmation"`
+	FailureLimit                  int       `json:"failureLimit"`
+	ConsecutiveFailures           int       `json:"consecutiveFailures"`
+	CycleCount                    int       `json:"cycleCount"`
+	LastError                     string    `json:"lastError"`
+	RetryAt                       time.Time `json:"retryAt"`
+	CreatedAt                     time.Time `json:"createdAt"`
+	UpdatedAt                     time.Time `json:"updatedAt"`
+	CompletedAt                   time.Time `json:"completedAt"`
+}
+
+type GoalLoopInput struct {
+	Goal                          string `json:"goal"`
+	ProjectID                     string `json:"projectId"`
+	AgentID                       string `json:"agentId"`
+	ModelProviderID               string `json:"modelProviderId"`
+	ModelID                       string `json:"modelId"`
+	ModelVariant                  string `json:"modelVariant"`
+	FailureLimit                  int    `json:"failureLimit"`
+	RequireCompletionConfirmation bool   `json:"requireCompletionConfirmation"`
+	GoalCommandConfirmed          bool   `json:"goalCommandConfirmed"`
+	StartNow                      bool   `json:"startNow"`
+}
+
+type GoalModelView struct {
+	ProviderID   string   `json:"providerId"`
+	ProviderName string   `json:"providerName"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Variants     []string `json:"variants"`
+}
+
+type GoalLoopEventView struct {
+	ID        int64     `json:"id"`
+	Type      string    `json:"type"`
+	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type LoopApprovalView struct {
+	ID             string                 `json:"id"`
+	Type           string                 `json:"type"`
+	SessionID      string                 `json:"sessionId"`
+	LoopID         string                 `json:"loopId"`
+	ProjectName    string                 `json:"projectName"`
+	Directory      string                 `json:"directory"`
+	Questions      []ApprovalQuestionView `json:"questions"`
+	PermissionName string                 `json:"permissionName"`
+	Patterns       []string               `json:"patterns"`
+}
+
+type ApprovalQuestionView struct {
+	Question string               `json:"question"`
+	Header   string               `json:"header"`
+	Options  []ApprovalOptionView `json:"options"`
+	Multiple bool                 `json:"multiple"`
+	Custom   bool                 `json:"custom"`
+}
+
+type ApprovalOptionView struct {
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
+
+type QuestionReplyInput struct {
+	RequestID string     `json:"requestId"`
+	Directory string     `json:"directory"`
+	Answers   [][]string `json:"answers"`
+	Reject    bool       `json:"reject"`
+}

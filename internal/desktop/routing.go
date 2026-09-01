@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -12,12 +13,26 @@ import (
 )
 
 type RouteRegistry struct {
-	mu          sync.RWMutex
-	directories map[string]struct{}
+	mu           sync.RWMutex
+	directories  map[string]struct{}
+	goalSessions map[string]struct{}
 }
 
 func NewRouteRegistry() *RouteRegistry {
-	return &RouteRegistry{directories: make(map[string]struct{})}
+	return &RouteRegistry{directories: make(map[string]struct{}), goalSessions: make(map[string]struct{})}
+}
+
+func (r *RouteRegistry) ReplaceGoalSessions(items map[string]struct{}) {
+	r.mu.Lock()
+	r.goalSessions = items
+	r.mu.Unlock()
+}
+
+func (r *RouteRegistry) GoalSession(directory, sessionID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.goalSessions[routeKey(directory)+"\x00"+sessionID]
+	return ok
 }
 
 func (r *RouteRegistry) Replace(routes []domain.ProjectRoute) {
@@ -106,10 +121,43 @@ func (a *RoutedAdapter) CreateSession(ctx context.Context, directory, title stri
 	return a.Adapter.CreateSession(ctx, directory, title)
 }
 
+func (a *RoutedAdapter) ListSessions(ctx context.Context, directory string) ([]opencode.Session, error) {
+	sessions, err := a.Adapter.ListSessions(ctx, directory)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]opencode.Session, 0, len(sessions))
+	for _, session := range sessions {
+		if !a.routes.GoalSession(directory, session.ID) {
+			result = append(result, session)
+		}
+	}
+	return result, nil
+}
+
 func (a *RoutedAdapter) WatchEvents(ctx context.Context, handler func(opencode.Event)) error {
 	return a.Adapter.WatchEvents(ctx, func(event opencode.Event) {
-		if a.routes.Enabled(event.Directory) {
+		if a.routes.Enabled(event.Directory) && !a.isGoalLifecycleEvent(event) {
 			handler(event)
 		}
 	})
+}
+
+func (a *RoutedAdapter) isGoalLifecycleEvent(event opencode.Event) bool {
+	var sessionID string
+	switch event.Type {
+	case "session.idle":
+		var payload opencode.SessionEvent
+		if json.Unmarshal(event.Properties, &payload) == nil {
+			sessionID = payload.SessionID
+		}
+	case "session.status":
+		var payload opencode.StatusEvent
+		if json.Unmarshal(event.Properties, &payload) == nil {
+			sessionID = payload.SessionID
+		}
+	default:
+		return false
+	}
+	return sessionID != "" && a.routes.GoalSession(event.Directory, sessionID)
 }

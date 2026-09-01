@@ -76,6 +76,62 @@ func (s *AppService) ClearEvents() error {
 	return s.manager.ClearEvents()
 }
 
+func (s *AppService) GetGoalLoops() (desktop.GoalLoopPage, error) {
+	return s.manager.GetGoalLoops()
+}
+
+func (s *AppService) GetGoalModels() ([]desktop.GoalModelView, error) {
+	return s.manager.GetGoalModels()
+}
+
+func (s *AppService) GetGoalLoopEvents(loopID string) ([]desktop.GoalLoopEventView, error) {
+	return s.manager.GetGoalLoopEvents(loopID)
+}
+
+func (s *AppService) CreateGoalLoop(input desktop.GoalLoopInput) (desktop.GoalLoopPage, error) {
+	return s.manager.CreateGoalLoop(input)
+}
+
+func (s *AppService) UpdateGoalLoop(loopID string, input desktop.GoalLoopInput) (desktop.GoalLoopPage, error) {
+	return s.manager.UpdateGoalLoop(loopID, input)
+}
+
+func (s *AppService) StartGoalLoop(loopID string, goalCommandConfirmed bool) (desktop.GoalLoopPage, error) {
+	return s.manager.StartGoalLoop(loopID, goalCommandConfirmed)
+}
+
+func (s *AppService) PauseGoalLoop(loopID string) (desktop.GoalLoopPage, error) {
+	return s.manager.PauseGoalLoop(loopID)
+}
+
+func (s *AppService) ResumeGoalLoop(loopID string) (desktop.GoalLoopPage, error) {
+	return s.manager.ResumeGoalLoop(loopID)
+}
+
+func (s *AppService) TerminateGoalLoop(loopID string) (desktop.GoalLoopPage, error) {
+	return s.manager.TerminateGoalLoop(loopID)
+}
+
+func (s *AppService) ConfirmGoalLoopComplete(loopID string) (desktop.GoalLoopPage, error) {
+	return s.manager.ConfirmGoalLoopComplete(loopID)
+}
+
+func (s *AppService) DeleteGoalLoop(loopID string) (desktop.GoalLoopPage, error) {
+	return s.manager.DeleteGoalLoop(loopID)
+}
+
+func (s *AppService) ReplyLoopPermission(requestID, directory, decision string) (desktop.GoalLoopPage, error) {
+	return s.manager.ReplyLoopPermission(requestID, directory, decision)
+}
+
+func (s *AppService) ReplyLoopQuestion(input desktop.QuestionReplyInput) (desktop.GoalLoopPage, error) {
+	return s.manager.ReplyLoopQuestion(input)
+}
+
+func (s *AppService) OpenLoopGuide() error {
+	return s.app.Browser.OpenURL("https://claude.com/blog/getting-started-with-loops")
+}
+
 func (s *AppService) ExportEvents(search string) (string, error) {
 	page, err := s.manager.GetEvents(search, 1000)
 	if err != nil {

@@ -25,6 +25,7 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Repeat2,
   Search,
   Settings,
   ShieldAlert,
@@ -35,6 +36,7 @@ import {
   Waypoints,
   X,
 } from "lucide-react";
+import LoopsPage from "./LoopsPage";
 import * as AppService from "../bindings/github.com/Hans2573/OpenCode-Handoff/appservice";
 import type {
   Dashboard,
@@ -48,13 +50,14 @@ import type {
   SettingsView,
 } from "../bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/models";
 
-type Page = "overview" | "projects" | "sessions" | "agents" | "channels" | "events" | "settings";
+type Page = "overview" | "projects" | "sessions" | "agents" | "loops" | "channels" | "events" | "settings";
 
 const navigation: Array<{ id: Page; label: string; icon: typeof Activity }> = [
   { id: "overview", label: "总览", icon: Boxes },
   { id: "projects", label: "项目接入", icon: FolderCheck },
   { id: "sessions", label: "Sessions", icon: Activity },
   { id: "agents", label: "Agents", icon: Bot },
+  { id: "loops", label: "Loop 工程", icon: Repeat2 },
   { id: "channels", label: "渠道", icon: Waypoints },
   { id: "events", label: "事件记录", icon: FileClock },
   { id: "settings", label: "设置", icon: Settings },
@@ -214,6 +217,7 @@ function App() {
           {page === "projects" && <ProjectsPage projects={dashboard.projects ?? []} loading={loading} onRoute={changeRoute} onRefresh={refreshProjects} />}
           {page === "sessions" && <SessionsPage sessions={dashboard.sessions ?? []} executionRuns={dashboard.executionRuns ?? []} executionSessions={dashboard.executionSessions ?? []} retentionDays={dashboard.executionRetentionDays || 30} onOpenSession={openSession} onRefresh={() => void loadDashboard()} showToast={showToast} />}
           {page === "agents" && <IntegrationsPage title="Agents" description="本地 Agent 实例及连接状态" items={dashboard.agents ?? []} />}
+          {page === "loops" && <LoopsPage projects={dashboard.projects ?? []} showToast={showToast} />}
           {page === "channels" && <IntegrationsPage title="渠道" description="项目事件可以路由到一个或多个通信渠道" items={dashboard.channels ?? []} />}
           {page === "events" && <EventsPage showToast={showToast} />}
           {page === "settings" && <SettingsPage showToast={showToast} onSaved={() => void loadDashboard()} />}

@@ -1,0 +1,330 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Activity,
+  Bot,
+  CalendarClock,
+  Check,
+  CircleAlert,
+  CirclePause,
+  CircleStop,
+  ExternalLink,
+  GitBranch,
+  History,
+  Infinity as InfinityIcon,
+  LoaderCircle,
+  MessageSquareText,
+  Pencil,
+  Play,
+  Plus,
+  RefreshCw,
+  Save,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  Trash2,
+  X,
+  Zap,
+} from "lucide-react";
+import * as AppService from "../bindings/github.com/Hans2573/OpenCode-Handoff/appservice";
+import type {
+  GoalLoopEventView,
+  GoalLoopInput,
+  GoalLoopPage,
+  GoalLoopView,
+  GoalModelView,
+  LoopApprovalView,
+  ProjectView,
+} from "../bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/models";
+
+type Props = {
+  projects: ProjectView[];
+  showToast: (message: string) => void;
+};
+
+const emptyPage: GoalLoopPage = { generatedAt: new Date().toISOString(), loops: [], approvals: [] };
+
+export default function LoopsPage({ projects, showToast }: Props) {
+  const [data, setData] = useState<GoalLoopPage>(emptyPage);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState("");
+  const [selectedID, setSelectedID] = useState("");
+  const [events, setEvents] = useState<GoalLoopEventView[]>([]);
+  const [editor, setEditor] = useState<GoalLoopView | null | undefined>(undefined);
+  const [models, setModels] = useState<GoalModelView[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState("");
+  const [approvalScope, setApprovalScope] = useState<{ loopID?: string; title: string } | null>(null);
+  const polling = useRef(false);
+
+  const loops = data.loops ?? [];
+  const approvals = data.approvals ?? [];
+  const selected = loops.find((item) => item.id === selectedID) ?? loops[0];
+  const connectedProjects = projects.filter((item) => item.routeEnabled);
+
+  const load = useCallback(async (quiet = false) => {
+    if (polling.current) return;
+    polling.current = true;
+    if (!quiet) setLoading(true);
+    try {
+      const page = await AppService.GetGoalLoops();
+      setData({ ...page, loops: page.loops ?? [], approvals: page.approvals ?? [] });
+    } catch (reason) {
+      showToast(`读取 Loop 失败：${errorMessage(reason)}`);
+    } finally {
+      polling.current = false;
+      if (!quiet) setLoading(false);
+    }
+  }, [showToast]);
+
+  const loadModels = useCallback(async () => {
+    setModelsLoading(true);
+    setModelsError("");
+    try {
+      const nextModels = (await AppService.GetGoalModels()) ?? [];
+      setModels(nextModels);
+      if (!nextModels.length) setModelsError("OpenCode Server 未返回可用模型");
+    } catch (reason) {
+      const message = errorMessage(reason).trim() || "模型接口暂不可用，请重启桌面应用后重试";
+      setModelsError(message);
+      showToast(`读取模型失败：${message}`);
+    } finally {
+      setModelsLoading(false);
+    }
+  }, [showToast]);
+
+  const openEditor = (loop: GoalLoopView | null) => {
+    setEditor(loop);
+    if (!models.length && !modelsLoading) void loadModels();
+  };
+
+  useEffect(() => {
+    void load();
+    void loadModels();
+    const timer = window.setInterval(() => void load(true), 3000);
+    return () => window.clearInterval(timer);
+  }, [load, loadModels]);
+
+  useEffect(() => {
+    if (!selected?.id) { setEvents([]); return; }
+    void AppService.GetGoalLoopEvents(selected.id).then((items) => setEvents(items ?? [])).catch(() => setEvents([]));
+  }, [selected?.id, selected?.updatedAt]);
+
+  const apply = async (label: string, action: () => Promise<GoalLoopPage>) => {
+    setBusy(label);
+    try {
+      const page = await action();
+      setData({ ...page, loops: page.loops ?? [], approvals: page.approvals ?? [] });
+      showToast("操作已完成");
+      return true;
+    } catch (reason) {
+      showToast(`操作失败：${errorMessage(reason)}`);
+      return false;
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const deleteLoop = (loop: GoalLoopView) => {
+    if (!window.confirm(`删除 Goal「${loop.name}」？原 OpenCode Session 会保留。`)) return;
+    void apply("delete", () => AppService.DeleteGoalLoop(loop.id));
+  };
+
+  const terminateLoop = (loop: GoalLoopView) => {
+    if (!window.confirm("终止后 Goal 将不会自动继续，但原 Session 会保留。确定终止？")) return;
+    void apply("terminate", () => AppService.TerminateGoalLoop(loop.id));
+  };
+
+  const openSession = async (loop: GoalLoopView) => {
+    if (!loop.sessionId) return;
+    try {
+      await AppService.OpenSession(loop.sessionId, loop.directory);
+      showToast("已打开 OpenCode，Session ID 已复制");
+    } catch (reason) {
+      showToast(`打开 Session 失败：${errorMessage(reason)}`);
+    }
+  };
+
+  const summary = useMemo(() => ({
+    running: loops.filter((item) => ["running", "retrying"].includes(item.status)).length,
+    approvals: approvals.length,
+    projects: new Set(loops.map((item) => item.projectId)).size,
+    completed: loops.filter((item) => item.status === "completed").length,
+  }), [loops, approvals]);
+  const scopedApprovals = approvalScope?.loopID ? approvals.filter((item) => item.loopId === approvalScope.loopID) : approvals;
+
+  const openLoopApprovals = (loop: GoalLoopView) => {
+    setSelectedID(loop.id);
+    setApprovalScope({ loopID: loop.id, title: loop.name });
+  };
+
+  const applyApproval = async (label: string, action: () => Promise<GoalLoopPage>) => {
+    const succeeded = await apply(label, action);
+    if (succeeded && scopedApprovals.length <= 1) setApprovalScope(null);
+    return succeeded;
+  };
+
+  return (
+    <section className="page loops-page">
+      <div className="loops-heading">
+        <div><h1>Loop 工程</h1><p>让 Agent 围绕明确目标持续工作，直到按约定报告完成。</p></div>
+        <div className="loops-heading-actions">
+          <button className="secondary-button" onClick={() => void AppService.OpenLoopGuide()}><ExternalLink size={15} />什么是 Loop 工程？</button>
+          <button className="primary-button" onClick={() => openEditor(null)}><Plus size={16} />创建 Goal</button>
+        </div>
+      </div>
+
+      <div className="loop-summary-grid">
+        <LoopMetric label="运行中 Loops" value={summary.running} icon={Activity} tone="green" />
+        <LoopMetric label="待审批" value={summary.approvals} icon={ShieldCheck} tone="orange" onClick={() => setApprovalScope({ title: "全部待审批" })} />
+        <LoopMetric label="关联项目" value={summary.projects} icon={GitBranch} tone="blue" />
+        <LoopMetric label="已完成" value={summary.completed} icon={Check} tone="purple" />
+      </div>
+
+      <div className="loop-kind-grid">
+        <article className="loop-kind active"><span><Target size={24} /></span><div><strong>Goal-based Loop</strong><p>手动定义目标，复用同一 Session 持续迭代直至完成。</p><small>/goal · 无硬性轮次上限 · 支持人工审批</small></div><em>已开放</em></article>
+        <article className="loop-kind disabled"><span><CalendarClock size={24} /></span><div><strong>Time-based Loop</strong><p>按计划或时间间隔运行 Agent 任务。</p><small>计划 · 时区 · 重复规则</small></div><em>即将支持</em></article>
+        <article className="loop-kind disabled"><span><Zap size={24} /></span><div><strong>Trigger-based Loop</strong><p>由外部事件触发自动化任务。</p><small>Webhook · Issue · PR · CI</small></div><em>即将支持</em></article>
+      </div>
+
+      <div className="loop-guide-strip"><Sparkles size={17} /><span>Loop 是 Agent 重复执行、验证和继续工作的循环，直到满足停止条件。</span><button onClick={() => void AppService.OpenLoopGuide()}>阅读 Claude 官方介绍 <ExternalLink size={13} /></button></div>
+
+      <div className="loops-workspace">
+        <section className="panel loop-list-panel">
+          <div className="loop-panel-title"><div><h2>Goal 实例</h2><span>{loops.length} 个</span></div><button className="icon-action" onClick={() => void load()} title="刷新"><RefreshCw size={15} className={loading ? "spin" : ""} /></button></div>
+          {loading && !loops.length ? <div className="loop-loading"><LoaderCircle className="spin" />正在读取 Goal</div> : (
+            <div className="loop-table">
+              <div className="loop-row loop-head"><span>名称</span><span>项目 / Agent</span><span>状态</span><span>轮次</span><span>最后活动</span></div>
+              {loops.map((loop) => <div key={loop.id} role="button" tabIndex={0} className={`loop-row interactive ${selected?.id === loop.id ? "selected" : ""}`} onClick={() => setSelectedID(loop.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedID(loop.id); } }}><span className="loop-name"><i className={`loop-dot ${loopTone(loop.status)}`} /><strong>{loop.name}</strong><small>{loop.goal}</small></span><span><strong>{loop.projectName}</strong><small>{loop.agentName}</small></span><span>{loop.status === "waiting_approval" ? <button type="button" className="loop-status approval actionable" onClick={(event) => { event.stopPropagation(); openLoopApprovals(loop); }}>{loop.statusLabel}</button> : <em className={`loop-status ${loopTone(loop.status)}`}>{loop.statusLabel}</em>}{loop.consecutiveFailures > 0 && <small>失败 {loop.consecutiveFailures}/{loop.failureLimit}</small>}</span><span>{loop.cycleCount}</span><time>{relativeTime(loop.updatedAt)}</time></div>)}
+              {!loops.length && <div className="loop-empty"><InfinityIcon size={28} /><strong>还没有 Goal Loop</strong><p>创建一个目标，让 Agent 持续工作直到完成。</p><button className="primary-button" onClick={() => openEditor(null)}><Plus size={15} />创建 Goal</button></div>}
+            </div>
+          )}
+        </section>
+
+        <section className="panel loop-detail-panel">
+          {selected ? <>
+            <div className="loop-detail-head"><div><span>Goal 配置</span><h2>{selected.name}</h2></div>{selected.status === "waiting_approval" ? <button type="button" className="loop-status approval actionable" onClick={() => openLoopApprovals(selected)}>{selected.statusLabel}</button> : <em className={`loop-status ${loopTone(selected.status)}`}>{selected.statusLabel}</em>}</div>
+            <div className="loop-detail-body">
+              <Detail label="目标"><p className="goal-copy">{selected.goal}</p></Detail>
+              <div className="loop-detail-grid"><Detail label="项目"><strong>{selected.projectName}</strong><code>{selected.directory}</code></Detail><Detail label="Agent"><strong>{selected.agentName}</strong><small>首条消息添加 /goal 前缀</small></Detail></div>
+              <Detail label="模型"><strong>{selected.modelName || selected.modelId || "未配置"}{selected.modelVariant ? ` · ${selected.modelVariant}` : ""}</strong><code>{selected.modelProviderId && selected.modelId ? `${selected.modelProviderId}/${selected.modelId}` : "—"}</code></Detail>
+              <div className="loop-detail-grid"><Detail label="连续失败后暂停"><strong>{selected.failureLimit} 次</strong><small>当前连续失败 {selected.consecutiveFailures} 次</small></Detail><Detail label="完成策略"><strong>{selected.requireCompletionConfirmation ? "需要人工确认" : "自动完成"}</strong><small>无最大轮数与时长限制</small></Detail></div>
+              {selected.lastError && <div className="loop-error"><CircleAlert size={16} /><span>{selected.lastError}</span></div>}
+              {selected.sessionId && <Detail label="Session"><button className="session-link" onClick={() => void openSession(selected)}>{selected.sessionId}<ExternalLink size={13} /></button></Detail>}
+              <div className="loop-event-block"><h3><History size={15} />执行记录</h3><div className="loop-events">{events.slice(0, 8).map((event) => <div key={event.id}><i /><span><strong>{event.message}</strong><small>{relativeTime(event.createdAt)}</small></span></div>)}{!events.length && <p>暂无执行记录</p>}</div></div>
+            </div>
+            <div className="loop-detail-actions">
+              {selected.status === "draft" && <><button className="secondary-button" onClick={() => openEditor(selected)}><Pencil size={14} />编辑</button><button className="primary-button" disabled={!!busy} onClick={() => { if (window.confirm("请确认 OpenCode Agent 已支持 /goal。确认后立即启动？")) void apply("start", () => AppService.StartGoalLoop(selected.id, true)); }}><Play size={14} />启动</button></>}
+              {["running", "retrying", "waiting_approval"].includes(selected.status) && <button className="secondary-button" disabled={!!busy} onClick={() => void apply("pause", () => AppService.PauseGoalLoop(selected.id))}><CirclePause size={14} />暂停</button>}
+              {selected.status === "paused" && <button className="primary-button" disabled={!!busy} onClick={() => void apply("resume", () => AppService.ResumeGoalLoop(selected.id))}><Play size={14} />继续</button>}
+              {selected.status === "awaiting_confirmation" && <><button className="secondary-button" disabled={!!busy} onClick={() => void apply("resume", () => AppService.ResumeGoalLoop(selected.id))}><Play size={14} />继续 Goal</button><button className="primary-button" disabled={!!busy} onClick={() => void apply("confirm", () => AppService.ConfirmGoalLoopComplete(selected.id))}><Check size={14} />确认完成</button></>}
+              {["running", "retrying", "waiting_approval", "paused", "awaiting_confirmation"].includes(selected.status) && <button className="danger-button" disabled={!!busy} onClick={() => terminateLoop(selected)}><CircleStop size={14} />终止</button>}
+              {["draft", "paused", "completed", "terminated", "awaiting_confirmation"].includes(selected.status) && <button className="danger-button icon-only" disabled={!!busy} onClick={() => deleteLoop(selected)} title="删除 Goal"><Trash2 size={14} /></button>}
+            </div>
+          </> : <div className="loop-empty detail"><Target size={29} /><strong>选择一个 Goal</strong><p>这里会显示配置、状态、Session 和执行记录。</p></div>}
+        </section>
+      </div>
+
+      {editor !== undefined && <GoalEditor current={editor} projects={connectedProjects} models={models} modelsLoading={modelsLoading} modelsError={modelsError} reloadModels={loadModels} loops={loops} onClose={() => setEditor(undefined)} onSaved={(page) => { setData({ ...page, loops: page.loops ?? [], approvals: page.approvals ?? [] }); setEditor(undefined); showToast(editor ? "草稿已更新" : "Goal 已创建"); }} showToast={showToast} />}
+      {approvalScope && <ApprovalDialog title={approvalScope.title} approvals={scopedApprovals} busy={busy} apply={applyApproval} onClose={() => setApprovalScope(null)} onRefresh={() => void load(true)} />}
+    </section>
+  );
+}
+
+function LoopMetric({ label, value, icon: Icon, tone, onClick }: { label: string; value: number; icon: typeof Activity; tone: string; onClick?: () => void }) {
+  if (onClick) return <button type="button" className="loop-metric actionable" onClick={onClick}><div><span>{label}</span><strong>{value}</strong></div><i className={tone}><Icon size={22} /></i></button>;
+  return <article className="loop-metric"><div><span>{label}</span><strong>{value}</strong></div><i className={tone}><Icon size={22} /></i></article>;
+}
+
+function Detail({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div className="loop-detail-item"><span>{label}</span>{children}</div>;
+}
+
+function ApprovalDialog({ title, approvals, busy, apply, onClose, onRefresh }: { title: string; approvals: LoopApprovalView[]; busy: string; apply: (label: string, action: () => Promise<GoalLoopPage>) => Promise<boolean>; onClose: () => void; onRefresh: () => void }) {
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="approval-modal" role="dialog" aria-modal="true" aria-label="处理审批">
+    <header><div><span>应用内审批</span><h2>{title}</h2><small>与飞书共享同一 OpenCode 请求，先处理的一端生效</small></div><button type="button" onClick={onClose} aria-label="关闭"><X size={18} /></button></header>
+    <div className="approval-modal-body">{approvals.map((approval) => <ApprovalCard key={approval.id} approval={approval} busy={busy} apply={apply} />)}{!approvals.length && <div className="approval-modal-empty"><ShieldCheck size={28} /><strong>没有待处理的审批</strong><p>请求可能已在飞书或其他窗口中处理。</p><button type="button" className="secondary-button" onClick={onRefresh}><RefreshCw size={14} />重新检查</button></div>}</div>
+  </section></div>;
+}
+
+function GoalEditor({ current, projects, models, modelsLoading, modelsError, reloadModels, loops, onClose, onSaved, showToast }: { current: GoalLoopView | null; projects: ProjectView[]; models: GoalModelView[]; modelsLoading: boolean; modelsError: string; reloadModels: () => Promise<void>; loops: GoalLoopView[]; onClose: () => void; onSaved: (page: GoalLoopPage) => void; showToast: (message: string) => void }) {
+  const [goal, setGoal] = useState(current?.goal ?? "");
+  const [projectID, setProjectID] = useState(current?.projectId ?? projects[0]?.id ?? "");
+  const [modelKey, setModelKey] = useState(current?.modelProviderId && current.modelId ? `${current.modelProviderId}\u0000${current.modelId}` : "");
+  const [modelVariant, setModelVariant] = useState(current?.modelVariant ?? "");
+  const [failureLimit, setFailureLimit] = useState(current?.failureLimit ?? 3);
+  const [confirmation, setConfirmation] = useState(current?.requireCompletionConfirmation ?? false);
+  const [commandConfirmed, setCommandConfirmed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const selectedModel = models.find((model) => `${model.providerId}\u0000${model.id}` === modelKey);
+
+  useEffect(() => {
+    if (!modelKey && models.length) setModelKey(`${models[0].providerId}\u0000${models[0].id}`);
+  }, [modelKey, models]);
+
+  const save = async (startNow: boolean) => {
+    if (!goal.trim()) { showToast("请输入目标"); return; }
+    if (!projectID) { showToast("请选择已接入飞书的项目"); return; }
+    if (!selectedModel) { showToast("请选择可用模型"); return; }
+    if (startNow && !commandConfirmed) { showToast("请确认 Agent 支持 /goal"); return; }
+    if (startNow && loops.some((item) => item.projectId === projectID && ["running", "retrying", "waiting_approval"].includes(item.status))) {
+      const proceed = window.confirm("该项目已有 Goal Loop 正在运行。多个 Agent 修改同一工作区可能产生冲突，推荐为新 Goal 使用独立 Git worktree。\n\n仍然启动？");
+      if (!proceed) return;
+    }
+    setSaving(true);
+    const input: GoalLoopInput = { goal: goal.trim(), projectId: projectID, agentId: "opencode-default", modelProviderId: selectedModel.providerId, modelId: selectedModel.id, modelVariant, failureLimit, requireCompletionConfirmation: confirmation, goalCommandConfirmed: commandConfirmed, startNow };
+    try {
+      const page = current ? await AppService.UpdateGoalLoop(current.id, input) : await AppService.CreateGoalLoop(input);
+      onSaved(page);
+    } catch (reason) {
+      showToast(`保存失败：${errorMessage(reason)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="goal-modal" role="dialog" aria-modal="true" aria-label={current ? "编辑 Goal" : "创建 Goal"}>
+    <header><div><span>Goal-based Loop</span><h2>{current ? "编辑 Goal 草稿" : "创建 Goal"}</h2></div><button onClick={onClose} aria-label="关闭"><X size={18} /></button></header>
+    <div className="goal-modal-body">
+      <label className="loop-form-field"><span>目标</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="清晰描述目标和可验证的完成条件，例如：将首页 Lighthouse 分数提升到 90 以上，并完成测试。" autoFocus /></label>
+      <div className="loop-form-grid"><label className="loop-form-field"><span>Agent</span><select value="opencode-default" disabled><option value="opencode-default">OpenCode</option><option disabled>Claude Code（即将支持）</option><option disabled>Codex（即将支持）</option></select><small>首条消息将自动添加 /goal 前缀</small></label><label className="loop-form-field"><span>项目</span><select value={projectID} onChange={(event) => setProjectID(event.target.value)}><option value="">选择已接入飞书的项目</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name} · {project.directory}</option>)}</select><small>多个 Loop 同项目运行时推荐使用独立 worktree</small></label></div>
+      <div className="loop-model-config"><div className="loop-model-config-title"><span>模型配置</span><button type="button" onClick={() => void reloadModels()} disabled={modelsLoading}><RefreshCw size={13} className={modelsLoading ? "spin" : ""} />刷新模型</button></div><div className="loop-form-grid"><label className="loop-form-field"><span>模型</span>{models.length ? <select value={modelKey} onChange={(event) => { setModelKey(event.target.value); setModelVariant(""); }} disabled={modelsLoading}><option value="">{modelsLoading ? "正在读取模型…" : "请选择模型"}</option>{models.map((model) => <option value={`${model.providerId}\u0000${model.id}`} key={`${model.providerId}/${model.id}`}>{model.providerName || model.providerId} · {model.name || model.id}</option>)}</select> : <button type="button" className="loop-model-load" onClick={() => void reloadModels()} disabled={modelsLoading}><RefreshCw size={14} className={modelsLoading ? "spin" : ""} />{modelsLoading ? "正在读取模型…" : "加载模型"}</button>}<small className={modelsError ? "loop-form-error" : ""}>{selectedModel ? `${selectedModel.providerId}/${selectedModel.id}` : models.length ? "选择 Goal 每一轮固定使用的模型" : modelsError || "点击加载 OpenCode 模型列表"}</small></label><label className="loop-form-field"><span>模型档位 / Variant</span><select value={modelVariant} onChange={(event) => setModelVariant(event.target.value)} disabled={!selectedModel || !(selectedModel.variants ?? []).length}><option value="">默认档位</option>{(selectedModel?.variants ?? []).map((variant) => <option value={variant} key={variant}>{variant}</option>)}</select><small>{(selectedModel?.variants ?? []).length ? "可选档位来自 OpenCode 模型配置" : "该模型没有额外档位"}</small></label></div></div>
+      <div className="loop-form-grid"><label className="loop-form-field"><span>连续技术故障后暂停</span><input type="number" min="1" max="100" value={failureLimit} onChange={(event) => setFailureLimit(Math.max(1, Math.min(100, Number(event.target.value))))} /><small>默认 3 次；重试采用指数退避</small></label><label className="loop-check-card"><input type="checkbox" checked={confirmation} onChange={(event) => setConfirmation(event.target.checked)} /><span><strong>完成后需要人工确认</strong><small>关闭时，收到完成标记即自动完成</small></span></label></div>
+      <label className="goal-command-warning"><input type="checkbox" checked={commandConfirmed} onChange={(event) => setCommandConfirmed(event.target.checked)} /><CircleAlert size={18} /><span><strong>我已确认所选 Agent 支持 <code>/goal</code></strong><small>应用只会添加命令前缀，不会安装或检测 Agent 的 /goal 能力。</small></span></label>
+      <div className="infinite-note"><InfinityIcon size={17} /><span>Goal Loop 不设置最大轮数或运行时长；未收到完成标记时会持续运行并消耗模型额度。</span></div>
+    </div>
+    <footer><button className="secondary-button" onClick={onClose}>取消</button>{!current && <button className="secondary-button" disabled={saving || !selectedModel} onClick={() => void save(false)}><Save size={14} />保存草稿</button>}<button className="primary-button" disabled={saving || !projects.length || !selectedModel} onClick={() => void save(current ? false : true)}>{saving ? <LoaderCircle size={14} className="spin" /> : current ? <Save size={14} /> : <Play size={14} />}{current ? "保存修改" : "创建并启动"}</button></footer>
+  </section></div>;
+}
+
+function ApprovalCard({ approval, busy, apply }: { approval: LoopApprovalView; busy: string; apply: (label: string, action: () => Promise<GoalLoopPage>) => Promise<boolean> }) {
+  const [answers, setAnswers] = useState<string[]>((approval.questions ?? []).map(() => ""));
+  if (approval.type === "permission") {
+    return <article className="approval-card"><header><span className="permission"><ShieldCheck size={17} /></span><div><strong>Permission · {approval.permissionName}</strong><small>{approval.projectName} · {shortID(approval.sessionId)}</small></div>{approval.loopId && <em>Goal Loop</em>}</header>{(approval.patterns ?? []).length > 0 && <pre>{(approval.patterns ?? []).join("\n")}</pre>}<footer><button className="danger-button" disabled={!!busy} onClick={() => void apply("permission", () => AppService.ReplyLoopPermission(approval.id, approval.directory, "reject"))}>拒绝</button><button className="secondary-button" disabled={!!busy} onClick={() => void apply("permission", () => AppService.ReplyLoopPermission(approval.id, approval.directory, "once"))}>允许一次</button><button className="primary-button" disabled={!!busy} onClick={() => void apply("permission", () => AppService.ReplyLoopPermission(approval.id, approval.directory, "always"))}>始终允许</button></footer></article>;
+  }
+  const questions = approval.questions ?? [];
+  const setAnswer = (index: number, value: string) => setAnswers((current) => current.map((item, itemIndex) => itemIndex === index ? value : item));
+  const toggleAnswer = (index: number, value: string) => {
+    const selected = answers[index].split("\u0000").filter(Boolean);
+    setAnswer(index, selected.includes(value) ? selected.filter((item) => item !== value).join("\u0000") : [...selected, value].join("\u0000"));
+  };
+  const submit = () => {
+    const payload = answers.map((answer) => answer.split("\u0000").map((item) => item.trim()).filter(Boolean));
+    void apply("question", () => AppService.ReplyLoopQuestion({ requestId: approval.id, directory: approval.directory, answers: payload, reject: false }));
+  };
+  return <article className="approval-card"><header><span className="question"><MessageSquareText size={17} /></span><div><strong>Question</strong><small>{approval.projectName} · {shortID(approval.sessionId)}</small></div>{approval.loopId && <em>Goal Loop</em>}</header><div className="question-list">{questions.map((question, index) => <label key={`${approval.id}-${index}`}><span>{question.header || `问题 ${index + 1}`}</span><strong>{question.question}</strong>{(question.options ?? []).length ? question.multiple ? <div className="question-options">{(question.options ?? []).map((option) => <label key={option.label}><input type="checkbox" checked={answers[index].split("\u0000").includes(option.label)} onChange={() => toggleAnswer(index, option.label)} /><span>{option.label}{option.description ? ` · ${option.description}` : ""}</span></label>)}</div> : <select value={answers[index]} onChange={(event) => setAnswer(index, event.target.value)}><option value="">请选择</option>{(question.options ?? []).map((option) => <option value={option.label} key={option.label}>{option.label}{option.description ? ` · ${option.description}` : ""}</option>)}</select> : <input value={answers[index]} onChange={(event) => setAnswer(index, event.target.value)} placeholder="输入回答" />}</label>)}</div><footer><button className="danger-button" disabled={!!busy} onClick={() => void apply("question", () => AppService.ReplyLoopQuestion({ requestId: approval.id, directory: approval.directory, answers: [], reject: true }))}>拒绝</button><button className="primary-button" disabled={!!busy || answers.some((answer) => !answer.trim())} onClick={submit}>提交回答</button></footer></article>;
+}
+
+function loopTone(status: string): string {
+  return ({ running: "running", retrying: "retry", waiting_approval: "approval", paused: "paused", awaiting_confirmation: "confirmation", completed: "completed", terminated: "terminated", draft: "draft" } as Record<string, string>)[status] ?? "draft";
+}
+
+function shortID(id: string): string { return id.length > 14 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id; }
+function errorMessage(reason: unknown): string { return reason instanceof Error ? reason.message : String(reason); }
+function relativeTime(value: string): string {
+  const date = new Date(value); const elapsed = Date.now() - date.getTime();
+  if (!value || Number.isNaN(date.getTime()) || date.getUTCFullYear() <= 1) return "—";
+  if (elapsed < 60_000) return "刚刚"; const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 60) return `${minutes} 分钟前`; const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`; const days = Math.floor(hours / 24);
+  return days < 30 ? `${days} 天前` : date.toLocaleDateString("zh-CN");
+}
