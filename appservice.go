@@ -104,6 +104,10 @@ func (s *AppService) StartGoalLoop(loopID string, goalCommandConfirmed bool) (de
 	return s.manager.StartGoalLoop(loopID, goalCommandConfirmed)
 }
 
+func (s *AppService) RestartGoalLoop(loopID string, goalCommandConfirmed bool) (desktop.GoalLoopPage, error) {
+	return s.manager.RestartGoalLoop(loopID, goalCommandConfirmed)
+}
+
 func (s *AppService) PauseGoalLoop(loopID string) (desktop.GoalLoopPage, error) {
 	return s.manager.PauseGoalLoop(loopID)
 }

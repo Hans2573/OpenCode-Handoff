@@ -80,6 +80,16 @@ func TestHardBlockedPermissionRejectsUnapprovedExternalDirectory(t *testing.T) {
 	}
 }
 
+func TestHardBlockedPermissionAcceptsExplicitlyAllowedFile(t *testing.T) {
+	project := t.TempDir()
+	allowedFile := filepath.Join(t.TempDir(), "source.html")
+	loop := domain.GoalLoop{Directory: project, AllowedDirectories: []string{allowedFile}}
+	request := opencode.PermissionRequest{Permission: "external_directory", Patterns: []string{allowedFile}}
+	if reason := hardBlockedPermission(loop, request); reason != "" {
+		t.Fatalf("explicitly allowed file was blocked: %q", reason)
+	}
+}
+
 func TestGoalNameUsesFirstLineAndTruncates(t *testing.T) {
 	if got := goalName("  first line\nsecond line"); got != "first line" {
 		t.Fatalf("goalName=%q", got)
@@ -347,6 +357,81 @@ func TestSupervisorFailureThresholdRebuildsWithFallbackModel(t *testing.T) {
 	}
 	if stored.SupervisorModelProviderID != "primary" || stored.SupervisorModelID != "executor" || stored.SupervisorSessionID != "" || stored.PendingRequestID != "" {
 		t.Fatalf("fallback loop=%+v", stored)
+	}
+}
+
+func TestTerminalGoalCanUpdateAllowedPathsAndRestartOriginalSession(t *testing.T) {
+	for _, terminalStatus := range []string{domain.GoalLoopBlocked, domain.GoalLoopTerminated} {
+		t.Run(terminalStatus, func(t *testing.T) {
+			attachedSession := terminalStatus == domain.GoalLoopBlocked
+			var prompts []string
+			createdSessions := 0
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				response.Header().Set("Content-Type", "application/json")
+				switch {
+				case request.Method == http.MethodGet && request.URL.Path == "/session/ses_existing":
+					_, _ = io.WriteString(response, `{"id":"ses_existing","directory":"/work/project","title":"existing"}`)
+				case request.Method == http.MethodGet && request.URL.Path == "/config/providers":
+					_, _ = io.WriteString(response, `{"providers":[{"id":"openai","name":"OpenAI","models":{"gpt-test":{"id":"gpt-test","name":"GPT Test"}}}]}`)
+				case request.Method == http.MethodGet && (request.URL.Path == "/question" || request.URL.Path == "/permission"):
+					_, _ = io.WriteString(response, `[]`)
+				case request.Method == http.MethodGet && request.URL.Path == "/session/status":
+					_, _ = io.WriteString(response, `{}`)
+				case request.Method == http.MethodGet && request.URL.Path == "/session/ses_existing/message":
+					_, _ = io.WriteString(response, `[{"info":{"id":"old_terminal","sessionID":"ses_existing","role":"assistant"},"parts":[{"type":"text","text":"previous terminal output"}]}]`)
+				case request.Method == http.MethodPost && request.URL.Path == "/session/ses_existing/prompt_async":
+					var body struct {
+						Parts []struct {
+							Text string `json:"text"`
+						} `json:"parts"`
+					}
+					_ = json.NewDecoder(request.Body).Decode(&body)
+					if len(body.Parts) > 0 {
+						prompts = append(prompts, body.Parts[0].Text)
+					}
+					response.WriteHeader(http.StatusNoContent)
+				case request.Method == http.MethodPost && request.URL.Path == "/session":
+					createdSessions++
+					_, _ = io.WriteString(response, `{"id":"unexpected"}`)
+				default:
+					http.NotFound(response, request)
+				}
+			}))
+			defer server.Close()
+
+			manager, database, project := newGoalLoopTestManager(t, server.URL)
+			now := time.Now().UTC()
+			loop := domain.GoalLoop{ID: "goal_terminal_" + terminalStatus, Name: "terminal", Goal: "old goal", ProjectID: project.ID, ProjectName: project.Name, Directory: project.Directory, AgentID: store.DefaultAgentID, AgentName: "OpenCode", ModelProviderID: "openai", ModelID: "gpt-test", ModelName: "GPT Test", SessionID: "ses_existing", AttachedSession: attachedSession, AutomationMode: domain.GoalLoopAutonomous, Status: terminalStatus, FailureLimit: 3, CycleCount: 4, LastAssistantMessageID: "old_terminal", LastError: "old error", CreatedAt: now.Add(-time.Hour), UpdatedAt: now, CompletedAt: now}
+			if err := database.CreateGoalLoop(context.Background(), loop); err != nil {
+				t.Fatal(err)
+			}
+			allowedPath := filepath.Join(t.TempDir(), "source.html")
+			_, err := manager.UpdateGoalLoop(loop.ID, GoalLoopInput{Goal: "revised goal", ProjectID: project.ID, AgentID: store.DefaultAgentID, ModelProviderID: "openai", ModelID: "gpt-test", SessionID: "ses_existing", AutomationMode: domain.GoalLoopAutonomous, AllowedDirectories: []string{allowedPath}, FailureLimit: 4})
+			if err != nil {
+				t.Fatal(err)
+			}
+			updated, err := database.GetGoalLoop(context.Background(), loop.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if updated.Status != terminalStatus || updated.Goal != "revised goal" || updated.AttachedSession != attachedSession || len(updated.AllowedDirectories) != 1 || updated.AllowedDirectories[0] != allowedPath {
+				t.Fatalf("updated loop=%+v", updated)
+			}
+			page, err := manager.RestartGoalLoop(loop.ID, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored, err := database.GetGoalLoop(context.Background(), loop.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if createdSessions != 0 || len(prompts) != 1 || !strings.HasPrefix(prompts[0], "/goal revised goal") {
+				t.Fatalf("created=%d prompts=%q", createdSessions, prompts)
+			}
+			if stored.Status != domain.GoalLoopRunning || stored.CycleCount != 1 || stored.LastError != "" || !stored.CompletedAt.IsZero() || page.Loops[0].Status != domain.GoalLoopRunning {
+				t.Fatalf("restarted loop=%+v page=%+v", stored, page.Loops[0])
+			}
+		})
 	}
 }
 

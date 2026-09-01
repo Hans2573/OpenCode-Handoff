@@ -101,6 +101,10 @@ export function ReplyLoopQuestion(input: desktop$0.QuestionReplyInput): $Cancell
     return $Call.ByID(1140528592, input);
 }
 
+export function RestartGoalLoop(loopID: string, goalCommandConfirmed: boolean): $CancellablePromise<desktop$0.GoalLoopPage> {
+    return $Call.ByID(1897457140, loopID, goalCommandConfirmed);
+}
+
 export function ResumeGoalLoop(loopID: string): $CancellablePromise<desktop$0.GoalLoopPage> {
     return $Call.ByID(4207873420, loopID);
 }

@@ -559,8 +559,12 @@ func (m *Manager) UpdateGoalLoop(id string, input GoalLoopInput) (GoalLoopPage, 
 	if err != nil {
 		return GoalLoopPage{}, err
 	}
-	if loop.Status != domain.GoalLoopDraft {
-		return GoalLoopPage{}, errors.New("只能编辑草稿 Goal")
+	if !slices.Contains([]string{domain.GoalLoopDraft, domain.GoalLoopBlocked, domain.GoalLoopTerminated}, loop.Status) {
+		return GoalLoopPage{}, errors.New("只能编辑草稿、受阻或已终止的 Goal")
+	}
+	terminalEdit := loop.Status == domain.GoalLoopBlocked || loop.Status == domain.GoalLoopTerminated
+	if terminalEdit && (input.ProjectID != loop.ProjectID || strings.TrimSpace(input.SessionID) != loop.SessionID) {
+		return GoalLoopPage{}, errors.New("编辑终态 Goal 时不能更换项目或 Session；如需更换，请创建新 Goal")
 	}
 	project, model, err := m.validateGoalLoopInput(ctx, input)
 	if err != nil {
@@ -581,7 +585,9 @@ func (m *Manager) UpdateGoalLoop(id string, input GoalLoopInput) (GoalLoopPage, 
 	loop.Goal = strings.TrimSpace(input.Goal)
 	loop.ProjectID, loop.ProjectName, loop.Directory = project.ProjectID, project.Name, project.Directory
 	loop.ModelProviderID, loop.ModelID, loop.ModelName, loop.ModelVariant = model.ProviderID, model.ID, model.Name, input.ModelVariant
-	loop.SessionID, loop.AttachedSession = strings.TrimSpace(input.SessionID), strings.TrimSpace(input.SessionID) != ""
+	if !terminalEdit {
+		loop.SessionID, loop.AttachedSession = strings.TrimSpace(input.SessionID), strings.TrimSpace(input.SessionID) != ""
+	}
 	loop.AutomationMode = input.AutomationMode
 	if loop.AutomationMode == "" {
 		loop.AutomationMode = domain.GoalLoopAutonomous
@@ -594,7 +600,11 @@ func (m *Manager) UpdateGoalLoop(id string, input GoalLoopInput) (GoalLoopPage, 
 	if err := m.store.SaveGoalLoop(ctx, loop); err != nil {
 		return GoalLoopPage{}, err
 	}
-	_ = m.store.AppendGoalLoopEvent(ctx, id, "updated", "已更新 Goal 草稿")
+	eventMessage := "已更新 Goal 草稿"
+	if loop.Status == domain.GoalLoopBlocked || loop.Status == domain.GoalLoopTerminated {
+		eventMessage = "已更新终态 Goal 配置，可重新启动"
+	}
+	_ = m.store.AppendGoalLoopEvent(ctx, id, "updated", eventMessage)
 	return m.GetGoalLoops()
 }
 
@@ -626,6 +636,72 @@ func (m *Manager) StartGoalLoop(id string, goalCommandConfirmed bool) (GoalLoopP
 		m.recordGoalFailure(ctx, &loop, err)
 	}
 	return m.GetGoalLoops()
+}
+
+func (m *Manager) RestartGoalLoop(id string, goalCommandConfirmed bool) (GoalLoopPage, error) {
+	if !goalCommandConfirmed {
+		return GoalLoopPage{}, errors.New("请先确认所选 Agent 支持 /goal")
+	}
+	m.goalMu.Lock()
+	defer m.goalMu.Unlock()
+	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+	defer cancel()
+	loop, err := m.store.GetGoalLoop(ctx, id)
+	if err != nil {
+		return GoalLoopPage{}, err
+	}
+	if loop.Status != domain.GoalLoopBlocked && loop.Status != domain.GoalLoopTerminated {
+		return GoalLoopPage{}, errors.New("只有受阻或已终止的 Goal 可以重新启动")
+	}
+	if err := m.validateGoalSessionBinding(ctx, loop.SessionID, loop.Directory, loop.ID); err != nil {
+		return GoalLoopPage{}, err
+	}
+	if loop.SessionID == "" {
+		resetGoalLoopForRestart(&loop)
+		if err := m.store.SaveGoalLoop(ctx, loop); err != nil {
+			return GoalLoopPage{}, err
+		}
+		_ = m.store.AppendGoalLoopEvent(ctx, loop.ID, "restart_requested", "已使用更新后的配置重新启动 Goal")
+		if err := m.launchGoalLoop(ctx, &loop); err != nil {
+			m.recordGoalFailure(ctx, &loop, err)
+		}
+	} else if err := m.prepareGoalLoopRestart(ctx, &loop); err != nil {
+		m.recordGoalFailure(ctx, &loop, err)
+	} else {
+		m.processGoalLoop(ctx, loop)
+	}
+	return m.GetGoalLoops()
+}
+
+func resetGoalLoopForRestart(loop *domain.GoalLoop) {
+	loop.Status = domain.GoalLoopWaitingTakeover
+	loop.CycleCount = 0
+	loop.ConsecutiveFailures = 0
+	loop.LastAssistantMessageID = ""
+	loop.LastError = ""
+	loop.PendingFeedback = ""
+	loop.SupervisorLastMessageID = ""
+	clearSupervisorDecision(loop)
+	loop.RetryAt = time.Time{}
+	loop.CompletedAt = time.Time{}
+	loop.UpdatedAt = time.Now().UTC()
+}
+
+func (m *Manager) prepareGoalLoopRestart(ctx context.Context, loop *domain.GoalLoop) error {
+	messages, err := m.raw.GetMessages(ctx, loop.SessionID, loop.Directory, 50)
+	if err != nil {
+		return fmt.Errorf("读取原 Session 历史：%w", err)
+	}
+	resetGoalLoopForRestart(loop)
+	if output, ok := opencode.LastAssistantOutput(messages); ok {
+		loop.LastAssistantMessageID = output.MessageID
+	}
+	if err := m.store.SaveGoalLoop(ctx, *loop); err != nil {
+		return err
+	}
+	_ = m.syncGoalSessions(ctx)
+	_ = m.store.AppendGoalLoopEvent(ctx, loop.ID, "restart_requested", "已复用原 Session，并使用更新后的配置重新启动 Goal")
+	return nil
 }
 
 func (m *Manager) PauseGoalLoop(id string) (GoalLoopPage, error) {
