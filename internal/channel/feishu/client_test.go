@@ -89,6 +89,68 @@ func TestFormatFinishedHandoff(t *testing.T) {
 	}
 }
 
+func TestFormatGoalCompletionHandoff(t *testing.T) {
+	content, err := formatHandoffCard(domain.Handoff{
+		ID: "hof_goal", SessionID: "ses_goal", SessionName: "Ship feature", ProjectName: "handoff",
+		Directory: "/work/project", Type: domain.HandoffGoalCompletion, LastAssistantText: "目标已经完成",
+	}, 3000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := decodeHandoffCard(t, content)
+	message := cardContents(card.Body.Elements)
+	for _, expected := range []string{"Goal Loop · 等待完成确认", "目标已经完成", "确认完成", "继续 Goal", "直接 @机器人 回复"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("Goal completion card %q does not contain %q", message, expected)
+		}
+	}
+	buttons := findCardElements(card.Body.Elements, "button")
+	if len(buttons) != 2 || buttons[0].Behaviors[0].Value["action"] != "goal_complete" || buttons[1].Behaviors[0].Value["action"] != "goal_continue" {
+		t.Fatalf("Goal completion buttons = %+v", buttons)
+	}
+}
+
+func TestFormatGoalStatusHandoffHasNoInteractiveReplyActions(t *testing.T) {
+	content, err := formatHandoffCard(domain.Handoff{
+		ID: "hof_goal_status", SessionID: "ses_goal", SessionName: "Ship feature", ProjectName: "handoff",
+		Directory: "/work/project", Type: domain.HandoffGoalStatus, LastAssistantText: "Goal 已启动",
+	}, 3000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := decodeHandoffCard(t, content)
+	message := cardContents(card.Body.Elements)
+	if !strings.Contains(message, "Goal Loop · 状态更新") || !strings.Contains(message, "Goal 已启动") {
+		t.Fatalf("Goal status card = %q", message)
+	}
+	if buttons := findCardElements(card.Body.Elements, "button"); len(buttons) != 0 {
+		t.Fatalf("Goal status must not create reply actions: %+v", buttons)
+	}
+}
+
+func TestOnCardActionRoutesGoalContinuation(t *testing.T) {
+	client := &Client{replies: make(chan domain.UserReply, 1)}
+	event := &callback.CardActionTriggerEvent{Event: &callback.CardActionTriggerRequest{
+		Operator: &callback.Operator{OpenID: "ou_1"},
+		Context:  &callback.Context{OpenMessageID: "om_goal", OpenChatID: "oc_chat"},
+		Action:   &callback.CallBackAction{Value: map[string]any{"action": "goal_continue"}},
+	}}
+	go func() {
+		reply := <-client.replies
+		if !reply.GoalContinue || reply.GoalComplete || reply.ParentMessageID != "om_goal" {
+			t.Errorf("Goal card reply = %+v", reply)
+		}
+		reply.Result <- nil
+	}()
+	response, err := client.onCardAction(context.Background(), event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response == nil {
+		t.Fatal("expected Goal continuation toast")
+	}
+}
+
 func TestFormatHandoffUsesTailPreviewAndOffersDetailedOutput(t *testing.T) {
 	content, err := formatHandoffCard(domain.Handoff{
 		ID: "hof_long", SessionID: "ses_long", ProjectName: "handoff", Type: domain.HandoffFinished,

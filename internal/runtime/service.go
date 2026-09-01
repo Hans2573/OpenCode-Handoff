@@ -12,6 +12,7 @@ import (
 
 	"github.com/Hans2573/OpenCode-Handoff/internal/channel/feishu"
 	"github.com/Hans2573/OpenCode-Handoff/internal/config"
+	"github.com/Hans2573/OpenCode-Handoff/internal/domain"
 	"github.com/Hans2573/OpenCode-Handoff/internal/handoff"
 	"github.com/Hans2573/OpenCode-Handoff/internal/opencode"
 	"github.com/Hans2573/OpenCode-Handoff/internal/store"
@@ -135,6 +136,37 @@ func (s *Service) ChannelHealth() feishu.Health {
 		return feishu.Health{State: "stopped", Message: "飞书监听未启动"}
 	}
 	return s.channel.Health()
+}
+
+// SendHandoff lets the desktop's Goal Loop supervisor use the same connected
+// Feishu channel for infrastructure failures that do not originate as an
+// OpenCode SSE event.
+func (s *Service) SendHandoff(ctx context.Context, item domain.Handoff) (domain.MessageRef, error) {
+	if s.channel == nil {
+		return domain.MessageRef{}, errors.New("feishu channel is not configured")
+	}
+	return s.channel.SendHandoff(ctx, item)
+}
+
+func (s *Service) ReplyToHandoff(ctx context.Context, messageID, text string) error {
+	if s.channel == nil {
+		return errors.New("feishu channel is not configured")
+	}
+	return s.channel.Reply(ctx, messageID, text)
+}
+
+func (s *Service) EnsureQuestion(ctx context.Context, directory string, question opencode.QuestionRequest) error {
+	if s.engine == nil {
+		return errors.New("handoff engine is not configured")
+	}
+	return s.engine.EnsureQuestion(ctx, directory, question)
+}
+
+func (s *Service) EnsurePermission(ctx context.Context, directory string, permission opencode.PermissionRequest) error {
+	if s.engine == nil {
+		return errors.New("handoff engine is not configured")
+	}
+	return s.engine.EnsurePermission(ctx, directory, permission)
 }
 
 func PreparePairing(ctx context.Context, cfg config.Config, handoffStore store.Store, logger *slog.Logger) (string, error) {

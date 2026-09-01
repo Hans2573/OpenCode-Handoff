@@ -211,6 +211,15 @@ func (c *Client) GetMessages(ctx context.Context, sessionID, directory string, l
 }
 
 func (c *Client) SendPrompt(ctx context.Context, sessionID, directory, text string, selected *ModelRef) error {
+	return c.sendPrompt(ctx, sessionID, directory, text, selected, nil)
+}
+
+func (c *Client) SendPromptNoTools(ctx context.Context, sessionID, directory, text string, selected *ModelRef) error {
+	tools := map[string]bool{"*": false, "read": false, "write": false, "edit": false, "patch": false, "bash": false, "task": false, "webfetch": false, "websearch": false, "glob": false, "grep": false, "list": false, "question": false, "todowrite": false, "todoread": false}
+	return c.sendPrompt(ctx, sessionID, directory, text, selected, tools)
+}
+
+func (c *Client) sendPrompt(ctx context.Context, sessionID, directory, text string, selected *ModelRef, tools map[string]bool) error {
 	body := struct {
 		Model *struct {
 			ProviderID string `json:"providerID"`
@@ -221,7 +230,9 @@ func (c *Client) SendPrompt(ctx context.Context, sessionID, directory, text stri
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"parts"`
+		Tools map[string]bool `json:"tools,omitempty"`
 	}{}
+	body.Tools = tools
 	if selected != nil && selected.ProviderID != "" && selected.ModelID != "" {
 		body.Model = &struct {
 			ProviderID string `json:"providerID"`

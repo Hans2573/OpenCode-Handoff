@@ -161,6 +161,57 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			ON session_execution_runs(ended_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_session_execution_runs_session
 			ON session_execution_runs(session_id, directory, started_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS goal_loops (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			goal TEXT NOT NULL,
+			project_id TEXT NOT NULL,
+			project_name TEXT NOT NULL,
+			directory TEXT NOT NULL,
+			agent_id TEXT NOT NULL,
+			agent_name TEXT NOT NULL,
+			model_provider_id TEXT NOT NULL DEFAULT '',
+			model_id TEXT NOT NULL DEFAULT '',
+			model_name TEXT NOT NULL DEFAULT '',
+			model_variant TEXT NOT NULL DEFAULT '',
+			session_id TEXT NOT NULL DEFAULT '',
+			attached_session INTEGER NOT NULL DEFAULT 0,
+			automation_mode TEXT NOT NULL DEFAULT 'manual',
+			permission_approval_mode TEXT NOT NULL DEFAULT 'ai',
+			allowed_directories_json TEXT NOT NULL DEFAULT '[]',
+			supervisor_model_provider_id TEXT NOT NULL DEFAULT '',
+			supervisor_model_id TEXT NOT NULL DEFAULT '',
+			supervisor_model_name TEXT NOT NULL DEFAULT '',
+			supervisor_model_variant TEXT NOT NULL DEFAULT '',
+			supervisor_session_id TEXT NOT NULL DEFAULT '',
+			pending_request_id TEXT NOT NULL DEFAULT '',
+			pending_request_type TEXT NOT NULL DEFAULT '',
+			supervisor_last_message_id TEXT NOT NULL DEFAULT '',
+			pending_feedback TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL,
+			require_completion_confirmation INTEGER NOT NULL DEFAULT 0,
+			failure_limit INTEGER NOT NULL DEFAULT 3,
+			consecutive_failures INTEGER NOT NULL DEFAULT 0,
+			cycle_count INTEGER NOT NULL DEFAULT 0,
+			last_assistant_message_id TEXT NOT NULL DEFAULT '',
+			last_error TEXT NOT NULL DEFAULT '',
+			retry_at INTEGER,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			completed_at INTEGER
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_goal_loops_status ON goal_loops(status, updated_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_goal_loops_project ON goal_loops(project_id, updated_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS goal_loop_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			loop_id TEXT NOT NULL,
+			event_type TEXT NOT NULL,
+			message TEXT NOT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			created_at INTEGER NOT NULL,
+			FOREIGN KEY (loop_id) REFERENCES goal_loops(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_goal_loop_events_loop ON goal_loop_events(loop_id, created_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS app_settings (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL,
@@ -182,6 +233,32 @@ func (s *SQLite) migrate(ctx context.Context) error {
 		if err := s.ensureColumn(ctx, "handoff_records", name, definition); err != nil {
 			return err
 		}
+	}
+	for name, definition := range map[string]string{
+		"model_provider_id":            "TEXT NOT NULL DEFAULT ''",
+		"model_id":                     "TEXT NOT NULL DEFAULT ''",
+		"model_name":                   "TEXT NOT NULL DEFAULT ''",
+		"model_variant":                "TEXT NOT NULL DEFAULT ''",
+		"attached_session":             "INTEGER NOT NULL DEFAULT 0",
+		"automation_mode":              "TEXT NOT NULL DEFAULT 'manual'",
+		"permission_approval_mode":     "TEXT NOT NULL DEFAULT 'ai'",
+		"allowed_directories_json":     "TEXT NOT NULL DEFAULT '[]'",
+		"supervisor_model_provider_id": "TEXT NOT NULL DEFAULT ''",
+		"supervisor_model_id":          "TEXT NOT NULL DEFAULT ''",
+		"supervisor_model_name":        "TEXT NOT NULL DEFAULT ''",
+		"supervisor_model_variant":     "TEXT NOT NULL DEFAULT ''",
+		"supervisor_session_id":        "TEXT NOT NULL DEFAULT ''",
+		"pending_request_id":           "TEXT NOT NULL DEFAULT ''",
+		"pending_request_type":         "TEXT NOT NULL DEFAULT ''",
+		"supervisor_last_message_id":   "TEXT NOT NULL DEFAULT ''",
+		"pending_feedback":             "TEXT NOT NULL DEFAULT ''",
+	} {
+		if err := s.ensureColumn(ctx, "goal_loops", name, definition); err != nil {
+			return err
+		}
+	}
+	if err := s.ensureColumn(ctx, "goal_loop_events", "metadata_json", "TEXT NOT NULL DEFAULT '{}'"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -318,7 +395,7 @@ func (s *SQLite) ClaimByMessage(ctx context.Context, messageID, resumeMessageID 
 	if err != nil {
 		return domain.Handoff{}, fmt.Errorf("find handoff message mapping: %w", err)
 	}
-	if (handoff.Type == domain.HandoffQuestion || handoff.Type == domain.HandoffPermission) && handoff.Status != domain.StatusOpen {
+	if (handoff.Type == domain.HandoffQuestion || handoff.Type == domain.HandoffPermission || handoff.Type == domain.HandoffGoalCompletion) && handoff.Status != domain.StatusOpen {
 		return domain.Handoff{}, ErrNotFound
 	}
 	if err := recordReplyReceipt(ctx, tx, resumeMessageID, handoff.ID); err != nil {

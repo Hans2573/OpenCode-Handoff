@@ -78,6 +78,109 @@ func TestEngineSendsOnceAndRoutesAuthorizedReply(t *testing.T) {
 	}
 }
 
+func TestEngineRoutesGoalCompletionRepliesBackToGoalLoop(t *testing.T) {
+	t.Run("unthreaded continue uses original Session and Goal model", func(t *testing.T) {
+		ctx := context.Background()
+		database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "goal-reply.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = database.Close() })
+		now := time.Now().UTC()
+		loop := domain.GoalLoop{
+			ID: "goal_1", Name: "Ship feature", Goal: "ship feature", ProjectID: "project",
+			ProjectName: "project", Directory: "/work/project", AgentID: "agent", AgentName: "OpenCode",
+			SessionID: "ses_goal", Status: domain.GoalLoopAwaitingConfirmation,
+			ModelProviderID: "openai", ModelID: "gpt-test", ModelVariant: "high",
+			RequireCompletionConfirmation: true, FailureLimit: 3, CycleCount: 2,
+			CreatedAt: now, UpdatedAt: now,
+		}
+		if err := database.CreateGoalLoop(ctx, loop); err != nil {
+			t.Fatal(err)
+		}
+		handoff := domain.Handoff{
+			ID: "hof_goal", SessionID: loop.SessionID, SessionName: loop.Name,
+			Directory: loop.Directory, ProjectName: loop.ProjectName, Type: domain.HandoffGoalCompletion,
+			LastAssistantMessageID: "msg_done", Status: domain.StatusOpen, CreatedAt: now,
+		}
+		if err := database.Create(ctx, handoff); err != nil {
+			t.Fatal(err)
+		}
+		if err := database.BindMessage(ctx, handoff.ID, domain.MessageRef{ChatID: "oc_allowed", MessageID: "om_goal"}); err != nil {
+			t.Fatal(err)
+		}
+		adapter := &fakeAdapter{session: opencode.Session{ID: loop.SessionID, Directory: loop.Directory}}
+		channel := &fakeChannel{}
+		engine := newTestEngine(adapter, channel, database, true, true)
+		if err := engine.handleReply(ctx, domain.UserReply{
+			MessageID: "om_continue", ChatID: "oc_allowed", SenderID: "ou_allowed", Text: "继续",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if len(adapter.prompts) != 1 || adapter.prompts[0].SessionID != loop.SessionID || adapter.prompts[0].Text != goalContinueFromFeishuPrompt {
+			t.Fatalf("Goal continuation prompts = %+v", adapter.prompts)
+		}
+		if adapter.prompts[0].Model == nil || adapter.prompts[0].Model.ProviderID != "openai" || adapter.prompts[0].Model.ModelID != "gpt-test" || adapter.prompts[0].Model.Variant != "high" {
+			t.Fatalf("Goal continuation model = %+v", adapter.prompts[0].Model)
+		}
+		updated, err := database.GetGoalLoop(ctx, loop.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if updated.Status != domain.GoalLoopRunning || updated.CycleCount != 3 {
+			t.Fatalf("continued Goal = %+v", updated)
+		}
+		if len(channel.notices) != 1 || !strings.Contains(channel.notices[0], "Goal Loop 正在继续") {
+			t.Fatalf("channel notices = %v", channel.notices)
+		}
+	})
+
+	t.Run("card confirmation completes Goal without prompting", func(t *testing.T) {
+		ctx := context.Background()
+		database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "goal-confirm.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = database.Close() })
+		now := time.Now().UTC()
+		loop := domain.GoalLoop{
+			ID: "goal_2", Name: "Complete feature", Goal: "complete feature", ProjectID: "project",
+			ProjectName: "project", Directory: "/work/project", AgentID: "agent", AgentName: "OpenCode",
+			SessionID: "ses_goal_confirm", Status: domain.GoalLoopAwaitingConfirmation,
+			RequireCompletionConfirmation: true, FailureLimit: 3, CycleCount: 4, CreatedAt: now, UpdatedAt: now,
+		}
+		if err := database.CreateGoalLoop(ctx, loop); err != nil {
+			t.Fatal(err)
+		}
+		handoff := domain.Handoff{
+			ID: "hof_confirm", SessionID: loop.SessionID, SessionName: loop.Name,
+			Directory: loop.Directory, ProjectName: loop.ProjectName, Type: domain.HandoffGoalCompletion,
+			LastAssistantMessageID: "msg_done", Status: domain.StatusOpen, CreatedAt: now,
+		}
+		if err := database.Create(ctx, handoff); err != nil {
+			t.Fatal(err)
+		}
+		if err := database.BindMessage(ctx, handoff.ID, domain.MessageRef{ChatID: "oc_allowed", MessageID: "om_confirm"}); err != nil {
+			t.Fatal(err)
+		}
+		adapter := &fakeAdapter{session: opencode.Session{ID: loop.SessionID, Directory: loop.Directory}}
+		engine := newTestEngine(adapter, &fakeChannel{}, database, true, true)
+		if err := engine.handleReply(ctx, domain.UserReply{
+			MessageID: "evt_confirm", ParentMessageID: "om_confirm", ChatID: "oc_allowed",
+			SenderID: "ou_allowed", CardAction: true, GoalComplete: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		updated, err := database.GetGoalLoop(ctx, loop.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if updated.Status != domain.GoalLoopCompleted || updated.CompletedAt.IsZero() || len(adapter.prompts) != 0 {
+			t.Fatalf("confirmed Goal = %+v prompts=%+v", updated, adapter.prompts)
+		}
+	})
+}
+
 func TestEngineKeepsFullFinalOutputForReadOnlyDetail(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
@@ -561,6 +664,36 @@ func TestEngineRoutesQuestionAnswerWithoutSendingPrompt(t *testing.T) {
 	}
 	if len(adapter.questionReplies) != 1 {
 		t.Fatalf("question was answered twice: %v", adapter.questionReplies)
+	}
+}
+
+func TestEngineEnsuresGoalPermissionAndRoutesUnthreadedReply(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.OpenSQLite(ctx, filepath.Join(t.TempDir(), "goal-permission.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	adapter := &fakeAdapter{session: opencode.Session{ID: "ses_goal", Directory: "/work/project", Title: "Goal Loop"}}
+	channel := &fakeChannel{}
+	engine := newTestEngine(adapter, channel, database, true, true)
+	permission := testPermission("per_goal", "ses_goal")
+	if err := engine.EnsurePermission(ctx, "/work/project", permission); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.EnsurePermission(ctx, "/work/project", permission); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.sent) != 1 || channel.sent[0].Type != domain.HandoffPermission {
+		t.Fatalf("ensured Permission handoffs = %+v", channel.sent)
+	}
+	if err := engine.handleReply(ctx, domain.UserReply{
+		MessageID: "om_allow", ChatID: "oc_allowed", SenderID: "ou_allowed", Text: "允许一次",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(adapter.permissionReplies) != 1 || adapter.permissionReplies[0].ID != "per_goal" || adapter.permissionReplies[0].Decision != opencode.PermissionOnce {
+		t.Fatalf("unthreaded Permission replies = %+v", adapter.permissionReplies)
 	}
 }
 

@@ -5,12 +5,14 @@ import "time"
 type HandoffType string
 
 const (
-	HandoffFinished   HandoffType = "FINISHED"
-	HandoffQuestion   HandoffType = "QUESTION"
-	HandoffPermission HandoffType = "PERMISSION"
-	HandoffSession    HandoffType = "SESSION_CREATED"
-	HandoffError      HandoffType = "ERROR"
-	HandoffStalled    HandoffType = "STALLED"
+	HandoffFinished       HandoffType = "FINISHED"
+	HandoffQuestion       HandoffType = "QUESTION"
+	HandoffPermission     HandoffType = "PERMISSION"
+	HandoffSession        HandoffType = "SESSION_CREATED"
+	HandoffError          HandoffType = "ERROR"
+	HandoffStalled        HandoffType = "STALLED"
+	HandoffGoalCompletion HandoffType = "GOAL_COMPLETION"
+	HandoffGoalStatus     HandoffType = "GOAL_STATUS"
 )
 
 type HandoffStatus string
@@ -205,6 +207,8 @@ type UserReply struct {
 	ListModelVariants bool
 	ApplyModel        bool
 	ViewOutput        bool
+	GoalComplete      bool
+	GoalContinue      bool
 	HandoffID         string
 	ProviderID        string
 	ModelID           string

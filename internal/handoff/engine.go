@@ -203,6 +203,13 @@ func (e *Engine) handleQuestion(ctx context.Context, directory string, question 
 	return e.handleQuestionForSession(ctx, session, directory, question)
 }
 
+// EnsureQuestion persists and sends a pending Question unless the same OpenCode
+// request already has a Handoff. Goal Loop uses this as a polling safety net
+// when an SSE event was missed.
+func (e *Engine) EnsureQuestion(ctx context.Context, directory string, question opencode.QuestionRequest) error {
+	return e.handleQuestion(ctx, directory, question)
+}
+
 func (e *Engine) handleQuestionForSession(ctx context.Context, session opencode.Session, directory string, question opencode.QuestionRequest) error {
 	if session.ParentID != "" {
 		e.logger.Debug("ignore subagent question", "session_id", session.ID, "parent_id", session.ParentID)
@@ -249,6 +256,12 @@ func (e *Engine) handlePermission(ctx context.Context, directory string, permiss
 		return fmt.Errorf("get permission session: %w", err)
 	}
 	return e.handlePermissionForSession(ctx, session, directory, permission)
+}
+
+// EnsurePermission persists and sends a pending Permission unless the same
+// OpenCode request already has a Handoff.
+func (e *Engine) EnsurePermission(ctx context.Context, directory string, permission opencode.PermissionRequest) error {
+	return e.handlePermission(ctx, directory, permission)
 }
 
 func (e *Engine) handlePermissionForSession(ctx context.Context, session opencode.Session, directory string, permission opencode.PermissionRequest) error {
@@ -331,7 +344,7 @@ func (e *Engine) sendWithRetry(ctx context.Context, handoff domain.Handoff) (dom
 
 func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error {
 	text := strings.TrimSpace(reply.Text)
-	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion && reply.PermissionReply == "" && !reply.AbortSession && !reply.ListProjects && !reply.CreateSession && !reply.ListRunning && !reply.ListModels && !reply.ListModelVariants && !reply.ApplyModel && !reply.ViewOutput {
+	if text == "" && len(reply.QuestionAnswers) == 0 && !reply.RejectQuestion && reply.PermissionReply == "" && !reply.AbortSession && !reply.ListProjects && !reply.CreateSession && !reply.ListRunning && !reply.ListModels && !reply.ListModelVariants && !reply.ApplyModel && !reply.ViewOutput && !reply.GoalComplete && !reply.GoalContinue {
 		return nil
 	}
 	allowed, err := e.isAllowed(ctx, reply)
@@ -410,6 +423,9 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 	if reply.AbortSession {
 		return e.handleAbortReply(ctx, handoff, reply)
 	}
+	if handoff.Type == domain.HandoffGoalCompletion {
+		return e.handleGoalCompletionReply(ctx, handoff, reply, text)
+	}
 	if handoff.Type == domain.HandoffQuestion {
 		return e.handleQuestionReply(ctx, handoff, reply, text)
 	}
@@ -446,6 +462,100 @@ func (e *Engine) handleReply(ctx context.Context, reply domain.UserReply) error 
 		}
 	}
 	return nil
+}
+
+const goalContinueFromFeishuPrompt = `继续完成这个 Session 最初的 Goal。不要停留在进度汇报，请继续执行和验证；只有目标完全达成时才按 /goal 约定输出完成标记。`
+
+func (e *Engine) handleGoalCompletionReply(ctx context.Context, handoff domain.Handoff, reply domain.UserReply, text string) error {
+	loop, err := e.store.GetGoalLoopBySession(ctx, handoff.SessionID, handoff.Directory)
+	if err != nil {
+		return fmt.Errorf("read Goal Loop for completion reply: %w", err)
+	}
+	if loop.Status != domain.GoalLoopAwaitingConfirmation {
+		if reply.CardAction {
+			return errors.New("该 Goal 已不再等待完成确认")
+		}
+		return e.channel.Reply(ctx, reply.MessageID, "该 Goal 已不再等待完成确认，请在桌面应用中查看最新状态。")
+	}
+
+	if reply.GoalComplete || isGoalCompletionApproval(text) {
+		now := time.Now().UTC()
+		loop.Status = domain.GoalLoopCompleted
+		loop.CompletedAt = now
+		loop.UpdatedAt = now
+		if err := e.store.SaveGoalLoop(ctx, loop); err != nil {
+			if reopenErr := e.store.Reopen(context.WithoutCancel(ctx), handoff.ID); reopenErr != nil {
+				e.logger.Error("reopen Goal completion handoff after save failure", "handoff_id", handoff.ID, "error", reopenErr)
+			}
+			return fmt.Errorf("complete Goal Loop: %w", err)
+		}
+		_ = e.store.AppendGoalLoopEvent(context.WithoutCancel(ctx), loop.ID, "completed", "用户通过飞书确认目标已完成")
+		if !reply.CardAction {
+			if err := e.channel.Reply(ctx, reply.MessageID, "✅ 已确认 Goal 完成，Loop 已结束。"); err != nil {
+				return fmt.Errorf("confirm Goal completion in channel: %w", err)
+			}
+		}
+		e.logger.Info("Goal Loop completion confirmed from channel", "loop_id", loop.ID, "session_id", loop.SessionID)
+		return nil
+	}
+
+	prompt := text
+	if reply.GoalContinue || isGoalContinueReply(text) {
+		prompt = goalContinueFromFeishuPrompt
+	}
+	if strings.TrimSpace(prompt) == "" {
+		prompt = goalContinueFromFeishuPrompt
+	}
+	original := loop
+	loop.Status = domain.GoalLoopRunning
+	loop.CycleCount++
+	loop.ConsecutiveFailures = 0
+	loop.LastError = ""
+	loop.RetryAt = time.Time{}
+	loop.UpdatedAt = time.Now().UTC()
+	if err := e.store.SaveGoalLoop(ctx, loop); err != nil {
+		if reopenErr := e.store.Reopen(context.WithoutCancel(ctx), handoff.ID); reopenErr != nil {
+			e.logger.Error("reopen Goal completion handoff after state failure", "handoff_id", handoff.ID, "error", reopenErr)
+		}
+		return fmt.Errorf("resume Goal Loop state: %w", err)
+	}
+	var selected *opencode.ModelRef
+	if loop.ModelProviderID != "" && loop.ModelID != "" {
+		selected = &opencode.ModelRef{ProviderID: loop.ModelProviderID, ModelID: loop.ModelID, Variant: loop.ModelVariant}
+	}
+	if err := e.opencode.SendPrompt(ctx, loop.SessionID, loop.Directory, prompt, selected); err != nil {
+		_ = e.store.SaveGoalLoop(context.WithoutCancel(ctx), original)
+		if reopenErr := e.store.Reopen(context.WithoutCancel(ctx), handoff.ID); reopenErr != nil {
+			e.logger.Error("reopen Goal completion handoff after prompt failure", "handoff_id", handoff.ID, "error", reopenErr)
+		}
+		return fmt.Errorf("continue Goal Loop session: %w", err)
+	}
+	_ = e.store.AppendGoalLoopEvent(context.WithoutCancel(ctx), loop.ID, "continued_from_feishu", "用户通过飞书要求继续 Goal")
+	if !reply.CardAction {
+		if err := e.channel.Reply(ctx, reply.MessageID, "▶️ 已发送到原 OpenCode Session，Goal Loop 正在继续。"); err != nil {
+			return fmt.Errorf("confirm Goal continuation in channel: %w", err)
+		}
+	}
+	e.logger.Info("Goal Loop resumed from channel", "loop_id", loop.ID, "session_id", loop.SessionID)
+	return nil
+}
+
+func isGoalCompletionApproval(text string) bool {
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "完成", "确认完成", "目标已完成", "同意完成", "done", "confirm", "approved":
+		return true
+	default:
+		return false
+	}
+}
+
+func isGoalContinueReply(text string) bool {
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "继续", "继续 goal", "继续goal", "continue", "resume":
+		return true
+	default:
+		return false
+	}
 }
 
 func (e *Engine) handleAssistantOutput(ctx context.Context, reply domain.UserReply) error {
