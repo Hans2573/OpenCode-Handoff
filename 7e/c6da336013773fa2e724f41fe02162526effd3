@@ -1,0 +1,29 @@
+appservice.go
+  s_336b10696b9219::t_e22829bd40f99a 107-110
+frontend/dist/assets/index-DRKJ6yI5.js
+  s_336b10696b9219::t_0ec90a21047490 1,3,6,8-9,14-15,17-18
+frontend/dist/index.html
+  s_336b10696b9219::t_3e2fbbccb6da9c 8
+frontend/src/LoopsPage.tsx
+  s_336b10696b9219::t_709e3a4ac53c4a 224,231,243,281,324,341,344-347,350
+internal/desktop/goal_loop.go
+  s_336b10696b9219::t_a9f11470dd2bfe 562-567,588-590,603-607,641-706
+internal/desktop/goal_loop_test.go
+  s_336b10696b9219::t_0d1777680c17e1 83-92,363-437
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7ec6da336013773fa2e724f41fe02162526effd3",
+  "prompts": {},
+  "sessions": {
+    "s_336b10696b9219": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05838-be97-7a30-8437-72f86e397c13",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
