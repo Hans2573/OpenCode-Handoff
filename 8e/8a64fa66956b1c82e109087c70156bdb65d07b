@@ -1,0 +1,71 @@
+appservice.go
+  s_336b10696b9219::t_fb492db6378dbb 79-134
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/appservice.ts
+  s_336b10696b9219::t_6634a9d43ad2ea 20-31,48-59,72-75,80-83,92-103,123-134
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/index.ts
+  s_336b10696b9219::t_f72180b399dfd0 5-6,14-18,20,23
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/models.ts
+  s_336b10696b9219::t_46662b6268edb6 4-16,83-143,155-166,188-194
+frontend/dist/assets/index-BJF-2Psk.css
+  s_336b10696b9219::t_cdb96e6fcf3c37 1
+frontend/dist/assets/index-CshbnFEZ.js
+  s_336b10696b9219::t_122209cdfd283e 1,3,6,8-9,14-17
+frontend/dist/index.html
+  s_336b10696b9219::t_2049273573db60 8-9
+frontend/src/App.tsx
+  s_336b10696b9219::t_bfbec6a8855686 28,39,53,60,220
+frontend/src/LoopsPage.tsx
+  s_336b10696b9219::t_3071ef2ffc967b 1-330
+frontend/src/styles.css
+  s_336b10696b9219::t_81df23eb275382 338-494,512-513,529-531,545-549
+internal/channel/feishu/client.go
+  s_336b10696b9219::t_d2098e5138f4bc 426,467-470,582-587,857-858,918-928,935-939
+internal/channel/feishu/client_test.go
+  s_336b10696b9219::t_5e1365e67b46ab 92-135
+internal/desktop/goal_loop.go
+  s_336b10696b9219::t_b7e33395b06696 1-826
+internal/desktop/goal_loop_test.go
+  s_336b10696b9219::t_b0fcf17d7a5d50 1-158
+internal/desktop/manager.go
+  s_336b10696b9219::t_0f944547d26535 44,107-110,120
+internal/desktop/routing.go
+  s_336b10696b9219::t_d74077f3b0e41c 5,16-18,22-35,124-137,140,145-163
+internal/desktop/routing_test.go
+  s_336b10696b9219::t_16e6adb0819c05 5,16-20,27-54
+internal/desktop/viewmodel.go
+  s_336b10696b9219::t_16dbd608a99d6a 175-267
+internal/domain/goal_loop.go
+  s_336b10696b9219::t_6dcb69aef76736 1-49
+internal/domain/handoff.go
+  s_336b10696b9219::t_0952daaef91aca 8-14,209-210
+internal/handoff/engine.go
+  s_336b10696b9219::t_a5cfc9f8afe576 206-212,261-266,347,426-428,467-560
+internal/handoff/engine_test.go
+  s_336b10696b9219::t_00d8d411e37822 81-183,670-699
+internal/runtime/service.go
+  s_336b10696b9219::t_9d58129d35dce7 15,141-171
+internal/store/goal_loop.go
+  s_336b10696b9219::t_53842d31346f3e 1-250
+internal/store/goal_loop_test.go
+  s_336b10696b9219::t_0c416e3e6150db 1-60
+internal/store/sqlite.go
+  s_336b10696b9219::t_6e17d268f63d64 164-200,223-232,368
+internal/store/store.go
+  s_336b10696b9219::t_1f5cc85f3bf8ea 36-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "8e8a64fa66956b1c82e109087c70156bdb65d07b",
+  "prompts": {},
+  "sessions": {
+    "s_336b10696b9219": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05838-be97-7a30-8437-72f86e397c13",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
