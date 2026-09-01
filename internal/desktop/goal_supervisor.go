@@ -46,13 +46,27 @@ func (m *Manager) processAutonomousRequests(ctx context.Context, loop *domain.Go
 	}
 
 	requestID, requestType := permission.ID, "permission"
-	if hasQuestion {
+	if hasQuestion && !(hasPermission && loop.PermissionApprovalMode == domain.GoalPermissionAllowAll) {
 		requestID, requestType = question.ID, "question"
 	}
 	if loop.PendingRequestID != "" && (loop.PendingRequestID != requestID || loop.PendingRequestType != requestType) {
 		// OpenCode serialises interactive requests for a Session. If a different
 		// request appears, the old request was resolved elsewhere.
 		clearSupervisorDecision(loop)
+	}
+
+	if requestType == "permission" && loop.PermissionApprovalMode == domain.GoalPermissionAllowAll {
+		if err := m.raw.ReplyPermission(ctx, permission.ID, loop.Directory, opencode.PermissionOnce); err != nil {
+			return true, err
+		}
+		finishSupervisorDecision(loop)
+		_ = m.store.AppendGoalLoopEventDetails(ctx, loop.ID, "auto_permission", "全部同意策略已直接允许一次权限请求", map[string]any{
+			"requestId": permission.ID,
+			"decision":  "allow_once",
+			"mode":      domain.GoalPermissionAllowAll,
+			"model":     "direct-policy",
+		})
+		return true, m.store.SaveGoalLoop(ctx, *loop)
 	}
 
 	if requestType == "permission" {

@@ -22,7 +22,7 @@ func TestSQLiteGoalLoopLifecycle(t *testing.T) {
 		ID: "goal_1", Name: "ship it", Goal: "ship it", ProjectID: "project_1",
 		ProjectName: "project", Directory: "/work/project", AgentID: DefaultAgentID,
 		AgentName: "OpenCode", ModelProviderID: "openai", ModelID: "gpt-test", ModelName: "GPT Test", ModelVariant: "high",
-		Status: domain.GoalLoopDraft, FailureLimit: 7,
+		PermissionApprovalMode: domain.GoalPermissionAllowAll, Status: domain.GoalLoopDraft, FailureLimit: 7,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	if err := database.CreateGoalLoop(ctx, loop); err != nil {
@@ -43,7 +43,7 @@ func TestSQLiteGoalLoopLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.SessionID != "ses_1" || stored.Status != domain.GoalLoopRunning || stored.CycleCount != 2 || stored.FailureLimit != 7 || stored.ModelProviderID != "openai" || stored.ModelID != "gpt-test" || stored.ModelVariant != "high" {
+	if stored.SessionID != "ses_1" || stored.Status != domain.GoalLoopRunning || stored.CycleCount != 2 || stored.FailureLimit != 7 || stored.ModelProviderID != "openai" || stored.ModelID != "gpt-test" || stored.ModelVariant != "high" || stored.PermissionApprovalMode != domain.GoalPermissionAllowAll {
 		t.Fatalf("stored loop = %+v", stored)
 	}
 	events, err := database.ListGoalLoopEvents(ctx, loop.ID, 10)

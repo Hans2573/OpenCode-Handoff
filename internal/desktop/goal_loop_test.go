@@ -90,6 +90,57 @@ func TestHardBlockedPermissionAcceptsExplicitlyAllowedFile(t *testing.T) {
 	}
 }
 
+func TestAllowAllPermissionModeDirectlyApprovesUnsafeRequestOnce(t *testing.T) {
+	var reply opencode.PermissionReply
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		if request.Method != http.MethodPost || request.URL.Path != "/permission/per_unsafe/reply" {
+			http.NotFound(response, request)
+			return
+		}
+		var body struct {
+			Reply opencode.PermissionReply `json:"reply"`
+		}
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		reply = body.Reply
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	manager, database, project := newGoalLoopTestManager(t, server.URL)
+	now := time.Now().UTC()
+	loop := domain.GoalLoop{
+		ID: "goal_allow_all", Name: "allow all", Goal: "finish", ProjectID: project.ID,
+		ProjectName: project.Name, Directory: project.Directory, SessionID: "ses_exec",
+		AttachedSession: true, AutomationMode: domain.GoalLoopAutonomous,
+		PermissionApprovalMode: domain.GoalPermissionAllowAll, Status: domain.GoalLoopWaitingApproval,
+		FailureLimit: 3, CycleCount: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := database.CreateGoalLoop(context.Background(), loop); err != nil {
+		t.Fatal(err)
+	}
+	permission := opencode.PermissionRequest{ID: "per_unsafe", SessionID: loop.SessionID, Permission: "external_directory", Patterns: []string{"/outside/*"}}
+	question := opencode.QuestionRequest{ID: "que_waiting", SessionID: loop.SessionID}
+	handled, err := manager.processAutonomousRequests(context.Background(), &loop, []opencode.QuestionRequest{question}, []opencode.PermissionRequest{permission})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !handled || reply != opencode.PermissionOnce {
+		t.Fatalf("handled=%v reply=%q", handled, reply)
+	}
+	stored, err := database.GetGoalLoop(context.Background(), loop.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != domain.GoalLoopRunning || stored.SupervisorSessionID != "" || stored.PendingRequestID != "" {
+		t.Fatalf("stored loop=%+v", stored)
+	}
+	events, err := database.ListGoalLoopEvents(context.Background(), loop.ID, 10)
+	if err != nil || len(events) != 1 || events[0].Metadata["mode"] != domain.GoalPermissionAllowAll {
+		t.Fatalf("events=%+v err=%v", events, err)
+	}
+}
+
 func TestGoalNameUsesFirstLineAndTruncates(t *testing.T) {
 	if got := goalName("  first line\nsecond line"); got != "first line" {
 		t.Fatalf("goalName=%q", got)

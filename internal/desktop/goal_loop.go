@@ -509,6 +509,10 @@ func (m *Manager) CreateGoalLoop(input GoalLoopInput) (GoalLoopPage, error) {
 	if automationMode == "" {
 		automationMode = domain.GoalLoopAutonomous
 	}
+	permissionApprovalMode := input.PermissionApprovalMode
+	if permissionApprovalMode == "" {
+		permissionApprovalMode = domain.GoalPermissionAI
+	}
 	supervisorModel, err := m.goalSupervisorModel(ctx, input, model)
 	if err != nil {
 		return GoalLoopPage{}, err
@@ -526,7 +530,8 @@ func (m *Manager) CreateGoalLoop(input GoalLoopInput) (GoalLoopPage, error) {
 		AgentID: store.DefaultAgentID, AgentName: "OpenCode", Status: domain.GoalLoopDraft,
 		ModelProviderID: model.ProviderID, ModelID: model.ID, ModelName: model.Name, ModelVariant: input.ModelVariant,
 		SessionID: strings.TrimSpace(input.SessionID), AttachedSession: strings.TrimSpace(input.SessionID) != "",
-		AutomationMode: automationMode, AllowedDirectories: compactStrings(input.AllowedDirectories),
+		AutomationMode: automationMode, PermissionApprovalMode: permissionApprovalMode,
+		AllowedDirectories:        compactStrings(input.AllowedDirectories),
 		SupervisorModelProviderID: supervisorModel.ProviderID, SupervisorModelID: supervisorModel.ID,
 		SupervisorModelName: supervisorModel.Name, SupervisorModelVariant: supervisorVariant,
 		RequireCompletionConfirmation: input.RequireCompletionConfirmation,
@@ -591,6 +596,10 @@ func (m *Manager) UpdateGoalLoop(id string, input GoalLoopInput) (GoalLoopPage, 
 	loop.AutomationMode = input.AutomationMode
 	if loop.AutomationMode == "" {
 		loop.AutomationMode = domain.GoalLoopAutonomous
+	}
+	loop.PermissionApprovalMode = input.PermissionApprovalMode
+	if loop.PermissionApprovalMode == "" {
+		loop.PermissionApprovalMode = domain.GoalPermissionAI
 	}
 	loop.AllowedDirectories = compactStrings(input.AllowedDirectories)
 	loop.SupervisorModelProviderID, loop.SupervisorModelID, loop.SupervisorModelName, loop.SupervisorModelVariant = supervisorModel.ProviderID, supervisorModel.ID, supervisorModel.Name, supervisorVariant
@@ -913,7 +922,7 @@ func (m *Manager) ReplyLoopPermission(requestID, directory, decision string) (Go
 		if reply == opencode.PermissionAlways {
 			return GoalLoopPage{}, errors.New("完全自主 Goal 不允许永久授权；请选择允许一次或拒绝")
 		}
-		if reply == opencode.PermissionOnce {
+		if reply == opencode.PermissionOnce && loop.PermissionApprovalMode != domain.GoalPermissionAllowAll {
 			if reason := hardBlockedPermission(loop, permission); reason != "" {
 				return GoalLoopPage{}, errors.New("该请求触发不可关闭的安全边界，不能手动覆盖：" + reason)
 			}
@@ -1045,6 +1054,9 @@ func (m *Manager) validateGoalLoopInput(ctx context.Context, input GoalLoopInput
 	}
 	if input.AutomationMode != "" && input.AutomationMode != domain.GoalLoopAutonomous && input.AutomationMode != domain.GoalLoopManual {
 		return domain.ProjectRoute{}, opencode.Model{}, errors.New("无效的 Goal 自动化模式")
+	}
+	if input.PermissionApprovalMode != "" && input.PermissionApprovalMode != domain.GoalPermissionAI && input.PermissionApprovalMode != domain.GoalPermissionAllowAll {
+		return domain.ProjectRoute{}, opencode.Model{}, errors.New("无效的 Goal 权限审批策略")
 	}
 	models, err := m.raw.ListModels(ctx)
 	if err != nil {
@@ -1223,7 +1235,8 @@ func goalLoopView(loop domain.GoalLoop) GoalLoopView {
 		ID: loop.ID, Name: loop.Name, Goal: loop.Goal, ProjectID: loop.ProjectID,
 		ProjectName: loop.ProjectName, Directory: loop.Directory, AgentID: loop.AgentID,
 		AgentName: loop.AgentName, SessionID: loop.SessionID, Status: loop.Status,
-		AttachedSession: loop.AttachedSession, AutomationMode: loop.AutomationMode, AllowedDirectories: loop.AllowedDirectories,
+		AttachedSession: loop.AttachedSession, AutomationMode: loop.AutomationMode,
+		PermissionApprovalMode: loop.PermissionApprovalMode, AllowedDirectories: loop.AllowedDirectories,
 		SupervisorModelProviderID: loop.SupervisorModelProviderID, SupervisorModelID: loop.SupervisorModelID,
 		SupervisorModelName: loop.SupervisorModelName, SupervisorModelVariant: loop.SupervisorModelVariant,
 		SupervisorSessionID: loop.SupervisorSessionID, PendingRequestID: loop.PendingRequestID, PendingRequestType: loop.PendingRequestType,

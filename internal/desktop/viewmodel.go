@@ -197,6 +197,7 @@ type GoalLoopView struct {
 	SessionID                     string    `json:"sessionId"`
 	AttachedSession               bool      `json:"attachedSession"`
 	AutomationMode                string    `json:"automationMode"`
+	PermissionApprovalMode        string    `json:"permissionApprovalMode"`
 	AllowedDirectories            []string  `json:"allowedDirectories"`
 	SupervisorModelProviderID     string    `json:"supervisorModelProviderId"`
 	SupervisorModelID             string    `json:"supervisorModelId"`
@@ -227,6 +228,7 @@ type GoalLoopInput struct {
 	ModelVariant                  string   `json:"modelVariant"`
 	SessionID                     string   `json:"sessionId"`
 	AutomationMode                string   `json:"automationMode"`
+	PermissionApprovalMode        string   `json:"permissionApprovalMode"`
 	AllowedDirectories            []string `json:"allowedDirectories"`
 	SupervisorModelProviderID     string   `json:"supervisorModelProviderId"`
 	SupervisorModelID             string   `json:"supervisorModelId"`

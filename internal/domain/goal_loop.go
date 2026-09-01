@@ -21,6 +21,11 @@ const (
 	GoalLoopManual     = "manual"
 )
 
+const (
+	GoalPermissionAI       = "ai"
+	GoalPermissionAllowAll = "allow_all"
+)
+
 type GoalLoop struct {
 	ID                            string
 	Name                          string
@@ -37,6 +42,7 @@ type GoalLoop struct {
 	SessionID                     string
 	AttachedSession               bool
 	AutomationMode                string
+	PermissionApprovalMode        string
 	AllowedDirectories            []string
 	SupervisorModelProviderID     string
 	SupervisorModelID             string

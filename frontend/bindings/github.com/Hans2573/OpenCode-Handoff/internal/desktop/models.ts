@@ -97,6 +97,7 @@ export interface GoalLoopInput {
     "modelVariant": string;
     "sessionId": string;
     "automationMode": string;
+    "permissionApprovalMode": string;
     "allowedDirectories": string[] | null;
     "supervisorModelProviderId": string;
     "supervisorModelId": string;
@@ -129,6 +130,7 @@ export interface GoalLoopView {
     "sessionId": string;
     "attachedSession": boolean;
     "automationMode": string;
+    "permissionApprovalMode": string;
     "allowedDirectories": string[] | null;
     "supervisorModelProviderId": string;
     "supervisorModelId": string;
