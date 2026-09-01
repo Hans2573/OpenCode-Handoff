@@ -4,6 +4,7 @@ import {
   Bot,
   CalendarClock,
   Check,
+  ChevronDown,
   CircleAlert,
   CirclePause,
   CircleStop,
@@ -53,6 +54,7 @@ export default function LoopsPage({ projects, sessions, initialSession, onInitia
   const [busy, setBusy] = useState("");
   const [selectedID, setSelectedID] = useState("");
   const [events, setEvents] = useState<GoalLoopEventView[]>([]);
+  const [eventsExpanded, setEventsExpanded] = useState(false);
   const [editor, setEditor] = useState<GoalLoopView | null | undefined>(undefined);
 	const [attachSession, setAttachSession] = useState<SessionView | null>(null);
   const [models, setModels] = useState<GoalModelView[]>([]);
@@ -120,6 +122,10 @@ export default function LoopsPage({ projects, sessions, initialSession, onInitia
     if (!selected?.id) { setEvents([]); return; }
     void AppService.GetGoalLoopEvents(selected.id).then((items) => setEvents(items ?? [])).catch(() => setEvents([]));
   }, [selected?.id, selected?.updatedAt]);
+
+  useEffect(() => {
+    setEventsExpanded(false);
+  }, [selected?.id]);
 
   const apply = async (label: string, action: () => Promise<GoalLoopPage>) => {
     setBusy(label);
@@ -225,7 +231,7 @@ export default function LoopsPage({ projects, sessions, initialSession, onInitia
               {selected.automationMode === "autonomous" && selected.permissionApprovalMode !== "allow_all" && <Detail label="额外允许路径"><strong>{(selected.allowedDirectories ?? []).length ? (selected.allowedDirectories ?? []).join("、") : "未配置"}</strong><small>项目目录始终允许；OpenCode 按目录申请权限时需添加对应目录</small></Detail>}
               {selected.lastError && <div className="loop-error"><CircleAlert size={16} /><span>{selected.lastError}</span></div>}
               {selected.sessionId && <Detail label="Session"><button className="session-link" onClick={() => void openSession(selected)}>{selected.sessionId}<ExternalLink size={13} /></button></Detail>}
-              <div className="loop-event-block"><h3><History size={15} />执行与 AI 决策记录</h3><div className="loop-events">{events.slice(0, 12).map((event) => <div key={event.id}><i /><span><strong>{event.message}</strong>{event.metadata?.reason && <small title={String(event.metadata.reason)}>理由：{String(event.metadata.reason)}</small>}<small>{relativeTime(event.createdAt)}{event.metadata?.model ? ` · ${String(event.metadata.model)}` : ""}</small></span></div>)}{!events.length && <p>暂无执行记录</p>}</div></div>
+              <div className={`loop-event-block ${eventsExpanded ? "expanded" : ""}`}><button type="button" className="loop-event-toggle" aria-expanded={eventsExpanded} onClick={() => setEventsExpanded((current) => !current)}><span><History size={15} /><strong>执行与 AI 决策记录</strong><em>{events.length} 条</em></span><span><small>{events[0] ? `最新 ${relativeTime(events[0].createdAt)}` : "暂无记录"}</small><ChevronDown size={15} /></span></button>{eventsExpanded && <div className="loop-events">{events.slice(0, 12).map((event) => <div key={event.id}><i /><span><strong>{event.message}</strong>{event.metadata?.reason && <small title={String(event.metadata.reason)}>理由：{String(event.metadata.reason)}</small>}<small>{relativeTime(event.createdAt)}{event.metadata?.model ? ` · ${String(event.metadata.model)}` : ""}</small></span></div>)}{!events.length && <p>暂无执行记录</p>}</div>}</div>
             </div>
             <div className="loop-detail-actions">
               {selected.status === "draft" && <><button className="secondary-button" onClick={() => openEditor(selected)}><Pencil size={14} />编辑</button><button className="primary-button" disabled={!!busy} onClick={() => { if (window.confirm("请确认 OpenCode Agent 已支持 /goal。确认后立即启动？")) void apply("start", () => AppService.StartGoalLoop(selected.id, true)); }}><Play size={14} />启动</button></>}
