@@ -218,22 +218,28 @@ export default function LoopsPage({ projects, sessions, initialSession, onInitia
           )}
         </section>
 
-        <section className="panel loop-detail-panel">
+        <div className="loop-detail-stack">
           {selected ? <>
-            <div className="loop-detail-head"><div><span>Goal 配置</span><h2>{selected.name}</h2></div>{["waiting_approval", "deciding"].includes(selected.status) ? <button type="button" className="loop-status approval actionable" onClick={() => openLoopApprovals(selected)}>{selected.statusLabel}</button> : <em className={`loop-status ${loopTone(selected.status)}`}>{selected.statusLabel}</em>}</div>
-            <div className="loop-detail-body">
-              <Detail label="目标"><p className="goal-copy">{selected.goal}</p></Detail>
-              <div className="loop-detail-grid"><Detail label="项目"><strong>{selected.projectName}</strong><code>{selected.directory}</code></Detail><Detail label="Session 来源"><strong>{selected.attachedSession ? "接入现有 Session" : "自动新建 Session"}</strong><small>接管后消息添加 /goal 前缀</small></Detail></div>
-              <Detail label="模型"><strong>{selected.modelName || selected.modelId || "未配置"}{selected.modelVariant ? ` · ${selected.modelVariant}` : ""}</strong><code>{selected.modelProviderId && selected.modelId ? `${selected.modelProviderId}/${selected.modelId}` : "—"}</code></Detail>
-              <div className="loop-detail-grid"><Detail label="自主策略"><strong>{selected.automationMode === "manual" ? "人工监督" : "完全自主"}</strong><small>{selected.automationMode === "manual" ? "应用或飞书处理请求" : "自动处理权限与选择框"}</small></Detail><Detail label="权限审批"><strong>{selected.automationMode === "manual" ? "人工审批" : selected.permissionApprovalMode === "allow_all" ? "全部同意" : "AI 智能审批"}</strong><small>{selected.automationMode === "manual" ? "在应用或飞书中处理" : selected.permissionApprovalMode === "allow_all" ? "每个权限请求直接允许一次" : "由监督模型判断风险和范围"}</small></Detail></div>
-              {selected.automationMode === "autonomous" && <Detail label="监督模型"><strong>{selected.supervisorModelName || selected.supervisorModelId || selected.modelName}</strong><small>{selected.supervisorModelId === "__agent_default__" ? "Agent 默认模型" : `${selected.supervisorModelProviderId}/${selected.supervisorModelId}`}</small></Detail>}
-              <div className="loop-detail-grid"><Detail label="连续故障恢复阈值"><strong>{selected.failureLimit} 次</strong><small>当前连续失败 {selected.consecutiveFailures} 次</small></Detail><Detail label="完成策略"><strong>{selected.requireCompletionConfirmation ? "需要人工确认" : "自动完成"}</strong><small>无最大轮数与时长限制</small></Detail></div>
-              {selected.automationMode === "autonomous" && selected.permissionApprovalMode !== "allow_all" && <Detail label="额外允许路径"><strong>{(selected.allowedDirectories ?? []).length ? (selected.allowedDirectories ?? []).join("、") : "未配置"}</strong><small>项目目录始终允许；OpenCode 按目录申请权限时需添加对应目录</small></Detail>}
-              {selected.lastError && <div className="loop-error"><CircleAlert size={16} /><span>{selected.lastError}</span></div>}
-              {selected.sessionId && <Detail label="Session"><button className="session-link" onClick={() => void openSession(selected)}>{selected.sessionId}<ExternalLink size={13} /></button></Detail>}
-              <div className={`loop-event-block ${eventsExpanded ? "expanded" : ""}`}><button type="button" className="loop-event-toggle" aria-expanded={eventsExpanded} onClick={() => setEventsExpanded((current) => !current)}><span><History size={15} /><strong>执行与 AI 决策记录</strong><em>{events.length} 条</em></span><span><small>{events[0] ? `最新 ${relativeTime(events[0].createdAt)}` : "暂无记录"}</small><ChevronDown size={15} /></span></button>{eventsExpanded && <div className="loop-events">{events.slice(0, 12).map((event) => <div key={event.id}><i /><span><strong>{event.message}</strong>{event.metadata?.reason && <small title={String(event.metadata.reason)}>理由：{String(event.metadata.reason)}</small>}<small>{relativeTime(event.createdAt)}{event.metadata?.model ? ` · ${String(event.metadata.model)}` : ""}</small></span></div>)}{!events.length && <p>暂无执行记录</p>}</div>}</div>
-            </div>
-            <div className="loop-detail-actions">
+            <section className="panel loop-detail-panel">
+              <div className="loop-detail-head"><div><span>Goal 概览</span><h2>{selected.name}</h2></div>{["waiting_approval", "deciding"].includes(selected.status) ? <button type="button" className="loop-status approval actionable" onClick={() => openLoopApprovals(selected)}>{selected.statusLabel}</button> : <em className={`loop-status ${loopTone(selected.status)}`}>{selected.statusLabel}</em>}</div>
+              <div className="loop-detail-body">
+                <section className="loop-goal-summary"><span>目标</span><p className="goal-copy">{selected.goal}</p></section>
+                <div className="loop-overview-meta">
+                  <div><span>项目</span><strong>{selected.projectName}</strong><small title={selected.directory}>{selected.directory}</small></div>
+                  <div><span>Session</span>{selected.sessionId ? <button className="session-link" onClick={() => void openSession(selected)}>{shortID(selected.sessionId)}<ExternalLink size={12} /></button> : <strong>尚未创建</strong>}<small>{selected.attachedSession ? "接入现有 Session" : "自动新建 Session"}</small></div>
+                  <div><span>模型</span><strong>{selected.modelName || selected.modelId || "未配置"}{selected.modelVariant ? ` · ${selected.modelVariant}` : ""}</strong><small>{selected.modelProviderId && selected.modelId ? `${selected.modelProviderId}/${selected.modelId}` : "—"}</small></div>
+                </div>
+                {selected.lastError && <div className="loop-error"><CircleAlert size={16} /><span>{selected.lastError}</span></div>}
+                <details className="loop-runtime-config"><summary><span><strong>运行配置</strong><small>策略、权限、监督与完成规则</small></span><ChevronDown size={15} /></summary><div className="loop-runtime-grid">
+                  <RuntimeItem label="自主策略" value={selected.automationMode === "manual" ? "人工监督" : "完全自主"} hint={selected.automationMode === "manual" ? "应用或飞书处理请求" : "自动处理权限与选择框"} />
+                  <RuntimeItem label="权限审批" value={selected.automationMode === "manual" ? "人工审批" : selected.permissionApprovalMode === "allow_all" ? "全部同意" : "AI 智能审批"} hint={selected.automationMode === "manual" ? "在应用或飞书中处理" : selected.permissionApprovalMode === "allow_all" ? "每个权限请求直接允许一次" : "监督模型判断风险和范围"} />
+                  {selected.automationMode === "autonomous" && <RuntimeItem label="监督模型" value={selected.supervisorModelName || selected.supervisorModelId || selected.modelName} hint={selected.supervisorModelId === "__agent_default__" ? "Agent 默认模型" : `${selected.supervisorModelProviderId}/${selected.supervisorModelId}`} />}
+                  <RuntimeItem label="连续失败阈值" value={`${selected.failureLimit} 次`} hint={`当前连续失败 ${selected.consecutiveFailures} 次`} />
+                  <RuntimeItem label="完成策略" value={selected.requireCompletionConfirmation ? "需要人工确认" : "自动完成"} hint="无最大轮数与时长限制" />
+                  {selected.automationMode === "autonomous" && selected.permissionApprovalMode !== "allow_all" && <RuntimeItem label="额外允许路径" value={(selected.allowedDirectories ?? []).length ? (selected.allowedDirectories ?? []).join("、") : "未配置"} hint="项目目录始终允许" wide />}
+                </div></details>
+              </div>
+              <div className="loop-detail-actions">
               {selected.status === "draft" && <><button className="secondary-button" onClick={() => openEditor(selected)}><Pencil size={14} />编辑</button><button className="primary-button" disabled={!!busy} onClick={() => { if (window.confirm("请确认 OpenCode Agent 已支持 /goal。确认后立即启动？")) void apply("start", () => AppService.StartGoalLoop(selected.id, true)); }}><Play size={14} />启动</button></>}
               {["blocked", "terminated"].includes(selected.status) && <><button className="secondary-button" onClick={() => openEditor(selected)}><Pencil size={14} />编辑配置</button><button className="primary-button" disabled={!!busy} onClick={() => { if (window.confirm("将复用当前配置和原 Session，重新发送 /goal；若 Session 正忙会先等待。确定重新启动？")) void apply("restart", () => AppService.RestartGoalLoop(selected.id, true)); }}><Play size={14} />重新启动</button></>}
               {["running", "retrying", "waiting_approval", "waiting_takeover", "deciding"].includes(selected.status) && <button className="secondary-button" disabled={!!busy} onClick={() => void apply("pause", () => AppService.PauseGoalLoop(selected.id))}><CirclePause size={14} />暂停 Goal</button>}
@@ -242,9 +248,11 @@ export default function LoopsPage({ projects, sessions, initialSession, onInitia
               {["running", "retrying", "waiting_approval", "waiting_takeover", "deciding", "paused", "awaiting_confirmation"].includes(selected.status) && <button className="danger-button" disabled={!!busy} onClick={() => terminateLoop(selected)}><CircleStop size={14} />终止 Goal</button>}
               {["running", "retrying", "waiting_approval", "waiting_takeover", "deciding", "paused", "awaiting_confirmation"].includes(selected.status) && <button className="danger-button" disabled={!!busy} onClick={() => { if (window.confirm("这会同时中断 OpenCode Session 当前执行，确定继续？")) void apply("terminate-session", () => AppService.TerminateGoalLoopAndSession(selected.id)); }}><CircleStop size={14} />并中断 Session</button>}
               {["draft", "paused", "completed", "blocked", "terminated", "awaiting_confirmation"].includes(selected.status) && <button className="danger-button icon-only" disabled={!!busy} onClick={() => deleteLoop(selected)} title="删除 Goal"><Trash2 size={14} /></button>}
-            </div>
-          </> : <div className="loop-empty detail"><Target size={29} /><strong>选择一个 Goal</strong><p>这里会显示配置、状态、Session 和执行记录。</p></div>}
-        </section>
+              </div>
+            </section>
+            <section className={`panel loop-activity-panel ${eventsExpanded ? "expanded" : ""}`}><button type="button" className="loop-event-toggle" aria-expanded={eventsExpanded} onClick={() => setEventsExpanded((current) => !current)}><span><History size={15} /><strong>执行与 AI 决策记录</strong><em>{events.length} 条</em></span><span><small>{events[0] ? `最新 ${relativeTime(events[0].createdAt)}` : "暂无记录"}</small><ChevronDown size={15} /></span></button>{eventsExpanded && <div className="loop-events">{events.slice(0, 12).map((event) => <div key={event.id}><i /><span><strong>{event.message}</strong>{event.metadata?.reason && <small title={String(event.metadata.reason)}>理由：{String(event.metadata.reason)}</small>}<small>{relativeTime(event.createdAt)}{event.metadata?.model ? ` · ${String(event.metadata.model)}` : ""}</small></span></div>)}{!events.length && <p>暂无执行记录</p>}</div>}</section>
+          </> : <section className="panel loop-detail-panel"><div className="loop-empty detail"><Target size={29} /><strong>选择一个 Goal</strong><p>这里会显示概览、运行配置和执行记录。</p></div></section>}
+        </div>
       </div>
 
       {editor !== undefined && <GoalEditor current={editor} projects={connectedProjects} sessions={sessions} initialSession={attachSession} models={models} modelsLoading={modelsLoading} modelsError={modelsError} reloadModels={loadModels} loops={loops} onClose={() => { setEditor(undefined); setAttachSession(null); }} onSaved={(page) => { setData({ ...page, loops: page.loops ?? [], approvals: page.approvals ?? [] }); setEditor(undefined); setAttachSession(null); showToast(editor ? "Goal 配置已更新" : "Goal 已创建"); }} showToast={showToast} />}
@@ -260,6 +268,10 @@ function LoopMetric({ label, value, icon: Icon, tone, onClick }: { label: string
 
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="loop-detail-item"><span>{label}</span>{children}</div>;
+}
+
+function RuntimeItem({ label, value, hint, wide = false }: { label: string; value: string; hint: string; wide?: boolean }) {
+  return <div className={`loop-runtime-item ${wide ? "wide" : ""}`}><span>{label}</span><strong title={value}>{value}</strong><small>{hint}</small></div>;
 }
 
 function ApprovalDialog({ title, approvals, busy, apply, onClose, onRefresh }: { title: string; approvals: LoopApprovalView[]; busy: string; apply: (label: string, action: () => Promise<GoalLoopPage>) => Promise<boolean>; onClose: () => void; onRefresh: () => void }) {
