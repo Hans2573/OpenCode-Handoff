@@ -1,0 +1,27 @@
+frontend/dist/assets/index-9Rmne40s.js
+  s_336b10696b9219::t_c8cdb27a229046 14,17-18
+frontend/dist/assets/index-BMcbB-49.css
+  s_336b10696b9219::t_c5da7c803b0d3a 1
+frontend/dist/index.html
+  s_336b10696b9219::t_25120bd84953da 8-9
+frontend/src/LoopsPage.tsx
+  s_336b10696b9219::t_bdd8e5e32587f6 221,223-242,251-255,273-276
+frontend/src/styles.css
+  s_336b10696b9219::t_6aff88b790af57 374,381-383,390-391,395-396,418,420,423,432-456,464
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d3f3632bba69984f098fce8d2219f8b22afb443e",
+  "prompts": {},
+  "sessions": {
+    "s_336b10696b9219": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05838-be97-7a30-8437-72f86e397c13",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
