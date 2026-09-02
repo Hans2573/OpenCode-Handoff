@@ -5,6 +5,8 @@ import {
   CalendarClock,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
   CirclePause,
   CircleStop,
@@ -14,11 +16,13 @@ import {
   Infinity as InfinityIcon,
   LoaderCircle,
   MessageSquareText,
+  MoreHorizontal,
   Pencil,
   Play,
   Plus,
   RefreshCw,
   Save,
+  Search,
   ShieldCheck,
   Sparkles,
   Target,
@@ -47,6 +51,15 @@ type Props = {
 };
 
 const emptyPage: GoalLoopPage = { generatedAt: new Date().toISOString(), loops: [], approvals: [] };
+const STATUS_GROUPS: Record<string, string[] | undefined> = {
+  all: undefined,
+  draft: ["draft"],
+  running: ["running", "retrying", "waiting_takeover", "deciding"],
+  pending: ["waiting_approval", "awaiting_confirmation"],
+  paused: ["paused"],
+  completed: ["completed"],
+  failed: ["blocked", "terminated"],
+};
 
 export default function LoopsPage({ projects, sessions, initialSession, onInitialSessionConsumed, showToast }: Props) {
   const [data, setData] = useState<GoalLoopPage>(emptyPage);
@@ -54,7 +67,12 @@ export default function LoopsPage({ projects, sessions, initialSession, onInitia
   const [busy, setBusy] = useState("");
   const [selectedID, setSelectedID] = useState("");
   const [events, setEvents] = useState<GoalLoopEventView[]>([]);
-  const [eventsExpanded, setEventsExpanded] = useState(false);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [projectFilter, setProjectFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [editor, setEditor] = useState<GoalLoopView | null | undefined>(undefined);
 	const [attachSession, setAttachSession] = useState<SessionView | null>(null);
   const [models, setModels] = useState<GoalModelView[]>([]);
@@ -62,11 +80,26 @@ export default function LoopsPage({ projects, sessions, initialSession, onInitia
   const [modelsError, setModelsError] = useState("");
   const [approvalScope, setApprovalScope] = useState<{ loopID?: string; title: string } | null>(null);
   const polling = useRef(false);
+  const eventList = useRef<HTMLDivElement>(null);
 
   const loops = data.loops ?? [];
   const approvals = data.approvals ?? [];
-  const selected = loops.find((item) => item.id === selectedID) ?? loops[0];
   const connectedProjects = projects.filter((item) => item.routeEnabled);
+  const projectOptions = useMemo(() => Array.from(new Map(loops.map((item) => [item.projectId, item.projectName])).entries()), [loops]);
+  const filteredLoops = useMemo(() => {
+    if (!["all", "goal"].includes(typeFilter)) return [];
+    const query = search.trim().toLocaleLowerCase();
+    const statuses = STATUS_GROUPS[statusFilter];
+    return loops.filter((loop) => {
+      if (statuses && !statuses.includes(loop.status)) return false;
+      if (projectFilter !== "all" && loop.projectId !== projectFilter) return false;
+      if (!query) return true;
+      return [loop.name, loop.goal, loop.projectName, loop.agentName].some((value) => value.toLocaleLowerCase().includes(query));
+    });
+  }, [loops, projectFilter, search, statusFilter, typeFilter]);
+  const totalPages = Math.max(1, Math.ceil(filteredLoops.length / pageSize));
+  const visibleLoops = filteredLoops.slice((page - 1) * pageSize, page * pageSize);
+  const selected = visibleLoops.find((item) => item.id === selectedID) ?? visibleLoops[0];
 
   const load = useCallback(async (quiet = false) => {
     if (polling.current) return;
@@ -124,7 +157,19 @@ export default function LoopsPage({ projects, sessions, initialSession, onInitia
   }, [selected?.id, selected?.updatedAt]);
 
   useEffect(() => {
-    setEventsExpanded(false);
+    if (selectedID !== (selected?.id ?? "")) setSelectedID(selected?.id ?? "");
+  }, [selected?.id, selectedID]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, typeFilter, projectFilter, pageSize]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
+
+  useEffect(() => {
+    if (eventList.current) eventList.current.scrollTop = 0;
   }, [selected?.id]);
 
   const apply = async (label: string, action: () => Promise<GoalLoopPage>) => {
@@ -208,27 +253,49 @@ export default function LoopsPage({ projects, sessions, initialSession, onInitia
 
       <div className="loops-workspace">
         <section className="panel loop-list-panel">
-          <div className="loop-panel-title"><div><h2>Goal 实例</h2><span>{loops.length} 个</span></div><button className="icon-action" onClick={() => void load()} title="刷新"><RefreshCw size={15} className={loading ? "spin" : ""} /></button></div>
+          <div className="loop-panel-title">
+            <div><h2>Loop 列表</h2><span>{filteredLoops.length} 个结果</span></div>
+            <button className="icon-action" onClick={() => void load()} title="刷新" aria-label="刷新 Loop"><RefreshCw size={15} className={loading ? "spin" : ""} /></button>
+          </div>
+          <div className="loop-filterbar">
+            <label className="loop-search"><Search size={14} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、目标、项目或 Agent" aria-label="搜索 Loop" /></label>
+            <label className="loop-filter"><span>状态</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">全部</option><option value="draft">草稿</option><option value="running">运行中</option><option value="pending">待处理</option><option value="paused">已暂停</option><option value="completed">已完成</option><option value="failed">失败 / 已终止</option></select></label>
+            <label className="loop-filter"><span>类型</span><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option value="all">全部</option><option value="goal">Goal-based</option><option value="time">Time-based</option><option value="trigger">Trigger-based</option></select></label>
+            <label className="loop-filter"><span>项目</span><select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}><option value="all">全部</option>{projectOptions.map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select></label>
+          </div>
           {loading && !loops.length ? <div className="loop-loading"><LoaderCircle className="spin" />正在读取 Goal</div> : (
             <div className="loop-table">
-              <div className="loop-row loop-head"><span>名称</span><span>项目 / Agent</span><span>状态</span><span>轮次</span><span>最后活动</span></div>
-              {loops.map((loop) => <div key={loop.id} role="button" tabIndex={0} className={`loop-row interactive ${selected?.id === loop.id ? "selected" : ""}`} onClick={() => setSelectedID(loop.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedID(loop.id); } }}><span className="loop-name"><i className={`loop-dot ${loopTone(loop.status)}`} /><strong>{loop.name}</strong><small>{loop.goal}</small></span><span><strong>{loop.projectName}</strong><small>{loop.agentName}</small></span><span>{["waiting_approval", "deciding"].includes(loop.status) ? <button type="button" className="loop-status approval actionable" onClick={(event) => { event.stopPropagation(); openLoopApprovals(loop); }}>{loop.statusLabel}</button> : <em className={`loop-status ${loopTone(loop.status)}`}>{loop.statusLabel}</em>}{loop.consecutiveFailures > 0 && <small>失败 {loop.consecutiveFailures}/{loop.failureLimit}</small>}</span><span>{loop.cycleCount}</span><time>{relativeTime(loop.updatedAt)}</time></div>)}
-              {!loops.length && <div className="loop-empty"><InfinityIcon size={28} /><strong>还没有 Goal Loop</strong><p>创建一个目标，让 Agent 持续工作直到完成。</p><button className="primary-button" onClick={() => openEditor(null)}><Plus size={15} />创建 Goal</button></div>}
+              <div className="loop-row loop-head"><span>Loop 名称</span><span>类型</span><span>关联项目 / Agent</span><span>状态</span><span>轮次</span><span>最后活动</span><span>操作</span></div>
+              {visibleLoops.map((loop) => <div key={loop.id} role="button" tabIndex={0} className={`loop-row interactive ${selected?.id === loop.id ? "selected" : ""}`} onClick={() => setSelectedID(loop.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedID(loop.id); } }}>
+                <span className="loop-name"><i className={`loop-dot ${loopTone(loop.status)}`} /><strong>{loop.name}</strong><small>{loop.goal}</small></span>
+                <span><em className="loop-type-tag">Goal</em></span>
+                <span><strong>{loop.projectName}</strong><small>{loop.agentName}</small></span>
+                <span>{["waiting_approval", "deciding"].includes(loop.status) ? <button type="button" className="loop-status approval actionable" onClick={(event) => { event.stopPropagation(); openLoopApprovals(loop); }}>{loop.statusLabel}</button> : <em className={`loop-status ${loopTone(loop.status)}`}>{loop.statusLabel}</em>}{loop.consecutiveFailures > 0 && <small>失败 {loop.consecutiveFailures}/{loop.failureLimit}</small>}</span>
+                <span><strong>{loop.cycleCount}</strong><small>次执行</small></span>
+                <time>{relativeTime(loop.updatedAt)}</time>
+                <LoopRowActions loop={loop} busy={!!busy} onEdit={() => openEditor(loop)} onStart={() => { if (window.confirm("请确认 OpenCode Agent 已支持 /goal。确认后立即启动？")) void apply("start", () => AppService.StartGoalLoop(loop.id, true)); }} onRestart={() => { if (window.confirm("将复用当前配置和原 Session，重新发送 /goal；若 Session 正忙会先等待。确定重新启动？")) void apply("restart", () => AppService.RestartGoalLoop(loop.id, true)); }} onPause={() => void apply("pause", () => AppService.PauseGoalLoop(loop.id))} onResume={() => void apply("resume", () => AppService.ResumeGoalLoop(loop.id))} onConfirm={() => void apply("confirm", () => AppService.ConfirmGoalLoopComplete(loop.id))} onApprovals={() => openLoopApprovals(loop)} onOpenSession={() => void openSession(loop)} onTerminate={() => terminateLoop(loop)} onTerminateSession={() => { if (window.confirm("这会同时中断 OpenCode Session 当前执行，确定继续？")) void apply("terminate-session", () => AppService.TerminateGoalLoopAndSession(loop.id)); }} onDelete={() => deleteLoop(loop)} />
+              </div>)}
+              {!filteredLoops.length && <div className="loop-empty">{!["all", "goal"].includes(typeFilter) ? <><CalendarClock size={28} /><strong>{typeFilter === "time" ? "Time-based Loop" : "Trigger-based Loop"} 即将支持</strong><p>当前版本仅提供 Goal-based Loop，敬请期待后续能力。</p></> : loops.length ? <><Search size={28} /><strong>没有匹配的 Loop</strong><p>请调整搜索词或筛选条件。</p></> : <><InfinityIcon size={28} /><strong>还没有 Goal Loop</strong><p>创建一个目标，让 Agent 持续工作直到完成。</p><button className="primary-button" onClick={() => openEditor(null)}><Plus size={15} />创建 Goal</button></>}</div>}
             </div>
           )}
+          <footer className="loop-pagination"><span>共 {filteredLoops.length} 条 Loop{filteredLoops.length ? ` · ${Math.min((page - 1) * pageSize + 1, filteredLoops.length)}–${Math.min(page * pageSize, filteredLoops.length)}` : ""}</span><div><button disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} aria-label="上一页"><ChevronLeft size={14} /></button><strong>{page} / {totalPages}</strong><button disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} aria-label="下一页"><ChevronRight size={14} /></button><select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} aria-label="每页数量"><option value={10}>10 条/页</option><option value={20}>20 条/页</option><option value={50}>50 条/页</option></select></div></footer>
         </section>
 
         <div className="loop-detail-stack">
           {selected ? <>
             <section className="panel loop-detail-panel">
-              <div className="loop-detail-head"><div><span>Goal 概览</span><h2>{selected.name}</h2></div>{["waiting_approval", "deciding"].includes(selected.status) ? <button type="button" className="loop-status approval actionable" onClick={() => openLoopApprovals(selected)}>{selected.statusLabel}</button> : <em className={`loop-status ${loopTone(selected.status)}`}>{selected.statusLabel}</em>}</div>
+              <div className="loop-detail-head"><div><span>Loop 详情</span><h2>{selected.name}</h2></div>{["waiting_approval", "deciding"].includes(selected.status) ? <button type="button" className="loop-status approval actionable" onClick={() => openLoopApprovals(selected)}>{selected.statusLabel}</button> : <em className={`loop-status ${loopTone(selected.status)}`}>{selected.statusLabel}</em>}</div>
               <div className="loop-detail-body">
-                <section className="loop-goal-summary"><span>目标</span><p className="goal-copy">{selected.goal}</p></section>
-                <div className="loop-overview-meta">
-                  <div><span>项目</span><strong>{selected.projectName}</strong><small title={selected.directory}>{selected.directory}</small></div>
+                <section className="loop-selected-summary"><span><Target size={17} /></span><div><strong>{selected.name}</strong><p>{selected.goal}</p></div></section>
+                <div className="loop-detail-facts">
+                  <div><span>类型</span><strong>Goal-based Loop</strong></div>
+                  <div><span>关联项目</span><strong>{selected.projectName}</strong><small>{selected.agentName}</small></div>
+                  <div><span>创建时间</span><strong>{formatDateTime(selected.createdAt)}</strong></div>
+                  <div><span>最后活动</span><strong>{relativeTime(selected.updatedAt)}</strong><small>{formatDateTime(selected.updatedAt)}</small></div>
                   <div><span>Session</span>{selected.sessionId ? <button className="session-link" onClick={() => void openSession(selected)}>{shortID(selected.sessionId)}<ExternalLink size={12} /></button> : <strong>尚未创建</strong>}<small>{selected.attachedSession ? "接入现有 Session" : "自动新建 Session"}</small></div>
                   <div><span>模型</span><strong>{selected.modelName || selected.modelId || "未配置"}{selected.modelVariant ? ` · ${selected.modelVariant}` : ""}</strong><small>{selected.modelProviderId && selected.modelId ? `${selected.modelProviderId}/${selected.modelId}` : "—"}</small></div>
                 </div>
+                <div className="loop-detail-metrics"><div><span>当前轮次</span><strong>{selected.cycleCount}</strong></div><div><span>连续失败</span><strong>{selected.consecutiveFailures}</strong></div><div><span>恢复阈值</span><strong>{selected.failureLimit} 次</strong></div></div>
                 {selected.lastError && <div className="loop-error"><CircleAlert size={16} /><span>{selected.lastError}</span></div>}
                 <details className="loop-runtime-config"><summary><span><strong>运行配置</strong><small>策略、权限、监督与完成规则</small></span><ChevronDown size={15} /></summary><div className="loop-runtime-grid">
                   <RuntimeItem label="自主策略" value={selected.automationMode === "manual" ? "人工监督" : "完全自主"} hint={selected.automationMode === "manual" ? "应用或飞书处理请求" : "自动处理权限与选择框"} />
@@ -239,18 +306,8 @@ export default function LoopsPage({ projects, sessions, initialSession, onInitia
                   {selected.automationMode === "autonomous" && selected.permissionApprovalMode !== "allow_all" && <RuntimeItem label="额外允许路径" value={(selected.allowedDirectories ?? []).length ? (selected.allowedDirectories ?? []).join("、") : "未配置"} hint="项目目录始终允许" wide />}
                 </div></details>
               </div>
-              <div className="loop-detail-actions">
-              {selected.status === "draft" && <><button className="secondary-button" onClick={() => openEditor(selected)}><Pencil size={14} />编辑</button><button className="primary-button" disabled={!!busy} onClick={() => { if (window.confirm("请确认 OpenCode Agent 已支持 /goal。确认后立即启动？")) void apply("start", () => AppService.StartGoalLoop(selected.id, true)); }}><Play size={14} />启动</button></>}
-              {["blocked", "terminated"].includes(selected.status) && <><button className="secondary-button" onClick={() => openEditor(selected)}><Pencil size={14} />编辑配置</button><button className="primary-button" disabled={!!busy} onClick={() => { if (window.confirm("将复用当前配置和原 Session，重新发送 /goal；若 Session 正忙会先等待。确定重新启动？")) void apply("restart", () => AppService.RestartGoalLoop(selected.id, true)); }}><Play size={14} />重新启动</button></>}
-              {["running", "retrying", "waiting_approval", "waiting_takeover", "deciding"].includes(selected.status) && <button className="secondary-button" disabled={!!busy} onClick={() => void apply("pause", () => AppService.PauseGoalLoop(selected.id))}><CirclePause size={14} />暂停 Goal</button>}
-              {selected.status === "paused" && <button className="primary-button" disabled={!!busy} onClick={() => void apply("resume", () => AppService.ResumeGoalLoop(selected.id))}><Play size={14} />继续</button>}
-              {selected.status === "awaiting_confirmation" && <><button className="secondary-button" disabled={!!busy} onClick={() => void apply("resume", () => AppService.ResumeGoalLoop(selected.id))}><Play size={14} />继续 Goal</button><button className="primary-button" disabled={!!busy} onClick={() => void apply("confirm", () => AppService.ConfirmGoalLoopComplete(selected.id))}><Check size={14} />确认完成</button></>}
-              {["running", "retrying", "waiting_approval", "waiting_takeover", "deciding", "paused", "awaiting_confirmation"].includes(selected.status) && <button className="danger-button" disabled={!!busy} onClick={() => terminateLoop(selected)}><CircleStop size={14} />终止 Goal</button>}
-              {["running", "retrying", "waiting_approval", "waiting_takeover", "deciding", "paused", "awaiting_confirmation"].includes(selected.status) && <button className="danger-button" disabled={!!busy} onClick={() => { if (window.confirm("这会同时中断 OpenCode Session 当前执行，确定继续？")) void apply("terminate-session", () => AppService.TerminateGoalLoopAndSession(selected.id)); }}><CircleStop size={14} />并中断 Session</button>}
-              {["draft", "paused", "completed", "blocked", "terminated", "awaiting_confirmation"].includes(selected.status) && <button className="danger-button icon-only" disabled={!!busy} onClick={() => deleteLoop(selected)} title="删除 Goal"><Trash2 size={14} /></button>}
-              </div>
             </section>
-            <section className={`panel loop-activity-panel ${eventsExpanded ? "expanded" : ""}`}><button type="button" className="loop-event-toggle" aria-expanded={eventsExpanded} onClick={() => setEventsExpanded((current) => !current)}><span><History size={15} /><strong>执行与 AI 决策记录</strong><em>{events.length} 条</em></span><span><small>{events[0] ? `最新 ${relativeTime(events[0].createdAt)}` : "暂无记录"}</small><ChevronDown size={15} /></span></button>{eventsExpanded && <div className="loop-events">{events.slice(0, 12).map((event) => <div key={event.id}><i /><span><strong>{event.message}</strong>{event.metadata?.reason && <small title={String(event.metadata.reason)}>理由：{String(event.metadata.reason)}</small>}<small>{relativeTime(event.createdAt)}{event.metadata?.model ? ` · ${String(event.metadata.model)}` : ""}</small></span></div>)}{!events.length && <p>暂无执行记录</p>}</div>}</section>
+            <section className="panel loop-activity-panel"><header><span><History size={15} /><strong>近期活动</strong><em>{events.length} 条</em></span><small>{events[0] ? `最新 ${relativeTime(events[0].createdAt)}` : "暂无记录"}</small></header><div ref={eventList} className="loop-events">{events.map((event) => <div key={event.id}><i /><span><strong>{event.message}</strong>{event.metadata?.reason && <small title={String(event.metadata.reason)}>理由：{String(event.metadata.reason)}</small>}<small>{relativeTime(event.createdAt)}{event.metadata?.model ? ` · ${String(event.metadata.model)}` : ""}</small></span></div>)}{!events.length && <p>暂无执行记录</p>}</div><footer>可滚动查看最近 {events.length} 条执行与 AI 决策记录</footer></section>
           </> : <section className="panel loop-detail-panel"><div className="loop-empty detail"><Target size={29} /><strong>选择一个 Goal</strong><p>这里会显示概览、运行配置和执行记录。</p></div></section>}
         </div>
       </div>
@@ -264,6 +321,51 @@ export default function LoopsPage({ projects, sessions, initialSession, onInitia
 function LoopMetric({ label, value, icon: Icon, tone, onClick }: { label: string; value: number; icon: typeof Activity; tone: string; onClick?: () => void }) {
   if (onClick) return <button type="button" className="loop-metric actionable" onClick={onClick}><div><span>{label}</span><strong>{value}</strong></div><i className={tone}><Icon size={22} /></i></button>;
   return <article className="loop-metric"><div><span>{label}</span><strong>{value}</strong></div><i className={tone}><Icon size={22} /></i></article>;
+}
+
+type LoopRowActionsProps = {
+  loop: GoalLoopView;
+  busy: boolean;
+  onEdit: () => void;
+  onStart: () => void;
+  onRestart: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onConfirm: () => void;
+  onApprovals: () => void;
+  onOpenSession: () => void;
+  onTerminate: () => void;
+  onTerminateSession: () => void;
+  onDelete: () => void;
+};
+
+function LoopRowActions({ loop, busy, onEdit, onStart, onRestart, onPause, onResume, onConfirm, onApprovals, onOpenSession, onTerminate, onTerminateSession, onDelete }: LoopRowActionsProps) {
+  const active = ["running", "retrying", "waiting_approval", "waiting_takeover", "deciding"].includes(loop.status);
+  const removable = ["draft", "paused", "completed", "blocked", "terminated", "awaiting_confirmation"].includes(loop.status);
+  let primary: { label: string; icon: typeof Play; action: () => void } | null = null;
+  if (loop.status === "draft") primary = { label: "启动", icon: Play, action: onStart };
+  else if (["blocked", "terminated"].includes(loop.status)) primary = { label: "重新启动", icon: Play, action: onRestart };
+  else if (["waiting_approval", "deciding"].includes(loop.status)) primary = { label: "处理请求", icon: ShieldCheck, action: onApprovals };
+  else if (["running", "retrying", "waiting_takeover"].includes(loop.status)) primary = { label: "暂停", icon: CirclePause, action: onPause };
+  else if (loop.status === "paused") primary = { label: "继续", icon: Play, action: onResume };
+  else if (loop.status === "awaiting_confirmation") primary = { label: "确认完成", icon: Check, action: onConfirm };
+  else if (loop.status === "completed" && loop.sessionId) primary = { label: "打开 Session", icon: ExternalLink, action: onOpenSession };
+  const PrimaryIcon = primary?.icon;
+
+  return <div className="loop-row-actions" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+    {primary && PrimaryIcon && <button type="button" className="loop-row-primary" disabled={busy} onClick={primary.action} title={primary.label} aria-label={primary.label}><PrimaryIcon size={14} /></button>}
+    <details className="loop-more-menu">
+      <summary title="更多操作" aria-label="更多操作"><MoreHorizontal size={15} /></summary>
+      <div>
+        {["draft", "blocked", "terminated"].includes(loop.status) && <button type="button" onClick={onEdit}><Pencil size={13} />编辑配置</button>}
+        {loop.sessionId && <button type="button" onClick={onOpenSession}><ExternalLink size={13} />打开 Session</button>}
+        {loop.status === "awaiting_confirmation" && <button type="button" onClick={onResume}><Play size={13} />继续 Goal</button>}
+        {active && <button type="button" className="danger" onClick={onTerminate}><CircleStop size={13} />终止 Goal</button>}
+        {active && <button type="button" className="danger" onClick={onTerminateSession}><CircleStop size={13} />并中断 Session</button>}
+        {removable && <button type="button" className="danger" onClick={onDelete}><Trash2 size={13} />删除 Goal</button>}
+      </div>
+    </details>
+  </div>;
 }
 
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {
@@ -408,6 +510,11 @@ function loopTone(status: string): string {
 
 function shortID(id: string): string { return id.length > 14 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id; }
 function errorMessage(reason: unknown): string { return reason instanceof Error ? reason.message : String(reason); }
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime()) || date.getUTCFullYear() <= 1) return "—";
+  return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+}
 function relativeTime(value: string): string {
   const date = new Date(value); const elapsed = Date.now() - date.getTime();
   if (!value || Number.isNaN(date.getTime()) || date.getUTCFullYear() <= 1) return "—";

@@ -5,8 +5,10 @@ import {
   Bot,
   Boxes,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   CircleAlert,
   Clock3,
   CodeXml,
@@ -306,6 +308,8 @@ function ProjectsPage({ projects, loading, onRoute, onRefresh }: { projects: Pro
 
 type ExecutionMetric = "round" | "session";
 type ExecutionRankingItem = { key: string; title: string; context: string; duration: number; statusLabel: string; active: boolean; detail: string };
+const sessionPageSizes = [3, 5, 8, 10, 15, 20] as const;
+const sessionLeaderboardPreferenceKey = "agent-handoff:sessions:leaderboard-expanded";
 
 function SessionsPage({ sessions, executionRuns, executionSessions, retentionDays, onOpenSession, onAddToGoal, onRefresh, showToast }: {
   sessions: SessionView[];
@@ -325,7 +329,21 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
   const [timeRange, setTimeRange] = useState("7");
   const [metric, setMetric] = useState<ExecutionMetric>("round");
   const [pageNumber, setPageNumber] = useState(1);
-  const pageSize = 8;
+  const [autoPageSize, setAutoPageSize] = useState<number>(8);
+  const [manualPageSize, setManualPageSize] = useState<number | null>(null);
+  const [compactLayout, setCompactLayout] = useState(false);
+  const [leaderboardPreferredOpen, setLeaderboardPreferredOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem(sessionLeaderboardPreferenceKey) !== "false";
+    } catch {
+      return true;
+    }
+  });
+  const pageRef = useRef<HTMLElement | null>(null);
+  const tableViewportRef = useRef<HTMLDivElement | null>(null);
+  const autoPageSizeRef = useRef(autoPageSize);
+  const pageSize = manualPageSize ?? autoPageSize;
+  const leaderboardOpen = leaderboardPreferredOpen && !compactLayout;
   const agents = uniqueValues(sessions.map((item) => item.agentName));
   const projects = uniqueValues(sessions.map((item) => item.projectName));
   const channels = uniqueValues(sessions.map((item) => item.channelName));
@@ -351,22 +369,76 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
   const currentPage = Math.min(pageNumber, pageCount);
   const visibleSessions = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const updateFilter = (setter: (value: string) => void, value: string) => { setter(value); setPageNumber(1); };
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(sessionLeaderboardPreferenceKey, String(leaderboardPreferredOpen));
+    } catch {
+      // UI preferences are best-effort only.
+    }
+  }, [leaderboardPreferredOpen]);
+
+  useEffect(() => {
+    const pageElement = pageRef.current;
+    if (!pageElement) return;
+    const updateCompactLayout = (width: number, height: number) => setCompactLayout(height < 700 || width < 900);
+    updateCompactLayout(pageElement.clientWidth, pageElement.clientHeight);
+    const observer = new ResizeObserver(([entry]) => updateCompactLayout(entry.contentRect.width, entry.contentRect.height));
+    observer.observe(pageElement);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const viewport = tableViewportRef.current;
+    if (!viewport) return;
+    const updatePageSize = (height: number) => {
+      const rowCapacity = Math.max(1, Math.floor((height - 37) / 65));
+      const nextSize = [...sessionPageSizes].reverse().find((size) => size <= rowCapacity) ?? sessionPageSizes[0];
+      const previousSize = autoPageSizeRef.current;
+      if (nextSize === previousSize) return;
+      autoPageSizeRef.current = nextSize;
+      setAutoPageSize(nextSize);
+      if (manualPageSize === null) {
+        setPageNumber((value) => Math.floor(((value - 1) * previousSize) / nextSize) + 1);
+      }
+    };
+    updatePageSize(viewport.clientHeight);
+    const observer = new ResizeObserver(([entry]) => updatePageSize(entry.contentRect.height));
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [manualPageSize]);
+
+  useEffect(() => {
+    setPageNumber((value) => Math.min(value, pageCount));
+  }, [pageCount]);
+
+  const changePageSize = (value: string) => {
+    const nextManualSize = value === "auto" ? null : Number(value);
+    const nextPageSize = nextManualSize ?? autoPageSize;
+    const firstVisibleIndex = (currentPage - 1) * pageSize;
+    setManualPageSize(nextManualSize);
+    setPageNumber(Math.floor(firstVisibleIndex / nextPageSize) + 1);
+  };
+
+  const collapseLeaderboard = () => setLeaderboardPreferredOpen(false);
+
   return (
-    <section className="page sessions-page-v2">
+    <section ref={pageRef} className={`page sessions-page-v2${compactLayout ? " compact-layout" : ""}`}>
       <div className="sessions-heading">
         <PageHeader title="Sessions" description="管理 Session 并分析无人参与时的自动执行效果，持续优化 Agent 的自主执行能力。" />
         <button className="new-session-button" onClick={() => showToast("请在 OpenCode 中新建 Session，创建后将自动同步到这里")}><Plus size={16} />新建 Session</button>
       </div>
 
-      <section className="session-leaderboard">
+      <section className={`session-leaderboard${leaderboardOpen ? "" : " collapsed"}`}>
         <div className="leaderboard-title">
           <Trophy size={19} />
           <div><strong>{metric === "round" ? "单轮自主执行时长排行榜" : "Session 累计自主执行时长排行榜"}</strong><p>{metric === "round" ? "每次用户输入触发一轮计时，到完成或需要人工介入时结束。" : `汇总每个 Session 最近 ${retentionDays} 天内的全部自主执行轮次。`}</p></div>
           <Info size={15} className="leaderboard-info" />
           <span className="retention-note">保留 {retentionDays} 天</span>
           <div className="metric-switch" role="group" aria-label="统计维度"><button className={metric === "round" ? "active" : ""} onClick={() => setMetric("round")}>单轮执行</button><button className={metric === "session" ? "active" : ""} onClick={() => setMetric("session")}>Session 累计</button></div>
+          <button className="leaderboard-toggle" disabled={compactLayout} aria-expanded={leaderboardOpen} title={compactLayout ? "当前窗口高度下已自动收起排行榜" : leaderboardOpen ? "收起排行榜" : "展开排行榜"} onClick={() => setLeaderboardPreferredOpen((value) => !value)}>{leaderboardOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</button>
         </div>
-        {ranked.length ? (
+        {leaderboardOpen && (ranked.length ? (
           <div className="leaderboard-content">
             <div className="podium-grid">
               {[ranked[1], ranked[0], ranked[2]].map((item, index) => item ? (
@@ -382,10 +454,10 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
               <div className="leaderboard-row leaderboard-head"><span>排名</span><span>Session 名称</span><span>{metric === "round" ? "上次输入" : "项目名称"}</span><span>自动执行时长</span></div>
               {ranked.slice(3).map((item, index) => <div className="leaderboard-row" key={item.key}><span>{index + 4}</span><strong title={item.title}>{item.title}</strong><span className="leaderboard-context" title={item.context}>{item.context}</span><time><LiveDuration seconds={item.duration} running={item.active} /></time></div>)}
               {ranked.length <= 3 && <div className="leaderboard-empty">更多有运行记录的 Session 将显示在这里</div>}
-              <button className="leaderboard-link" onClick={() => document.querySelector(".sessions-data-panel")?.scrollIntoView({ behavior: "smooth" })}>查看完整列表 <ChevronRight size={14} /></button>
+              <button className="leaderboard-link" onClick={collapseLeaderboard}>收起排行并查看全部 <ChevronRight size={14} /></button>
             </div>
           </div>
-        ) : <div className="leaderboard-empty large">产生自主执行记录后，这里会展示{metric === "round" ? "单轮" : "Session 累计"}时长排行。</div>}
+        ) : <div className="leaderboard-empty large">产生自主执行记录后，这里会展示{metric === "round" ? "单轮" : "Session 累计"}时长排行。</div>)}
       </section>
 
       <section className="sessions-filterbar">
@@ -400,12 +472,14 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
       </section>
 
       <section className="sessions-data-panel">
-        <div className="sessions-table" role="table" aria-label="Session 列表">
-          <div className="sessions-table-row sessions-table-head" role="row"><span>Session</span><span>状态</span><span>{metric === "round" ? "本轮 / 最近一次" : "累计自主执行"}</span><span>最近输入</span><span>当前模型</span><span>最后活跃</span><span>操作</span></div>
-          {visibleSessions.map((session) => <SessionTableRow key={`${session.directory}-${session.id}`} session={session} metric={metric} onOpen={() => void onOpenSession(session)} onAddToGoal={() => onAddToGoal(session)} />)}
-          {!visibleSessions.length && <EmptyState icon={MessageSquareText} title="没有匹配的 Session" text="更改筛选条件，或先在 OpenCode 中创建 Session。" />}
+        <div ref={tableViewportRef} className="sessions-table-scroll">
+          <div className="sessions-table" role="table" aria-label="Session 列表">
+            <div className="sessions-table-row sessions-table-head" role="row"><span>Session</span><span>状态</span><span>{metric === "round" ? "本轮 / 最近一次" : "累计自主执行"}</span><span>最近输入</span><span>当前模型</span><span>最后活跃</span><span>操作</span></div>
+            {visibleSessions.map((session) => <SessionTableRow key={`${session.directory}-${session.id}`} session={session} metric={metric} onOpen={() => void onOpenSession(session)} onAddToGoal={() => onAddToGoal(session)} />)}
+            {!visibleSessions.length && <EmptyState icon={MessageSquareText} title="没有匹配的 Session" text="更改筛选条件，或先在 OpenCode 中创建 Session。" />}
+          </div>
         </div>
-        <div className="sessions-pagination"><span>共 {filtered.length} 条记录</span><nav aria-label="分页"><button disabled={currentPage === 1} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}><ChevronLeft size={15} /></button>{paginationItems(currentPage, pageCount).map((item, index) => item === "…" ? <span className="pagination-ellipsis" key={`ellipsis-${index}`}>…</span> : <button className={currentPage === item ? "active" : ""} key={item} onClick={() => setPageNumber(Number(item))}>{item}</button>)}<button disabled={currentPage === pageCount} onClick={() => setPageNumber((value) => Math.min(pageCount, value + 1))}><ChevronRight size={15} /></button></nav></div>
+        <div className="sessions-pagination"><div className="pagination-summary"><span>共 {filtered.length} 条记录</span><label>每页 <select value={manualPageSize === null ? "auto" : String(manualPageSize)} onChange={(event) => changePageSize(event.target.value)}><option value="auto">自动 ({autoPageSize})</option>{sessionPageSizes.map((size) => <option value={size} key={size}>{size}</option>)}</select></label></div><nav aria-label="分页"><button disabled={currentPage === 1} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}><ChevronLeft size={15} /></button>{paginationItems(currentPage, pageCount).map((item, index) => item === "…" ? <span className="pagination-ellipsis" key={`ellipsis-${index}`}>…</span> : <button className={currentPage === item ? "active" : ""} key={item} onClick={() => setPageNumber(Number(item))}>{item}</button>)}<button disabled={currentPage === pageCount} onClick={() => setPageNumber((value) => Math.min(pageCount, value + 1))}><ChevronRight size={15} /></button></nav></div>
       </section>
     </section>
   );
