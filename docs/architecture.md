@@ -52,7 +52,7 @@ OpenCode Desktop / TUI 是主工作界面，OpenCode Session 是唯一事实源�
 
 ### Desktop shell
 
-`main.go` 创建 Wails 应用、主窗口、系统托盘和单实例行为，并嵌入 `frontend/dist`。`appservice.go` 把 Dashboard、设置、项目路由、事件导出、打开 Session、自启动和退出等操作暴露给 React。
+`main.go` 创建 Wails 应用、主窗口、系统托盘和单实例行为，并嵌入由前端构建生成的 `frontend/dist`。该目录不纳入 Git，因此直接运行 Go 编译或测试前需要先构建前端；Wails 的开发和发布任务会自动完成这一步。`appservice.go` 把 Dashboard、设置、项目路由、事件导出、打开 Session、自启动和退出等操作暴露给 React。
 
 `internal/desktop.Manager` 负责路径迁移、SQLite、项目发现、路由注册、配置重载、运行状态和 Handoff Runtime 生命周期。关闭窗口不销毁 Manager；显式退出时才停止服务。
 

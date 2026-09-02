@@ -141,7 +141,7 @@ Tag 必须使用 `vMAJOR.MINOR.PATCH`；也支持 `vMAJOR.MINOR.PATCH-prerelease
 1. 按 `go.mod` 安装 Go，并使用 Node.js 22。
 2. 安装锁定的 Wails CLI `v3.0.0-beta.15` 和 NSIS。
 3. 在 Runner 内把 Tag 的数值版本同步到 Wails、Windows EXE 和 NSIS 元数据，不修改仓库提交。
-4. 执行 `npm ci`、`go test ./...` 和 `go vet ./...`。
+4. 执行 `npm ci` 和前端生产构建，再执行 `go test ./...` 和 `go vet ./...`。
 5. 构建 amd64 Windows EXE 和 NSIS 安装包。
 6. 生成版本化安装包、便携 ZIP 与 `checksums-sha256.txt`。
 7. 创建 GitHub Release、上传产物，并通过 `generate_release_notes: true` 自动生成 Release Notes。
@@ -180,7 +180,7 @@ Windows Taskfile 声明了 `windows:sign` 和 `windows:sign:installer`，使用 
 
 ## 发布检查清单
 
-1. 确认工作区没有无关改动，尤其不要覆盖用户已有的 `frontend/dist` 产物。
+1. 确认工作区没有无关改动；`frontend/dist` 是本地生成且不纳入 Git 的构建产物。
 2. 核对 Go、Wails、前端和产品版本。
 3. 执行前端构建、`go test ./...` 和 `go vet ./...`。
 4. 执行 `wails3 build`，验证 `bin/agent-handoff.exe`。
