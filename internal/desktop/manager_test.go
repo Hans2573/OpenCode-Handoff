@@ -4,7 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Hans2573/OpenCode-Handoff/internal/domain"
 	"github.com/Hans2573/OpenCode-Handoff/internal/opencode"
+	"github.com/Hans2573/OpenCode-Handoff/internal/store"
 )
 
 func TestMapSessionStatus(t *testing.T) {
@@ -100,5 +102,34 @@ func TestSortProjectsByRecentConversation(t *testing.T) {
 	}
 	if !projects[0].LastConversationAt.Equal(newer) || !projects[1].LastConversationAt.Equal(older) {
 		t.Fatalf("conversation timestamps were not assigned: %+v", projects)
+	}
+}
+
+func TestFlattenProjectsIncludesGlobalSessionDirectories(t *testing.T) {
+	now := time.Now().UTC()
+	projects := []opencode.Project{
+		{ID: "global", Worktree: "/"},
+		{ID: "git-project", Worktree: `D:\work\git-project`, Sandboxes: []string{`D:\work\git-sandbox`}},
+	}
+	sessions := []opencode.Session{
+		{ID: "ses_global", Directory: `D:\work\tokenhub`},
+		{ID: "ses_duplicate", Directory: `d:\WORK\git-project`},
+	}
+
+	items := flattenProjects(projects, sessions, now)
+	byDirectory := make(map[string]domain.AgentProject, len(items))
+	for _, item := range items {
+		byDirectory[routeKey(item.Directory)] = item
+	}
+
+	if len(items) != 4 {
+		t.Fatalf("flattenProjects() returned %d items, want 4: %+v", len(items), items)
+	}
+	tokenhub, ok := byDirectory[routeKey(`D:\work\tokenhub`)]
+	if !ok {
+		t.Fatalf("global session directory was not discovered: %+v", items)
+	}
+	if tokenhub.Name != "tokenhub" || tokenhub.ID != stableProjectID(store.DefaultAgentID, tokenhub.Directory) {
+		t.Fatalf("discovered session project = %+v", tokenhub)
 	}
 }

@@ -284,8 +284,17 @@ func (m *Manager) RefreshProjects() error {
 		m.mu.Unlock()
 		return err
 	}
+	// OpenCode stores non-git folders under its synthetic "global" project.
+	// Those folders do not appear as individual entries in /project, even after
+	// they have been added in the UI. The global /session response still carries
+	// the real directory for every conversation, so merge those directories into
+	// project discovery as well.
+	sessions, sessionErr := client.ListSessions(ctx, "")
+	if sessionErr != nil {
+		m.logger.Warn("list OpenCode sessions for project discovery", "error", sessionErr)
+	}
 	now := time.Now().UTC()
-	items := flattenProjects(projects, now)
+	items := flattenProjects(projects, sessions, now)
 	if _, err := m.store.GetSetting(ctx, "routes_initialized"); errors.Is(err, store.ErrNotFound) {
 		if err := m.store.SetSetting(ctx, "routes_initialized", "true"); err != nil {
 			return err
@@ -305,29 +314,39 @@ func (m *Manager) RefreshProjects() error {
 	return nil
 }
 
-func flattenProjects(projects []opencode.Project, now time.Time) []domain.AgentProject {
+func flattenProjects(projects []opencode.Project, sessions []opencode.Session, now time.Time) []domain.AgentProject {
 	seen := make(map[string]struct{})
 	var result []domain.AgentProject
+	add := func(directory, name string) {
+		directory = strings.TrimSpace(directory)
+		if directory == "" {
+			return
+		}
+		key := routeKey(directory)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			name = filepath.Base(filepath.Clean(directory))
+		}
+		result = append(result, domain.AgentProject{
+			ID: stableProjectID(store.DefaultAgentID, directory), AgentID: store.DefaultAgentID,
+			Name: name, Directory: directory, Enabled: true, LastSeen: now,
+		})
+	}
 	for _, project := range projects {
 		for _, directory := range append([]string{project.Worktree}, project.Sandboxes...) {
-			directory = strings.TrimSpace(directory)
-			if directory == "" {
-				continue
-			}
-			key := routeKey(directory)
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
 			name := strings.TrimSpace(project.Name)
 			if name == "" || directory != project.Worktree {
 				name = filepath.Base(filepath.Clean(directory))
 			}
-			result = append(result, domain.AgentProject{
-				ID: stableProjectID(store.DefaultAgentID, directory), AgentID: store.DefaultAgentID,
-				Name: name, Directory: directory, Enabled: true, LastSeen: now,
-			})
+			add(directory, name)
 		}
+	}
+	for _, session := range sessions {
+		add(session.Directory, "")
 	}
 	return result
 }
