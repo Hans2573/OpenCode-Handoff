@@ -1,0 +1,31 @@
+frontend/src/LoopsPage.tsx
+  s_adc915c287fe95::t_58dd376a4c642e 8-9,19,25,54-62,70-75,83,88-102,160-172,256-265,268-278,281,287,289-294,298,310,326-370,513-517
+frontend/src/App.tsx
+  s_bdf038b877eba6::t_ceeacb62830498 8,11,311-312,332-346,372-424,426,432,439,441,457,460,475-480,482
+frontend/src/styles.css
+  s_bdf038b877eba6::t_92bb55621945ba 40,69,71-73,172-173,178-179,181-182,193-196,219,223-224,227,233-234,238,266-270,389-391,397-407,409,422-423,441-459,470-487,521-526,534,625,640,645,663-671
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "394ff7bf863bbe73cbb7a7c8056736ad1faf0007",
+  "prompts": {},
+  "sessions": {
+    "s_adc915c287fe95": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f9fe09b09ffemUYo4buwLWf0is",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    },
+    "s_bdf038b877eba6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0609a-b166-7f23-9c8c-f11587328ff8",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
