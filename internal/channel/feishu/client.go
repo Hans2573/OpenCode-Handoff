@@ -43,10 +43,14 @@ type Health struct {
 	Message string
 }
 
+const handoffSeparatorQuietPeriod = 10 * time.Second
+
 type Client struct {
 	api            *lark.Client
 	ws             *larkws.Client
 	sendCard       func(context.Context, string, string, string) (*larkim.CreateMessageResp, error)
+	sendText       func(context.Context, string, string, string) error
+	now            func() time.Time
 	chatID         string
 	pairingCode    string
 	bindingStore   BindingStore
@@ -59,6 +63,8 @@ type Client struct {
 	maxOutputChars int
 	mu             sync.Mutex
 	started        bool
+	separatorMu    sync.Mutex
+	lastHandoffAt  map[string]time.Time
 	healthMu       sync.RWMutex
 	health         Health
 }
@@ -79,10 +85,13 @@ func New(options Options, logger *slog.Logger) *Client {
 		replies:        replies,
 		logger:         logger,
 		maxOutputChars: options.MaxOutputChars,
+		lastHandoffAt:  make(map[string]time.Time),
 		health:         Health{State: "stopped", Message: "飞书监听未启动"},
 	}
 	client.replyText = client.sendTextReply
 	client.sendCard = client.sendInteractiveMessage
+	client.sendText = client.sendTextMessage
+	client.now = time.Now
 	handler := dispatcher.NewEventDispatcher("", "").
 		OnP2MessageReceiveV1(client.onMessage).
 		OnP2CardActionTrigger(client.onCardAction)
@@ -117,6 +126,16 @@ func (c *Client) SendHandoff(ctx context.Context, handoff domain.Handoff) (domai
 	if err != nil {
 		return domain.MessageRef{}, err
 	}
+	now := time.Now()
+	if c.now != nil {
+		now = c.now()
+	}
+	if c.sendText != nil && c.beginHandoffBatch(handoff.SessionID, now) {
+		separator := fmt.Sprintf("=== %s ===", now.Format("2006-01-02 15:04:05"))
+		if err := c.sendText(ctx, chatID, handoff.ID+":separator", separator); err != nil && c.logger != nil {
+			c.logger.Warn("send Feishu notification separator", "handoff_id", handoff.ID, "error", err)
+		}
+	}
 	content, err := formatHandoffCard(handoff, c.maxOutputChars)
 	if err != nil {
 		return domain.MessageRef{}, fmt.Errorf("encode Feishu message: %w", err)
@@ -145,6 +164,43 @@ func (c *Client) SendHandoff(ctx context.Context, handoff domain.Handoff) (domai
 		return domain.MessageRef{}, errors.New("send Feishu message: response omitted message_id")
 	}
 	return domain.MessageRef{ChatID: chatID, MessageID: *response.Data.MessageId}, nil
+}
+
+func (c *Client) beginHandoffBatch(sessionID string, now time.Time) bool {
+	c.separatorMu.Lock()
+	defer c.separatorMu.Unlock()
+	if c.lastHandoffAt == nil {
+		c.lastHandoffAt = make(map[string]time.Time)
+	}
+	last, exists := c.lastHandoffAt[sessionID]
+	c.lastHandoffAt[sessionID] = now
+	return !exists || now.Before(last) || now.Sub(last) >= handoffSeparatorQuietPeriod
+}
+
+func (c *Client) sendTextMessage(ctx context.Context, chatID, id, text string) error {
+	content, err := json.Marshal(struct {
+		Text string `json:"text"`
+	}{Text: text})
+	if err != nil {
+		return fmt.Errorf("encode Feishu text message: %w", err)
+	}
+	req := larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType("chat_id").
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(chatID).
+			MsgType("text").
+			Content(string(content)).
+			Uuid(id).
+			Build()).
+		Build()
+	response, err := c.api.Im.V1.Message.Create(ctx, req)
+	if err != nil {
+		return fmt.Errorf("send Feishu text message: %w", err)
+	}
+	if !response.Success() {
+		return fmt.Errorf("send Feishu text message: code=%d message=%s request_id=%s", response.Code, response.Msg, response.RequestId())
+	}
+	return nil
 }
 
 func (c *Client) sendInteractiveMessage(ctx context.Context, chatID, id, content string) (*larkim.CreateMessageResp, error) {

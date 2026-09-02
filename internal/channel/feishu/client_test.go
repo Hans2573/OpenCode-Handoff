@@ -276,6 +276,125 @@ func TestSendHandoffFallsBackWhenFeishuRejectsQuestionForm(t *testing.T) {
 	}
 }
 
+func TestSendHandoffAddsTimestampSeparatorBeforeCard(t *testing.T) {
+	messageID := "om_message"
+	var calls []string
+	client := &Client{
+		chatID: "oc_chat",
+		now: func() time.Time {
+			return time.Date(2026, time.September, 2, 15, 6, 30, 0, time.Local)
+		},
+		sendText: func(_ context.Context, chatID, id, text string) error {
+			calls = append(calls, "text:"+chatID+":"+id+":"+text)
+			return nil
+		},
+		sendCard: func(_ context.Context, chatID, id, _ string) (*larkim.CreateMessageResp, error) {
+			calls = append(calls, "card:"+chatID+":"+id)
+			return &larkim.CreateMessageResp{
+				CodeError: larkcore.CodeError{Code: 0},
+				Data:      &larkim.CreateMessageRespData{MessageId: &messageID},
+			}, nil
+		},
+	}
+
+	ref, err := client.SendHandoff(context.Background(), domain.Handoff{
+		ID: "handoff_1", SessionID: "ses_1", ProjectName: "handoff", Type: domain.HandoffFinished,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.MessageID != messageID {
+		t.Fatalf("message ref = %+v", ref)
+	}
+	want := []string{
+		"text:oc_chat:handoff_1:separator:=== 2026-09-02 15:06:30 ===",
+		"card:oc_chat:handoff_1",
+	}
+	if len(calls) != len(want) {
+		t.Fatalf("calls = %#v, want %#v", calls, want)
+	}
+	for index := range want {
+		if calls[index] != want[index] {
+			t.Fatalf("calls = %#v, want %#v", calls, want)
+		}
+	}
+}
+
+func TestSendHandoffContinuesWhenSeparatorFails(t *testing.T) {
+	messageID := "om_message"
+	cardSent := false
+	client := &Client{
+		chatID: "oc_chat",
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		sendText: func(context.Context, string, string, string) error {
+			return errors.New("separator unavailable")
+		},
+		sendCard: func(context.Context, string, string, string) (*larkim.CreateMessageResp, error) {
+			cardSent = true
+			return &larkim.CreateMessageResp{
+				CodeError: larkcore.CodeError{Code: 0},
+				Data:      &larkim.CreateMessageRespData{MessageId: &messageID},
+			}, nil
+		},
+	}
+
+	if _, err := client.SendHandoff(context.Background(), domain.Handoff{
+		ID: "handoff_1", SessionID: "ses_1", ProjectName: "handoff", Type: domain.HandoffFinished,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !cardSent {
+		t.Fatal("handoff card was not sent after separator failure")
+	}
+}
+
+func TestSendHandoffGroupsSameSessionWithinQuietPeriod(t *testing.T) {
+	messageID := "om_message"
+	now := time.Date(2026, time.September, 2, 15, 6, 30, 0, time.Local)
+	var separators []string
+	client := &Client{
+		chatID: "oc_chat",
+		now:    func() time.Time { return now },
+		sendText: func(_ context.Context, _, _, text string) error {
+			separators = append(separators, text)
+			return nil
+		},
+		sendCard: func(context.Context, string, string, string) (*larkim.CreateMessageResp, error) {
+			return &larkim.CreateMessageResp{
+				CodeError: larkcore.CodeError{Code: 0},
+				Data:      &larkim.CreateMessageRespData{MessageId: &messageID},
+			}, nil
+		},
+	}
+
+	send := func(id, sessionID string) {
+		t.Helper()
+		if _, err := client.SendHandoff(context.Background(), domain.Handoff{
+			ID: id, SessionID: sessionID, ProjectName: "handoff", Type: domain.HandoffFinished,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	send("handoff_1", "ses_1")
+	now = now.Add(2 * time.Second)
+	send("handoff_2", "ses_1")
+	if len(separators) != 1 {
+		t.Fatalf("same-session separators = %#v, want one", separators)
+	}
+
+	send("handoff_3", "ses_2")
+	if len(separators) != 2 {
+		t.Fatalf("different-session separators = %#v, want two", separators)
+	}
+
+	now = now.Add(handoffSeparatorQuietPeriod)
+	send("handoff_4", "ses_1")
+	if len(separators) != 3 {
+		t.Fatalf("new-batch separators = %#v, want three", separators)
+	}
+}
+
 func TestFormatPermissionHandoff(t *testing.T) {
 	content, err := formatHandoffCard(domain.Handoff{
 		SessionID: "ses_permission", SessionName: "Inspect preview", ProjectName: "handoff", Type: domain.HandoffPermission,
