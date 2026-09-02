@@ -1,0 +1,21 @@
+internal/desktop/manager.go
+  s_e3396ca116bfdd::t_a04beb4f1f3373 287-295,297,317,320-338,345,348-350
+internal/desktop/manager_test.go
+  s_e3396ca116bfdd::t_77ee8bdce4809b 7,9,107-135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fa7e5f6c5d44b89670375d839966356dcdb85b93",
+  "prompts": {},
+  "sessions": {
+    "s_e3396ca116bfdd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06041-9311-7fb3-8b6a-05cb436bb504",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
