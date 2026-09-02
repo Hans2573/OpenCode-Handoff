@@ -1,0 +1,24 @@
+internal/channel/feishu/client.go
+  s_bdf038b877eba6::t_f01ad35acb7fd7 52-53,93-94,134-138,178-204
+  s_bdf038b877eba6::t_4d3726171f06d7 46-47,66-67,88,129-133,169-177
+  s_bdf038b877eba6::t_42ac00cc02fc6d 205
+internal/channel/feishu/client_test.go
+  s_bdf038b877eba6::t_4d3726171f06d7 351-397
+  s_bdf038b877eba6::t_f01ad35acb7fd7 279-350
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "99b5209181207b37cf6490cf9cb7d23af59b5d82",
+  "prompts": {},
+  "sessions": {
+    "s_bdf038b877eba6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0609a-b166-7f23-9c8c-f11587328ff8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
