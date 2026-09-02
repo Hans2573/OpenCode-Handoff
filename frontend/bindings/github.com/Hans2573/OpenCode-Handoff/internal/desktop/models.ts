@@ -89,6 +89,7 @@ export interface GoalLoopEventView {
 }
 
 export interface GoalLoopInput {
+    "name": string;
     "goal": string;
     "projectId": string;
     "agentId": string;

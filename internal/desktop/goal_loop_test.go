@@ -148,6 +148,12 @@ func TestGoalNameUsesFirstLineAndTruncates(t *testing.T) {
 	if got := goalName("这是一个需要被截断的非常长的目标名称，因为它明显超过四十个字符并且还在继续继续继续继续继续"); len([]rune(got)) != 41 {
 		t.Fatalf("truncated rune count=%d, value=%q", len([]rune(got)), got)
 	}
+	if got := createGoalName("  发布新版本  ", "完整目标描述"); got != "发布新版本" {
+		t.Fatalf("custom goal name=%q", got)
+	}
+	if got := createGoalName("", "从目标生成名称\n验收条件"); got != "从目标生成名称" {
+		t.Fatalf("generated goal name=%q", got)
+	}
 }
 
 func TestGoalLoopStartsContinuesAndCompletesInOneSession(t *testing.T) {
@@ -226,11 +232,11 @@ func TestGoalLoopStartsContinuesAndCompletesInOneSession(t *testing.T) {
 	manager := &Manager{ctx: ctx, cancel: cancel, store: database, raw: client, routes: routes, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	t.Cleanup(func() { _ = manager.Close() })
 
-	page, err := manager.CreateGoalLoop(GoalLoopInput{Goal: "finish the task", ProjectID: project.ID, AgentID: store.DefaultAgentID, ModelProviderID: "openai", ModelID: "gpt-test", ModelVariant: "high", FailureLimit: 3, GoalCommandConfirmed: true, StartNow: true})
+	page, err := manager.CreateGoalLoop(GoalLoopInput{Name: "Ship the task", Goal: "finish the task", ProjectID: project.ID, AgentID: store.DefaultAgentID, ModelProviderID: "openai", ModelID: "gpt-test", ModelVariant: "high", FailureLimit: 3, GoalCommandConfirmed: true, StartNow: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Loops) != 1 || page.Loops[0].SessionID != "ses_goal" || page.Loops[0].ModelID != "gpt-test" || len(prompts) != 1 || prompts[0] != "/goal finish the task" || len(promptModels) != 1 || promptModels[0].Variant != "high" {
+	if len(page.Loops) != 1 || page.Loops[0].Name != "Ship the task" || page.Loops[0].SessionID != "ses_goal" || page.Loops[0].ModelID != "gpt-test" || len(prompts) != 1 || prompts[0] != "/goal finish the task" || len(promptModels) != 1 || promptModels[0].Variant != "high" {
 		t.Fatalf("page=%+v prompts=%q models=%+v", page, prompts, promptModels)
 	}
 
@@ -415,6 +421,12 @@ func TestTerminalGoalCanUpdateAllowedPathsAndRestartOriginalSession(t *testing.T
 	for _, terminalStatus := range []string{domain.GoalLoopBlocked, domain.GoalLoopTerminated} {
 		t.Run(terminalStatus, func(t *testing.T) {
 			attachedSession := terminalStatus == domain.GoalLoopBlocked
+			inputName := ""
+			expectedName := "terminal"
+			if terminalStatus == domain.GoalLoopTerminated {
+				inputName = "renamed terminal"
+				expectedName = inputName
+			}
 			var prompts []string
 			createdSessions := 0
 			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -457,7 +469,7 @@ func TestTerminalGoalCanUpdateAllowedPathsAndRestartOriginalSession(t *testing.T
 				t.Fatal(err)
 			}
 			allowedPath := filepath.Join(t.TempDir(), "source.html")
-			_, err := manager.UpdateGoalLoop(loop.ID, GoalLoopInput{Goal: "revised goal", ProjectID: project.ID, AgentID: store.DefaultAgentID, ModelProviderID: "openai", ModelID: "gpt-test", SessionID: "ses_existing", AutomationMode: domain.GoalLoopAutonomous, AllowedDirectories: []string{allowedPath}, FailureLimit: 4})
+			_, err := manager.UpdateGoalLoop(loop.ID, GoalLoopInput{Name: inputName, Goal: "revised goal", ProjectID: project.ID, AgentID: store.DefaultAgentID, ModelProviderID: "openai", ModelID: "gpt-test", SessionID: "ses_existing", AutomationMode: domain.GoalLoopAutonomous, AllowedDirectories: []string{allowedPath}, FailureLimit: 4})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -465,7 +477,7 @@ func TestTerminalGoalCanUpdateAllowedPathsAndRestartOriginalSession(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			if updated.Status != terminalStatus || updated.Goal != "revised goal" || updated.AttachedSession != attachedSession || len(updated.AllowedDirectories) != 1 || updated.AllowedDirectories[0] != allowedPath {
+			if updated.Status != terminalStatus || updated.Name != expectedName || updated.Goal != "revised goal" || updated.AttachedSession != attachedSession || len(updated.AllowedDirectories) != 1 || updated.AllowedDirectories[0] != allowedPath {
 				t.Fatalf("updated loop=%+v", updated)
 			}
 			page, err := manager.RestartGoalLoop(loop.ID, true)

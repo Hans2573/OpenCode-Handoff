@@ -220,6 +220,7 @@ type GoalLoopView struct {
 }
 
 type GoalLoopInput struct {
+	Name                          string   `json:"name"`
 	Goal                          string   `json:"goal"`
 	ProjectID                     string   `json:"projectId"`
 	AgentID                       string   `json:"agentId"`

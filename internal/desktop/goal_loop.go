@@ -525,7 +525,7 @@ func (m *Manager) CreateGoalLoop(input GoalLoopInput) (GoalLoopPage, error) {
 		return GoalLoopPage{}, err
 	}
 	loop := domain.GoalLoop{
-		ID: newGoalLoopID(), Name: goalName(input.Goal), Goal: strings.TrimSpace(input.Goal),
+		ID: newGoalLoopID(), Name: createGoalName(input.Name, input.Goal), Goal: strings.TrimSpace(input.Goal),
 		ProjectID: project.ProjectID, ProjectName: project.Name, Directory: project.Directory,
 		AgentID: store.DefaultAgentID, AgentName: "OpenCode", Status: domain.GoalLoopDraft,
 		ModelProviderID: model.ProviderID, ModelID: model.ID, ModelName: model.Name, ModelVariant: input.ModelVariant,
@@ -586,7 +586,9 @@ func (m *Manager) UpdateGoalLoop(id string, input GoalLoopInput) (GoalLoopPage, 
 	if err := m.validateGoalSessionBinding(ctx, input.SessionID, project.Directory, loop.ID); err != nil {
 		return GoalLoopPage{}, err
 	}
-	loop.Name = goalName(input.Goal)
+	if strings.TrimSpace(input.Name) != "" {
+		loop.Name = goalName(input.Name)
+	}
 	loop.Goal = strings.TrimSpace(input.Goal)
 	loop.ProjectID, loop.ProjectName, loop.Directory = project.ProjectID, project.Name, project.Directory
 	loop.ModelProviderID, loop.ModelID, loop.ModelName, loop.ModelVariant = model.ProviderID, model.ID, model.Name, input.ModelVariant
@@ -1279,6 +1281,13 @@ func goalName(goal string) string {
 	}
 	runes := []rune(line)
 	return string(runes[:40]) + "…"
+}
+
+func createGoalName(name, goal string) string {
+	if strings.TrimSpace(name) != "" {
+		return goalName(name)
+	}
+	return goalName(goal)
 }
 
 func newGoalLoopID() string {

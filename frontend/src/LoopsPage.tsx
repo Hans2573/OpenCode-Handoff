@@ -385,6 +385,7 @@ function ApprovalDialog({ title, approvals, busy, apply, onClose, onRefresh }: {
 
 function GoalEditor({ current, projects, sessions, initialSession, models, modelsLoading, modelsError, reloadModels, loops, onClose, onSaved, showToast }: { current: GoalLoopView | null; projects: ProjectView[]; sessions: SessionView[]; initialSession: SessionView | null; models: GoalModelView[]; modelsLoading: boolean; modelsError: string; reloadModels: () => Promise<void>; loops: GoalLoopView[]; onClose: () => void; onSaved: (page: GoalLoopPage) => void; showToast: (message: string) => void }) {
   const initialProject = initialSession ? projects.find((item) => item.directory === initialSession.directory)?.id : "";
+  const [name, setName] = useState(current?.name ?? "");
   const [goal, setGoal] = useState(current?.goal ?? "");
   const [projectID, setProjectID] = useState((current?.projectId ?? initialProject) || projects[0]?.id || "");
   const [source, setSource] = useState<"new" | "existing">(current?.attachedSession || initialSession ? "existing" : "new");
@@ -441,7 +442,7 @@ function GoalEditor({ current, projects, sessions, initialSession, models, model
     }
     setSaving(true);
     const input: GoalLoopInput = {
-      goal: goal.trim(), projectId: projectID, agentId: "opencode-default",
+      name: name.trim(), goal: goal.trim(), projectId: projectID, agentId: "opencode-default",
       modelProviderId: selectedModel.providerId, modelId: selectedModel.id, modelVariant,
       sessionId: terminalEdit ? current?.sessionId ?? "" : source === "existing" ? sessionID : "", automationMode,
       permissionApprovalMode,
@@ -463,7 +464,8 @@ function GoalEditor({ current, projects, sessions, initialSession, models, model
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="goal-modal" role="dialog" aria-modal="true" aria-label={current ? "编辑 Goal" : "创建 Goal"}>
     <header><div><span>Goal-based Loop</span><h2>{current ? "编辑 Goal 配置" : "创建 Goal"}</h2></div><button onClick={onClose} aria-label="关闭"><X size={18} /></button></header>
     <div className="goal-modal-body">
-      <label className="loop-form-field"><span>目标</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="清晰描述目标和可验证的完成条件，例如：完成实现、测试和验收。" autoFocus /></label>
+      <label className="loop-form-field"><span>名称（可选）</span><input value={name} maxLength={40} onChange={(event) => setName(event.target.value)} placeholder="例如：整理 tokenhub 流程" autoFocus /><small>{current ? "修改目标不会覆盖名称；最多 40 个字符" : "留空时根据目标首行自动生成；最多 40 个字符"}</small></label>
+      <label className="loop-form-field"><span>目标与完成条件</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="清晰描述目标和可验证的完成条件，例如：完成实现、测试和验收。" /></label>
       {terminalEdit ? <div className="infinite-note"><History size={17} /><span>重新启动将复用原项目与 Session；如需更换项目或 Session，请创建新 Goal。</span></div> : <div className="loop-source-tabs"><button type="button" className={source === "new" ? "active" : ""} onClick={() => { setSource("new"); setSessionID(""); }}>新建 Session</button><button type="button" className={source === "existing" ? "active" : ""} onClick={() => setSource("existing")}>接入现有 Session</button></div>}
       <div className="loop-form-grid"><label className="loop-form-field"><span>Agent</span><select value="opencode-default" disabled><option value="opencode-default">OpenCode</option><option disabled>Claude Code（即将支持）</option><option disabled>Codex（即将支持）</option></select><small>Goal 接管消息自动添加 /goal 前缀</small></label><label className="loop-form-field"><span>项目</span><select value={projectID} disabled={terminalEdit} onChange={(event) => { setProjectID(event.target.value); setSessionID(""); }}><option value="">选择已接入飞书的项目</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name} · {project.directory}</option>)}</select><small>{terminalEdit ? "终态编辑保留原项目" : "多个 Loop 同项目运行时推荐使用独立 worktree"}</small></label></div>
       {terminalEdit && current?.sessionId && <Detail label="复用 Session"><code>{current.sessionId}</code><small>保存配置不会启动；请返回详情页点击“重新启动”</small></Detail>}

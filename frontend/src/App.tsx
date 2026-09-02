@@ -39,6 +39,7 @@ import {
   X,
 } from "lucide-react";
 import LoopsPage from "./LoopsPage";
+import { saveInterfaceDensity, type InterfaceDensity } from "./uiPreferences";
 import * as AppService from "../bindings/github.com/Hans2573/OpenCode-Handoff/appservice";
 import type {
   Dashboard,
@@ -88,8 +89,9 @@ const emptyDashboard: Dashboard = {
   channels: [],
 };
 
-function App() {
+function App({ initialInterfaceDensity }: { initialInterfaceDensity: InterfaceDensity }) {
   const [page, setPage] = useState<Page>("overview");
+  const [interfaceDensity, setInterfaceDensity] = useState<InterfaceDensity>(initialInterfaceDensity);
   const [dashboard, setDashboard] = useState<Dashboard>(emptyDashboard);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -167,6 +169,12 @@ function App() {
     }
   };
 
+  const changeInterfaceDensity = (density: InterfaceDensity) => {
+    setInterfaceDensity(density);
+    saveInterfaceDensity(density);
+    showToast(`已切换为${density === "standard" ? "标准" : "紧凑"}界面`);
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -207,7 +215,7 @@ function App() {
           </div>
         </header>
 
-        <div className="content">
+        <div className={`content${page === "sessions" ? " sessions-content" : ""}`}>
           {error && <div className="banner error-banner"><CircleAlert size={18} /><span>{error}</span><button onClick={() => void loadDashboard()}>重试</button></div>}
           {dashboard.service.state === "conflict" && (
             <div className="banner warning-banner"><ShieldAlert size={18} /><span>{dashboard.service.message}</span><button onClick={() => void retryService()}>关闭 CLI 后重试</button></div>
@@ -223,7 +231,7 @@ function App() {
           {page === "loops" && <LoopsPage projects={dashboard.projects ?? []} sessions={dashboard.sessions ?? []} initialSession={goalSession} onInitialSessionConsumed={() => setGoalSession(null)} showToast={showToast} />}
           {page === "channels" && <IntegrationsPage title="渠道" description="项目事件可以路由到一个或多个通信渠道" items={dashboard.channels ?? []} />}
           {page === "events" && <EventsPage showToast={showToast} />}
-          {page === "settings" && <SettingsPage showToast={showToast} onSaved={() => void loadDashboard()} />}
+          {page === "settings" && <SettingsPage interfaceDensity={interfaceDensity} onInterfaceDensityChange={changeInterfaceDensity} showToast={showToast} onSaved={() => void loadDashboard()} />}
         </div>
       </main>
       {toast && <div className="toast"><Check size={17} />{toast}</div>}
@@ -308,7 +316,7 @@ function ProjectsPage({ projects, loading, onRoute, onRefresh }: { projects: Pro
 
 type ExecutionMetric = "round" | "session";
 type ExecutionRankingItem = { key: string; title: string; context: string; duration: number; statusLabel: string; active: boolean; detail: string };
-const sessionPageSizes = [3, 5, 8, 10, 15, 20] as const;
+const sessionPageSizes = [5, 8, 10, 15, 20] as const;
 const sessionLeaderboardPreferenceKey = "agent-handoff:sessions:leaderboard-expanded";
 
 function SessionsPage({ sessions, executionRuns, executionSessions, retentionDays, onOpenSession, onAddToGoal, onRefresh, showToast }: {
@@ -364,7 +372,7 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
     : executionSessions.map((session) => ({ key: `${session.sessionId}-${session.directory}`, title: session.sessionTitle, context: session.projectName || "—", duration: session.totalExecutionSeconds, statusLabel: session.statusLabel, active: session.active, detail: `${session.executionCount} 轮` })))
     .filter((item) => item.duration > 0)
     .sort((a, b) => b.duration - a.duration)
-    .slice(0, 5);
+    .slice(0, 6);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(pageNumber, pageCount);
   const visibleSessions = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -392,7 +400,10 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
     const viewport = tableViewportRef.current;
     if (!viewport) return;
     const updatePageSize = (height: number) => {
-      const rowCapacity = Math.max(1, Math.floor((height - 37) / 65));
+      const rootStyles = window.getComputedStyle(document.documentElement);
+      const rowHeight = Number.parseFloat(rootStyles.getPropertyValue("--table-row-height")) || 60;
+      const headHeight = Number.parseFloat(rootStyles.getPropertyValue("--table-head-height")) || 40;
+      const rowCapacity = Math.max(1, Math.floor((height - headHeight) / rowHeight));
       const nextSize = [...sessionPageSizes].reverse().find((size) => size <= rowCapacity) ?? sessionPageSizes[0];
       const previousSize = autoPageSizeRef.current;
       if (nextSize === previousSize) return;
@@ -580,7 +591,7 @@ function EventsPage({ showToast }: { showToast: (message: string) => void }) {
   );
 }
 
-function SettingsPage({ showToast, onSaved }: { showToast: (message: string) => void; onSaved: () => void }) {
+function SettingsPage({ interfaceDensity, onInterfaceDensityChange, showToast, onSaved }: { interfaceDensity: InterfaceDensity; onInterfaceDensityChange: (density: InterfaceDensity) => void; showToast: (message: string) => void; onSaved: () => void }) {
   const [settings, setSettings] = useState<SettingsView | null>(null);
   const [form, setForm] = useState<SettingsInput | null>(null);
   const [autostart, setAutostart] = useState(false);
@@ -600,12 +611,13 @@ function SettingsPage({ showToast, onSaved }: { showToast: (message: string) => 
   const toggleAutostart = async (enabled: boolean) => {
     try { await AppService.SetAutostart(enabled); setAutostart(enabled); showToast(enabled ? "已启用开机自启" : "已关闭开机自启"); } catch (reason) { showToast(`设置失败：${errorMessage(reason)}`); }
   };
-  if (!settings || !form) return <div className="center-loading"><LoaderCircle className="spin" />正在读取设置</div>;
   return (
     <section className="page settings-page">
       <PageHeader title="设置" description="管理 OpenCode、飞书、通知和桌面应用行为。" />
-      {settings.configError && <div className="banner warning-banner"><CircleAlert size={18} /><span>{settings.configError}</span></div>}
+      {settings?.configError && <div className="banner warning-banner"><CircleAlert size={18} /><span>{settings.configError}</span></div>}
       <div className="settings-layout">
+        <AppearanceSettings density={interfaceDensity} onChange={onInterfaceDensityChange} />
+        {!settings || !form ? <section className="panel settings-section settings-loading-panel"><LoaderCircle className="spin" /><span>正在读取服务设置</span></section> : <>
         <section className="panel settings-section">
           <h2>OpenCode</h2><p className="section-description">桌面应用只检测并连接用户启动的 OpenCode Server。</p>
           <FormField label="服务地址" lockedBy={locked("opencode.base_url")}><input value={form.openCodeBaseUrl} disabled={!!locked("opencode.base_url")} onChange={(event) => update("openCodeBaseUrl", event.target.value)} /></FormField>
@@ -640,8 +652,28 @@ function SettingsPage({ showToast, onSaved }: { showToast: (message: string) => 
           <div className="path-list"><PathRow label="配置文件" value={settings.paths.configPath} size={settings.fileSizes.config} /><PathRow label="数据库" value={settings.paths.storePath} size={settings.fileSizes.store} /><PathRow label="日志" value={settings.paths.logPath} size={settings.fileSizes.log} /></div>
           <div className="desktop-actions"><button className="secondary-button" onClick={() => void AppService.OpenDataDirectory()}><Folder size={16} />打开数据目录</button><button className="danger-button" onClick={() => { if (window.confirm("退出后将停止 Handoff 服务，确定继续吗？")) AppService.Quit(); }}><Power size={16} />退出应用</button></div>
         </section>
+        </>}
       </div>
-      <div className="settings-savebar"><span>保存后会安全重启 Handoff 引擎，不会启动或停止 OpenCode。</span><button className="primary-button" disabled={saving} onClick={() => void save()}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}保存设置</button></div>
+      {settings && form && <div className="settings-savebar"><span>保存后会安全重启 Handoff 引擎，不会启动或停止 OpenCode。</span><button className="primary-button" disabled={saving} onClick={() => void save()}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}保存设置</button></div>}
+    </section>
+  );
+}
+
+function AppearanceSettings({ density, onChange }: { density: InterfaceDensity; onChange: (density: InterfaceDensity) => void }) {
+  return (
+    <section className="panel settings-section appearance-settings">
+      <h2>外观</h2><p className="section-description">统一调整字体、控件和列表密度，切换后立即生效。</p>
+      <div className="density-options" role="radiogroup" aria-label="界面密度">
+        <button className={density === "compact" ? "density-option active" : "density-option"} role="radio" aria-checked={density === "compact"} onClick={() => onChange("compact")}>
+          <span className="density-preview compact-preview" aria-hidden="true"><i /><i /><i /></span>
+          <span><strong>紧凑</strong><small>适合希望同屏显示更多信息的场景</small></span>
+        </button>
+        <button className={density === "standard" ? "density-option active" : "density-option"} role="radio" aria-checked={density === "standard"} onClick={() => onChange("standard")}>
+          <span className="density-preview standard-preview" aria-hidden="true"><i /><i /><i /></span>
+          <span><strong>标准</strong><small>推荐，字体和间距更舒适</small></span>
+        </button>
+      </div>
+      <p className="density-note">正文不会低于 12px；状态标签和短 ID 不会低于 10px。</p>
     </section>
   );
 }
