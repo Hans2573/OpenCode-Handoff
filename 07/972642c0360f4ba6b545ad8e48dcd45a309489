@@ -1,0 +1,43 @@
+internal/desktop/goal_generation.go
+  s_36ed5983c6a780::t_0c0ced3b38d3e7 92-94,108-110
+  s_36ed5983c6a780::t_97a0db89a7bfa4 1-64,72,75-91,95-107,111-139
+  s_36ed5983c6a780::t_8e08e7521926e2 65-71,73-74
+appservice.go
+  s_36ed5983c6a780::t_97a0db89a7bfa4 91-94
+frontend/src/styles.css
+  s_36ed5983c6a780::t_e3be097e3cef4a 626-629
+frontend/src/LoopsPage.tsx
+  s_36ed5983c6a780::t_0c0ced3b38d3e7 491
+  s_36ed5983c6a780::t_e3be097e3cef4a 404,434-455,510
+internal/desktop/goal_loop_test.go
+  s_36ed5983c6a780::t_f15afe9dcfc0a9 13,160-171,173-176,178-181,188-191,194-238
+  s_36ed5983c6a780::t_b0086b7308d55f 172,177,192-193
+  s_36ed5983c6a780::t_0c0ced3b38d3e7 182-187
+  s_36ed5983c6a780::t_bb322b573cd8f2 239
+internal/opencode/client.go
+  s_36ed5983c6a780::t_97a0db89a7bfa4 192-205
+internal/desktop/viewmodel.go
+  s_36ed5983c6a780::t_97a0db89a7bfa4 257-264
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/appservice.ts
+  s_36ed5983c6a780::t_91fe273292f6d4 36-39
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/index.ts
+  s_36ed5983c6a780::t_e88dc59dc03dd2 19
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/models.ts
+  s_36ed5983c6a780::t_ad19d7e38ce4a1 164-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "07972642c0360f4ba6b545ad8e48dcd45a309489",
+  "prompts": {},
+  "sessions": {
+    "s_36ed5983c6a780": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a065c9-43a2-74b0-bb37-dfdbcbba6395",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
