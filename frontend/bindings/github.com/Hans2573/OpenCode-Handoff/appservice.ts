@@ -33,6 +33,10 @@ export function ExportEvents(search: string): $CancellablePromise<string> {
     return $Call.ByID(3419046745, search);
 }
 
+export function GenerateGoalFromSession(input: desktop$0.GoalSuggestionInput): $CancellablePromise<string> {
+    return $Call.ByID(4217749422, input);
+}
+
 export function GetAutostart(): $CancellablePromise<boolean> {
     return $Call.ByID(3455749179);
 }

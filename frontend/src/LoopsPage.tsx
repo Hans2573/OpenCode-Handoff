@@ -401,6 +401,7 @@ function GoalEditor({ current, projects, sessions, initialSession, models, model
   const [confirmation, setConfirmation] = useState(current?.requireCompletionConfirmation ?? false);
   const [commandConfirmed, setCommandConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [generatingGoal, setGeneratingGoal] = useState(false);
   const terminalEdit = !!current && ["blocked", "terminated"].includes(current.status);
   const selectedProject = projects.find((project) => project.id === projectID);
   const selectedModel = models.find((model) => `${model.providerId}\u0000${model.id}` === modelKey);
@@ -429,6 +430,28 @@ function GoalEditor({ current, projects, sessions, initialSession, models, model
     });
     return () => { active = false; };
   }, [sessionID, source, models.length]);
+
+  const generateGoal = async () => {
+    if (!selectedProject || !sessionID) { showToast("请选择要读取的现有 Session"); return; }
+    if (!selectedModel) { showToast("请选择用于生成目标的模型"); return; }
+    if (goal.trim() && !window.confirm("AI 生成的内容会替换当前目标，确定继续？")) return;
+    setGeneratingGoal(true);
+    try {
+      const suggestion = await AppService.GenerateGoalFromSession({
+        sessionId: sessionID,
+        directory: selectedProject.directory,
+        modelProviderId: selectedModel.providerId,
+        modelId: selectedModel.id,
+        modelVariant,
+      });
+      setGoal(suggestion);
+      showToast("已根据 Session 生成目标");
+    } catch (reason) {
+      showToast(`生成目标失败：${errorMessage(reason)}`);
+    } finally {
+      setGeneratingGoal(false);
+    }
+  };
 
   const save = async (startNow: boolean) => {
     if (!goal.trim()) { showToast("请输入目标"); return; }
@@ -465,7 +488,7 @@ function GoalEditor({ current, projects, sessions, initialSession, models, model
     <header><div><span>Goal-based Loop</span><h2>{current ? "编辑 Goal 配置" : "创建 Goal"}</h2></div><button onClick={onClose} aria-label="关闭"><X size={18} /></button></header>
     <div className="goal-modal-body">
       <label className="loop-form-field"><span>名称（可选）</span><input value={name} maxLength={40} onChange={(event) => setName(event.target.value)} placeholder="例如：整理 tokenhub 流程" autoFocus /><small>{current ? "修改目标不会覆盖名称；最多 40 个字符" : "留空时根据目标首行自动生成；最多 40 个字符"}</small></label>
-      <label className="loop-form-field"><span>目标与完成条件</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="清晰描述目标和可验证的完成条件，例如：完成实现、测试和验收。" /></label>
+      <div className="loop-form-field"><span className="loop-field-heading"><span>目标与完成条件</span>{source === "existing" && <button type="button" className="goal-generate-button" disabled={!sessionID || !selectedModel || generatingGoal || saving} onClick={() => void generateGoal()} title="读取现有 Session 并生成目标">{generatingGoal ? <LoaderCircle size={13} className="spin" /> : <Sparkles size={13} />}{generatingGoal ? "正在生成" : "AI 生成"}</button>}</span><textarea aria-label="目标与完成条件" value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="清晰描述目标和可验证的完成条件，例如：完成实现、测试和验收。" /></div>
       {terminalEdit ? <div className="infinite-note"><History size={17} /><span>重新启动将复用原项目与 Session；如需更换项目或 Session，请创建新 Goal。</span></div> : <div className="loop-source-tabs"><button type="button" className={source === "new" ? "active" : ""} onClick={() => { setSource("new"); setSessionID(""); }}>新建 Session</button><button type="button" className={source === "existing" ? "active" : ""} onClick={() => setSource("existing")}>接入现有 Session</button></div>}
       <div className="loop-form-grid"><label className="loop-form-field"><span>Agent</span><select value="opencode-default" disabled><option value="opencode-default">OpenCode</option><option disabled>Claude Code（即将支持）</option><option disabled>Codex（即将支持）</option></select><small>Goal 接管消息自动添加 /goal 前缀</small></label><label className="loop-form-field"><span>项目</span><select value={projectID} disabled={terminalEdit} onChange={(event) => { setProjectID(event.target.value); setSessionID(""); }}><option value="">选择已接入飞书的项目</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name} · {project.directory}</option>)}</select><small>{terminalEdit ? "终态编辑保留原项目" : "多个 Loop 同项目运行时推荐使用独立 worktree"}</small></label></div>
       {terminalEdit && current?.sessionId && <Detail label="复用 Session"><code>{current.sessionId}</code><small>保存配置不会启动；请返回详情页点击“重新启动”</small></Detail>}
@@ -484,7 +507,7 @@ function GoalEditor({ current, projects, sessions, initialSession, models, model
       <label className="goal-command-warning"><input type="checkbox" checked={commandConfirmed} onChange={(event) => setCommandConfirmed(event.target.checked)} /><CircleAlert size={18} /><span><strong>我已确认所选 Agent 支持 <code>/goal</code></strong><small>应用只添加命令前缀，不会安装或检测 Agent 的 /goal 能力。</small></span></label>
       <div className="infinite-note"><InfinityIcon size={17} /><span>Goal Loop 不设置最大轮数；临时故障会持续自动恢复，确定不存在安全路径时才标记为受阻。</span></div>
     </div>
-    <footer><button className="secondary-button" onClick={onClose}>取消</button>{!current && <button className="secondary-button" disabled={saving || !selectedModel || (source === "existing" && !sessionID)} onClick={() => void save(false)}><Save size={14} />保存草稿</button>}<button className="primary-button" disabled={saving || !projects.length || !selectedModel || (source === "existing" && !sessionID)} onClick={() => void save(current ? false : true)}>{saving ? <LoaderCircle size={14} className="spin" /> : current ? <Save size={14} /> : <Play size={14} />}{current ? "保存修改" : "创建并启动"}</button></footer>
+    <footer><button className="secondary-button" onClick={onClose}>取消</button>{!current && <button className="secondary-button" disabled={saving || generatingGoal || !selectedModel || (source === "existing" && !sessionID)} onClick={() => void save(false)}><Save size={14} />保存草稿</button>}<button className="primary-button" disabled={saving || generatingGoal || !projects.length || !selectedModel || (source === "existing" && !sessionID)} onClick={() => void save(current ? false : true)}>{saving ? <LoaderCircle size={14} className="spin" /> : current ? <Save size={14} /> : <Play size={14} />}{current ? "保存修改" : "创建并启动"}</button></footer>
   </section></div>;
 }
 

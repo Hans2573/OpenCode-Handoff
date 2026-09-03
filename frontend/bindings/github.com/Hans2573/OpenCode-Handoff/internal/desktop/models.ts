@@ -161,6 +161,14 @@ export interface GoalModelView {
     "variants": string[] | null;
 }
 
+export interface GoalSuggestionInput {
+    "sessionId": string;
+    "directory": string;
+    "modelProviderId": string;
+    "modelId": string;
+    "modelVariant": string;
+}
+
 export interface IntegrationView {
     "id": string;
     "type": string;

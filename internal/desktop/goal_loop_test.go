@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -153,6 +154,86 @@ func TestGoalNameUsesFirstLineAndTruncates(t *testing.T) {
 	}
 	if got := createGoalName("", "从目标生成名称\n验收条件"); got != "从目标生成名称" {
 		t.Fatalf("generated goal name=%q", got)
+	}
+}
+
+func TestGenerateGoalFromSessionUsesTemporaryFork(t *testing.T) {
+	var prompted atomic.Bool
+	var deleted atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/session/ses_source":
+			_, _ = io.WriteString(response, `{"id":"ses_source","directory":"/work/project","title":"source"}`)
+		case request.Method == http.MethodPost && request.URL.Path == "/session/ses_source/fork":
+			_, _ = io.WriteString(response, `{"id":"ses_goal_generator","parentID":"ses_source","directory":"/work/project","title":"source (fork)"}`)
+		case request.Method == http.MethodGet && request.URL.Path == "/session/ses_goal_generator/message":
+			messages := []map[string]any{{
+				"info":  map[string]any{"id": "msg_baseline", "sessionID": "ses_goal_generator", "role": "assistant"},
+				"parts": []map[string]any{{"type": "text", "text": "Earlier work"}},
+			}}
+			if prompted.Load() {
+				messages = append(messages, map[string]any{
+					"info":  map[string]any{"id": "msg_suggestion", "sessionID": "ses_goal_generator", "role": "assistant"},
+					"parts": []map[string]any{{"type": "text", "text": "```goal-suggestion\n<<<{\"goal\":\"完成导出功能，并通过单元测试和构建验证。\"}>>>\n```"}},
+				})
+			}
+			_ = json.NewEncoder(response).Encode(messages)
+		case request.Method == http.MethodGet && request.URL.Path == "/session/status":
+			if prompted.Load() {
+				_, _ = io.WriteString(response, `{}`)
+			} else {
+				_, _ = io.WriteString(response, `{"ses_goal_generator":{"type":"busy"}}`)
+			}
+		case request.Method == http.MethodPost && request.URL.Path == "/session/ses_goal_generator/prompt_async":
+			var body struct {
+				Model   *opencode.ModelRef `json:"model"`
+				Variant string             `json:"variant"`
+				Parts   []opencode.Part    `json:"parts"`
+				Tools   map[string]bool    `json:"tools"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Errorf("decode generation prompt: %v", err)
+			}
+			if body.Model == nil || body.Model.ProviderID != "openai" || body.Model.ModelID != "gpt-test" || body.Variant != "high" {
+				t.Errorf("model selection = %+v variant=%q", body.Model, body.Variant)
+			}
+			if len(body.Parts) != 1 || !strings.Contains(body.Parts[0].Text, "完整历史") {
+				t.Errorf("prompt parts = %+v", body.Parts)
+			}
+			if body.Tools["read"] || body.Tools["write"] || body.Tools["bash"] {
+				t.Errorf("generation tools were not disabled: %+v", body.Tools)
+			}
+			prompted.Store(true)
+			response.WriteHeader(http.StatusNoContent)
+		case request.Method == http.MethodDelete && request.URL.Path == "/session/ses_goal_generator":
+			deleted.Store(true)
+			_, _ = io.WriteString(response, `true`)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	manager, _, project := newGoalLoopTestManager(t, server.URL)
+	goal, err := manager.GenerateGoalFromSession(GoalSuggestionInput{
+		SessionID: "ses_source", Directory: project.Directory,
+		ModelProviderID: "openai", ModelID: "gpt-test", ModelVariant: "high",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if goal != "完成导出功能，并通过单元测试和构建验证。" {
+		t.Fatalf("goal = %q", goal)
+	}
+	if !deleted.Load() {
+		t.Fatal("temporary fork was not deleted")
+	}
+}
+
+func TestParseGoalSuggestionRejectsMissingGoal(t *testing.T) {
+	if _, err := parseGoalSuggestion("<<<{\"goal\":\"\"}>>>"); err == nil {
+		t.Fatal("expected empty goal to be rejected")
 	}
 }
 

@@ -189,6 +189,20 @@ func (c *Client) CreateSession(ctx context.Context, directory, title string) (Se
 	return session, nil
 }
 
+func (c *Client) ForkSession(ctx context.Context, sessionID, directory string) (Session, error) {
+	var session Session
+	path := "/session/" + url.PathEscape(sessionID) + "/fork"
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, directory, struct{}{}, &session); err != nil {
+		return Session{}, err
+	}
+	return session, nil
+}
+
+func (c *Client) DeleteSession(ctx context.Context, sessionID, directory string) error {
+	path := "/session/" + url.PathEscape(sessionID)
+	return c.doJSON(ctx, http.MethodDelete, path, nil, directory, nil, nil)
+}
+
 func (c *Client) GetSessionStatuses(ctx context.Context, directory string) (map[string]SessionStatus, error) {
 	statuses := make(map[string]SessionStatus)
 	if err := c.getJSON(ctx, "/session/status", nil, directory, &statuses); err != nil {

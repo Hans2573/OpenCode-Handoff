@@ -16,6 +16,7 @@ export type {
     GoalLoopPage,
     GoalLoopView,
     GoalModelView,
+    GoalSuggestionInput,
     IntegrationView,
     LoopApprovalView,
     Paths,

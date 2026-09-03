@@ -623,6 +623,10 @@ button.loop-metric.actionable:hover { border-color: #80501f; background: linear-
 .loop-form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .loop-form-field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 10px; }
 .loop-form-field > span { color: #c8d2dc; font-size: var(--font-caption); }
+.loop-form-field > .loop-field-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.goal-generate-button { display: inline-flex; align-items: center; gap: 5px; min-height: 25px; padding: 0 8px; border: 1px solid #3973a9; border-radius: 5px; color: #94c9ff; background: rgba(40,119,235,.1); cursor: pointer; font-size: var(--font-micro); }
+.goal-generate-button:hover:not(:disabled) { border-color: #5195d7; background: rgba(40,119,235,.2); }
+.goal-generate-button:disabled { cursor: not-allowed; opacity: .5; }
 .loop-form-field textarea,.loop-form-field input,.loop-form-field select { width: 100%; padding: 0 10px; border: 1px solid #344555; border-radius: 6px; outline: 0; color: #e0e7ee; background: #0e171f; font-size: var(--font-caption); }
 .loop-form-field textarea { min-height: 68px; padding: 9px 10px; resize: vertical; line-height: 1.6; }
 .loop-form-field textarea.compact { min-height: 48px; }

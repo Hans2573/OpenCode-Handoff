@@ -254,6 +254,14 @@ type SessionModelView struct {
 	Variant    string `json:"variant"`
 }
 
+type GoalSuggestionInput struct {
+	SessionID       string `json:"sessionId"`
+	Directory       string `json:"directory"`
+	ModelProviderID string `json:"modelProviderId"`
+	ModelID         string `json:"modelId"`
+	ModelVariant    string `json:"modelVariant"`
+}
+
 type GoalLoopEventView struct {
 	ID        int64          `json:"id"`
 	Type      string         `json:"type"`

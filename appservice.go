@@ -88,6 +88,10 @@ func (s *AppService) GetSessionModel(sessionID, directory string) (desktop.Sessi
 	return s.manager.GetSessionModel(sessionID, directory)
 }
 
+func (s *AppService) GenerateGoalFromSession(input desktop.GoalSuggestionInput) (string, error) {
+	return s.manager.GenerateGoalFromSession(input)
+}
+
 func (s *AppService) GetGoalLoopEvents(loopID string) ([]desktop.GoalLoopEventView, error) {
 	return s.manager.GetGoalLoopEvents(loopID)
 }
