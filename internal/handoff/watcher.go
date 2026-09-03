@@ -54,6 +54,7 @@ type Watcher struct {
 type observedStatus struct {
 	Type      string
 	Directory string
+	Failed    bool
 }
 
 func NewWatcher(client opencode.Adapter, options WatcherOptions, logger *slog.Logger) *Watcher {
@@ -154,17 +155,23 @@ func (w *Watcher) reconcileStatuses(ctx context.Context, directory string, curre
 	var stopped []string
 	for sessionID, status := range current {
 		previous, known := w.statuses[sessionID]
-		w.statuses[sessionID] = observedStatus{Type: status.Type, Directory: directory}
+		next := observedStatus{Type: status.Type, Directory: directory, Failed: previous.Failed}
 		if known && previous.Type != "idle" && status.Type == "idle" {
-			stopped = append(stopped, sessionID)
+			if !previous.Failed {
+				stopped = append(stopped, sessionID)
+			}
+			next.Failed = false
 		}
+		w.statuses[sessionID] = next
 	}
 	for sessionID, previous := range w.statuses {
 		if previous.Directory != directory || previous.Type == "idle" {
 			continue
 		}
 		if _, exists := current[sessionID]; !exists {
-			stopped = append(stopped, sessionID)
+			if !previous.Failed {
+				stopped = append(stopped, sessionID)
+			}
 			w.statuses[sessionID] = observedStatus{Type: "idle", Directory: directory}
 		}
 	}
@@ -214,6 +221,7 @@ func (w *Watcher) handleEvent(ctx context.Context, event opencode.Event) {
 	case "session.error":
 		var sessionEvent opencode.SessionEvent
 		if json.Unmarshal(event.Properties, &sessionEvent) == nil && sessionEvent.SessionID != "" {
+			w.markFailed(sessionEvent.SessionID, event.Directory)
 			w.emit(ctx, Signal{
 				SessionID: sessionEvent.SessionID,
 				Directory: event.Directory,
@@ -281,12 +289,30 @@ func (w *Watcher) updateStatus(ctx context.Context, sessionID, directory, curren
 	}
 	w.mu.Lock()
 	previous, known := w.statuses[sessionID]
-	w.statuses[sessionID] = observedStatus{Type: current, Directory: directory}
+	next := observedStatus{Type: current, Directory: directory, Failed: previous.Failed}
+	if current == "idle" {
+		next.Failed = false
+	}
+	w.statuses[sessionID] = next
 	w.mu.Unlock()
 
-	if known && previous.Type != "idle" && current == "idle" {
+	if known && previous.Type != "idle" && current == "idle" && !previous.Failed {
 		w.emit(ctx, Signal{SessionID: sessionID, Directory: directory, Kind: SignalStopped})
 	}
+}
+
+func (w *Watcher) markFailed(sessionID, directory string) {
+	w.mu.Lock()
+	status := w.statuses[sessionID]
+	if status.Type == "" {
+		status.Type = "error"
+	}
+	if directory != "" {
+		status.Directory = directory
+	}
+	status.Failed = true
+	w.statuses[sessionID] = status
+	w.mu.Unlock()
 }
 
 func (w *Watcher) emit(ctx context.Context, signal Signal) {

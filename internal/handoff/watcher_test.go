@@ -51,6 +51,56 @@ func TestWatcherPreservesErrorDirectory(t *testing.T) {
 	}
 }
 
+func TestWatcherSuppressesFinishedSignalAfterError(t *testing.T) {
+	watcher := NewWatcher(&fakeAdapter{}, WatcherOptions{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ctx := context.Background()
+	watcher.updateStatus(ctx, "ses_error", "/work/error", "busy")
+	properties, _ := json.Marshal(map[string]any{
+		"sessionID": "ses_error",
+		"error":     map[string]any{"data": map[string]any{"message": "timeout"}},
+	})
+	watcher.handleEvent(ctx, opencode.Event{
+		Directory: "/work/error", Type: "session.error", Properties: properties,
+	})
+
+	if signal := <-watcher.signals; signal.Kind != SignalError {
+		t.Fatalf("signal = %+v, want error", signal)
+	}
+	watcher.updateStatus(ctx, "ses_error", "/work/error", "idle")
+	select {
+	case signal := <-watcher.signals:
+		t.Fatalf("idle after error emitted signal: %+v", signal)
+	default:
+	}
+
+	// Once the failed run has returned to idle, a later successful run should
+	// still produce the normal finished signal.
+	watcher.updateStatus(ctx, "ses_error", "/work/error", "busy")
+	watcher.updateStatus(ctx, "ses_error", "/work/error", "idle")
+	select {
+	case signal := <-watcher.signals:
+		if signal.Kind != SignalStopped {
+			t.Fatalf("signal = %+v, want stopped", signal)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("successful run did not emit stopped signal")
+	}
+}
+
+func TestWatcherSuppressesMissingStatusAfterError(t *testing.T) {
+	watcher := NewWatcher(&fakeAdapter{}, WatcherOptions{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ctx := context.Background()
+	watcher.updateStatus(ctx, "ses_error", "/work/error", "busy")
+	watcher.markFailed("ses_error", "/work/error")
+	watcher.reconcileStatuses(ctx, "/work/error", map[string]opencode.SessionStatus{})
+
+	select {
+	case signal := <-watcher.signals:
+		t.Fatalf("missing status after error emitted signal: %+v", signal)
+	default:
+	}
+}
+
 func TestWatcherTreatsMissingBusyStatusAsIdle(t *testing.T) {
 	watcher := NewWatcher(&fakeAdapter{}, WatcherOptions{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx := context.Background()
