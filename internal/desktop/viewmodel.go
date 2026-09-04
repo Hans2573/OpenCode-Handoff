@@ -29,7 +29,7 @@ type ServiceStatus struct {
 
 type DashboardSummary struct {
 	ConnectedProjects int `json:"connectedProjects"`
-	RunningSessions   int `json:"runningSessions"`
+	CompletedSessions int `json:"completedSessions"`
 	PendingActions    int `json:"pendingActions"`
 	ConnectedChannels int `json:"connectedChannels"`
 }

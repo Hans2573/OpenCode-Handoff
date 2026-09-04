@@ -29,6 +29,32 @@ func TestMapSessionStatus(t *testing.T) {
 	}
 }
 
+func TestCountCompletedSessionsUsesAllTopLevelMonitoredSessions(t *testing.T) {
+	sessions := []opencode.Session{
+		{ID: "idle"},
+		{ID: "explicit-idle"},
+		{ID: "running"},
+		{ID: "retrying"},
+		{ID: "question"},
+		{ID: "permission"},
+		{ID: "child", ParentID: "idle"},
+	}
+	statuses := map[string]opencode.SessionStatus{
+		"explicit-idle": {Type: "idle"},
+		"running":       {Type: "busy"},
+		"retrying":      {Type: "retry"},
+	}
+	questions := map[string]struct{}{"question": {}}
+	permissions := map[string]struct{}{"permission": {}}
+
+	if got := countCompletedSessions(true, sessions, statuses, questions, permissions); got != 2 {
+		t.Fatalf("completed sessions = %d, want 2", got)
+	}
+	if got := countCompletedSessions(false, sessions, statuses, questions, permissions); got != 0 {
+		t.Fatalf("unmonitored completed sessions = %d, want 0", got)
+	}
+}
+
 func TestLastUserMessageReturnsLatestCompleteText(t *testing.T) {
 	older := opencode.Message{Info: opencode.MessageInfo{Role: "user"}, Parts: []opencode.Part{{Type: "text", Text: "older"}}}
 	older.Info.Time.Created = time.Now().Add(-time.Minute).UnixMilli()

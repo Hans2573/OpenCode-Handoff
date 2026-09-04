@@ -400,7 +400,7 @@ func (m *Manager) GetDashboard() (Dashboard, error) {
 			ChannelName: "飞书", RouteEnabled: route.RouteEnabled, Status: status, LastSeen: route.LastSeen,
 		})
 	}
-	sessions, online := m.collectSessions(ctx, routes)
+	sessions, online, completedSessions := m.collectSessions(ctx, routes)
 	sessions = m.annotateGoalSessions(ctx, sessions)
 	executionRuns, executionSessions, err := m.executionViews(ctx, sessions)
 	if err != nil {
@@ -411,7 +411,7 @@ func (m *Manager) GetDashboard() (Dashboard, error) {
 	m.opencodeOnline = online
 	m.mu.Unlock()
 	service := m.serviceStatus()
-	summary := DashboardSummary{}
+	summary := DashboardSummary{CompletedSessions: completedSessions}
 	for _, project := range projects {
 		if project.RouteEnabled {
 			summary.ConnectedProjects++
@@ -419,8 +419,6 @@ func (m *Manager) GetDashboard() (Dashboard, error) {
 	}
 	for _, session := range sessions {
 		switch session.Status {
-		case "running", "retrying":
-			summary.RunningSessions++
 		case "waiting_permission", "waiting_answer":
 			summary.PendingActions++
 		}
@@ -629,13 +627,13 @@ func (m *Manager) serviceStatus() ServiceStatus {
 	}
 }
 
-func (m *Manager) collectSessions(ctx context.Context, routes []domain.ProjectRoute) ([]SessionView, bool) {
+func (m *Manager) collectSessions(ctx context.Context, routes []domain.ProjectRoute) ([]SessionView, bool, int) {
 	if len(routes) == 0 {
 		m.mu.RLock()
 		client := m.raw
 		m.mu.RUnlock()
 		_, err := client.ListProjects(ctx)
-		return nil, err == nil
+		return nil, err == nil, 0
 	}
 	results := make(chan directoryResult, len(routes))
 	semaphore := make(chan struct{}, 6)
@@ -660,15 +658,17 @@ func (m *Manager) collectSessions(ctx context.Context, routes []domain.ProjectRo
 	}()
 	var sessions []SessionView
 	online := len(routes) == 0
+	completedSessions := 0
 	for result := range results {
 		sessions = append(sessions, result.sessions...)
 		online = online || result.online
+		completedSessions += result.completedSessions
 	}
 	sort.Slice(sessions, func(i, j int) bool { return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt) })
 	if len(sessions) > 150 {
 		sessions = sessions[:150]
 	}
-	return sessions, online
+	return sessions, online, completedSessions
 }
 
 func (m *Manager) collectDirectory(ctx context.Context, route domain.ProjectRoute) directoryResult {
@@ -680,9 +680,6 @@ func (m *Manager) collectDirectory(ctx context.Context, route domain.ProjectRout
 		return directoryResult{}
 	}
 	sort.Slice(sessions, func(i, j int) bool { return sessions[i].Time.Updated > sessions[j].Time.Updated })
-	if len(sessions) > 30 {
-		sessions = sessions[:30]
-	}
 	statuses := make(map[string]opencode.SessionStatus)
 	questions := make(map[string]struct{})
 	permissions := make(map[string]struct{})
@@ -701,6 +698,11 @@ func (m *Manager) collectDirectory(ctx context.Context, route domain.ProjectRout
 			}
 		}
 	}
+	completedSessions := countCompletedSessions(route.RouteEnabled, sessions, statuses, questions, permissions)
+	if len(sessions) > 30 {
+		sessions = sessions[:30]
+	}
+
 	result := make([]SessionView, 0, len(sessions))
 	for index, session := range sessions {
 		if session.ParentID != "" {
@@ -741,12 +743,36 @@ func (m *Manager) collectDirectory(ctx context.Context, route domain.ProjectRout
 		view.BusyForSeconds = m.trackExecution(ctx, view, lastInputAt)
 		result = append(result, view)
 	}
-	return directoryResult{sessions: result, online: true}
+	return directoryResult{sessions: result, online: true, completedSessions: completedSessions}
 }
 
 type directoryResult struct {
-	sessions []SessionView
-	online   bool
+	sessions          []SessionView
+	online            bool
+	completedSessions int
+}
+
+func countCompletedSessions(enabled bool, sessions []opencode.Session, statuses map[string]opencode.SessionStatus, questions, permissions map[string]struct{}) int {
+	if !enabled {
+		return 0
+	}
+	completed := 0
+	for _, session := range sessions {
+		if session.ParentID != "" {
+			continue
+		}
+		status, _, _ := mapSessionStatus(true, statuses[session.ID])
+		if _, waiting := questions[session.ID]; waiting {
+			continue
+		}
+		if _, waiting := permissions[session.ID]; waiting {
+			continue
+		}
+		if status == "idle" {
+			completed++
+		}
+	}
+	return completed
 }
 
 func mapSessionStatus(enabled bool, status opencode.SessionStatus) (string, string, string) {

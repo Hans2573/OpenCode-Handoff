@@ -5,6 +5,7 @@ import {
   Bot,
   Boxes,
   Check,
+  CircleCheck,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -79,7 +80,7 @@ const emptyDashboard: Dashboard = {
     configValid: true,
     openCodeUrl: "http://127.0.0.1:4096",
   },
-  summary: { connectedProjects: 0, runningSessions: 0, pendingActions: 0, connectedChannels: 0 },
+  summary: { connectedProjects: 0, completedSessions: 0, pendingActions: 0, connectedChannels: 0 },
   projects: [],
   sessions: [],
   executionRuns: [],
@@ -248,7 +249,7 @@ function Overview({ dashboard, loading, onNavigate, onRoute, onRefresh }: {
 }) {
   const summaryCards = [
     { label: "已接入项目", value: dashboard.summary.connectedProjects, icon: Folder, tone: "blue" },
-    { label: "运行中 Sessions", value: dashboard.summary.runningSessions, icon: Activity, tone: "green" },
+    { label: "已完成 Sessions", value: dashboard.summary.completedSessions, icon: CircleCheck, tone: "green" },
     { label: "等待操作", value: dashboard.summary.pendingActions, icon: Clock3, tone: "orange" },
     { label: "已连接渠道", value: dashboard.summary.connectedChannels, icon: Link2, tone: "purple" },
   ];

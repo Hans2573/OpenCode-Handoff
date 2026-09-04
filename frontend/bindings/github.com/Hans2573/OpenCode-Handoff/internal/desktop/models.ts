@@ -29,7 +29,7 @@ export interface Dashboard {
 
 export interface DashboardSummary {
     "connectedProjects": number;
-    "runningSessions": number;
+    "completedSessions": number;
     "pendingActions": number;
     "connectedChannels": number;
 }
