@@ -1,0 +1,28 @@
+frontend/src/App.tsx
+  s_2afd3191c4224b::t_47a5632896449e 8,83,252
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/models.ts
+  s_2afd3191c4224b::t_47a5632896449e 32
+internal/desktop/manager_test.go
+  s_2afd3191c4224b::t_92806018948e67 32-57
+internal/desktop/manager.go
+  s_2afd3191c4224b::t_008ec098c0adb2 702-704
+  s_2afd3191c4224b::t_92806018948e67 403,414,630,636,661,665,671,701,705,746,750-775
+internal/desktop/viewmodel.go
+  s_2afd3191c4224b::t_47a5632896449e 32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "95cd7395c765bde8c888536cef1f69d046700e2d",
+  "prompts": {},
+  "sessions": {
+    "s_2afd3191c4224b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06a01-552a-70a1-8863-65a1547ce6aa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
