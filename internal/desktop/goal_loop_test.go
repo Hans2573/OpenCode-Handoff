@@ -346,6 +346,137 @@ func TestGoalLoopStartsContinuesAndCompletesInOneSession(t *testing.T) {
 	}
 }
 
+func TestGoalLoopRetriesSameFailedOutputInsteadOfCountingItAgain(t *testing.T) {
+	var prompts []string
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodGet && (request.URL.Path == "/question" || request.URL.Path == "/permission"):
+			_, _ = io.WriteString(response, `[]`)
+		case request.Method == http.MethodGet && request.URL.Path == "/session/status":
+			_, _ = io.WriteString(response, `{}`)
+		case request.Method == http.MethodGet && request.URL.Path == "/session/ses_failed/message":
+			_, _ = io.WriteString(response, `[{"info":{"id":"msg_rate_limited","sessionID":"ses_failed","role":"assistant","error":{"name":"APIError","data":{"message":"rate limit"}}},"parts":[]}]`)
+		case request.Method == http.MethodPost && request.URL.Path == "/session/ses_failed/prompt_async":
+			var body struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			}
+			_ = json.NewDecoder(request.Body).Decode(&body)
+			if len(body.Parts) > 0 {
+				prompts = append(prompts, body.Parts[0].Text)
+			}
+			response.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	manager, database, project := newGoalLoopTestManager(t, server.URL)
+	now := time.Now().UTC()
+	loop := domain.GoalLoop{
+		ID: "goal_failed", Name: "failed", Goal: "finish", ProjectID: project.ID,
+		ProjectName: project.Name, Directory: project.Directory, SessionID: "ses_failed",
+		AutomationMode: domain.GoalLoopAutonomous, Status: domain.GoalLoopRunning,
+		FailureLimit: 100, CycleCount: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := database.CreateGoalLoop(context.Background(), loop); err != nil {
+		t.Fatal(err)
+	}
+
+	manager.processGoalLoop(context.Background(), loop)
+	stored, err := database.GetGoalLoop(context.Background(), loop.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ConsecutiveFailures != 1 || stored.LastAssistantMessageID != "msg_rate_limited" || stored.PendingFeedback == "" || len(prompts) != 0 {
+		t.Fatalf("first failure loop=%+v prompts=%q", stored, prompts)
+	}
+
+	manager.processGoalLoop(context.Background(), stored)
+	stored, err = database.GetGoalLoop(context.Background(), loop.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ConsecutiveFailures != 0 || stored.CycleCount != 2 || stored.PendingFeedback != "" || len(prompts) != 1 || !strings.Contains(prompts[0], "上一轮执行发生错误：APIError: rate limit") {
+		t.Fatalf("retried loop=%+v prompts=%q", stored, prompts)
+	}
+	events, err := database.ListGoalLoopEvents(context.Background(), loop.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retryEvents := 0
+	for _, event := range events {
+		if event.Type == "retry" {
+			retryEvents++
+		}
+	}
+	if retryEvents != 1 {
+		t.Fatalf("retry events=%d events=%+v", retryEvents, events)
+	}
+}
+
+func TestGoalLoopDoesNotContinueWhileLatestTurnIsPending(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages string
+	}{
+		{
+			name:     "queued user message",
+			messages: `[{"info":{"id":"msg_done","sessionID":"ses_pending","role":"assistant","time":{"created":1,"completed":2}},"parts":[{"type":"text","text":"still working"}]},{"info":{"id":"msg_internal_goal","sessionID":"ses_pending","role":"user","time":{"created":3}},"parts":[{"type":"text","text":"internal goal continuation"}]}]`,
+		},
+		{
+			name:     "assistant response in progress",
+			messages: `[{"info":{"id":"msg_running","sessionID":"ses_pending","role":"assistant","time":{"created":1}},"parts":[{"type":"text","text":"still working"}]}]`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			prompts := 0
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				response.Header().Set("Content-Type", "application/json")
+				switch {
+				case request.Method == http.MethodGet && (request.URL.Path == "/question" || request.URL.Path == "/permission"):
+					_, _ = io.WriteString(response, `[]`)
+				case request.Method == http.MethodGet && request.URL.Path == "/session/status":
+					_, _ = io.WriteString(response, `{}`)
+				case request.Method == http.MethodGet && request.URL.Path == "/session/ses_pending/message":
+					_, _ = io.WriteString(response, test.messages)
+				case request.Method == http.MethodPost && request.URL.Path == "/session/ses_pending/prompt_async":
+					prompts++
+					response.WriteHeader(http.StatusNoContent)
+				default:
+					http.NotFound(response, request)
+				}
+			}))
+			defer server.Close()
+
+			manager, database, project := newGoalLoopTestManager(t, server.URL)
+			now := time.Now().UTC()
+			loop := domain.GoalLoop{
+				ID: "goal_pending", Name: "pending", Goal: "finish", ProjectID: project.ID,
+				ProjectName: project.Name, Directory: project.Directory, SessionID: "ses_pending",
+				AutomationMode: domain.GoalLoopAutonomous, Status: domain.GoalLoopRunning,
+				FailureLimit: 3, CycleCount: 1, CreatedAt: now, UpdatedAt: now,
+			}
+			if err := database.CreateGoalLoop(context.Background(), loop); err != nil {
+				t.Fatal(err)
+			}
+
+			manager.processGoalLoop(context.Background(), loop)
+			stored, err := database.GetGoalLoop(context.Background(), loop.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if prompts != 0 || stored.CycleCount != 1 || stored.ConsecutiveFailures != 0 {
+				t.Fatalf("prompts=%d loop=%+v", prompts, stored)
+			}
+		})
+	}
+}
+
 func TestGoalLoopAttachesExistingIdleSessionWithoutInterruptingIt(t *testing.T) {
 	var prompts []string
 	createdSessions := 0

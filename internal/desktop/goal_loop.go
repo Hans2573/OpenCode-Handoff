@@ -146,11 +146,14 @@ func (m *Manager) processGoalLoop(ctx context.Context, loop domain.GoalLoop) {
 		m.recordGoalFailure(ctx, &loop, err)
 		return
 	}
+	if goalSessionTurnPending(messages) {
+		return
+	}
 	output, ok := opencode.LastAssistantOutput(messages)
 	if !ok || output.MessageID == "" || (output.MessageID == loop.LastAssistantMessageID && loop.PendingFeedback == "") {
 		return
 	}
-	if output.Error != "" {
+	if output.Error != "" && output.MessageID != loop.LastAssistantMessageID {
 		loop.LastAssistantMessageID = output.MessageID
 		loop.PendingFeedback = "上一轮执行发生错误：" + output.Error + "\n请分析错误、选择安全的替代方案并继续完成 Goal。"
 		m.recordGoalFailure(ctx, &loop, errors.New(output.Error))
@@ -219,7 +222,18 @@ func (m *Manager) processGoalLoop(ctx context.Context, loop domain.GoalLoop) {
 	loop.RetryAt = time.Time{}
 	loop.UpdatedAt = time.Now().UTC()
 	_ = m.store.SaveGoalLoop(ctx, loop)
-	_ = m.store.AppendGoalLoopEvent(ctx, loop.ID, "continued", fmt.Sprintf("第 %d 轮：Session 空闲且目标未完成，已要求继续", loop.CycleCount))
+	_ = m.store.AppendGoalLoopEvent(ctx, loop.ID, "continued", fmt.Sprintf("第 %d 轮：已向 OpenCode 提交继续指令，等待执行", loop.CycleCount))
+}
+
+func goalSessionTurnPending(messages []opencode.Message) bool {
+	if len(messages) == 0 {
+		return false
+	}
+	latest := messages[len(messages)-1].Info
+	if latest.Role == "user" {
+		return true
+	}
+	return latest.Role == "assistant" && latest.Time.Created > 0 && latest.Time.Completed == 0
 }
 
 func (m *Manager) ensureGoalApprovalNotifications(ctx context.Context, loop domain.GoalLoop, questions []opencode.QuestionRequest, permissions []opencode.PermissionRequest) {
