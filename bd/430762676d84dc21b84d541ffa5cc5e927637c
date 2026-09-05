@@ -1,0 +1,47 @@
+internal/store/goal_loop.go
+  s_96bf2573427e9b::t_1346fcbe15530c 28-29,31,40,64-65,75-77,253-254,267,278-279,298-303
+internal/store/goal_loop_test.go
+  s_96bf2573427e9b::t_6ecf2417b3cf76 34-36,49
+internal/handoff/engine.go
+  s_96bf2573427e9b::t_12d57b284d450c 484-486,518-521
+internal/domain/goal_loop.go
+  s_96bf2573427e9b::t_1346fcbe15530c 62-64
+internal/opencode/types.go
+  s_96bf2573427e9b::t_1346fcbe15530c 58,76,79-80,157-169,175-196
+  s_08a78b32a401f2::t_8f899103c790c2 197
+internal/desktop/goal_loop.go
+  s_96bf2573427e9b::t_944830c04b96e1 27
+  s_96bf2573427e9b::t_21dcfc1a3917b6 26,28,35-36,134,139,158-159,164-168,171-180,182-185,244,260,265,271-295,298-303,311-339,365-394,398-419,466
+  s_96bf2573427e9b::t_3b27ffddc95d9b 160-163
+  s_96bf2573427e9b::t_52c8561958d579 89,95,102,125,129,154,266-270,340-364
+  s_96bf2573427e9b::t_12d57b284d450c 891,994,1346
+  s_96bf2573427e9b::t_e05303ba0c0827 304-310,395-397
+internal/desktop/goal_loop_test.go
+  s_96bf2573427e9b::t_6ecf2417b3cf76 480-594
+internal/store/sqlite.go
+  s_96bf2573427e9b::t_1346fcbe15530c 197-199,258-260
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "bd430762676d84dc21b84d541ffa5cc5e927637c",
+  "prompts": {},
+  "sessions": {
+    "s_08a78b32a401f2": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f95a64396ffenMzzqdKiCtBn97",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    },
+    "s_96bf2573427e9b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06d3d-8578-7992-bdc3-02a5ffd0ebc3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
