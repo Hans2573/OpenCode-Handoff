@@ -31,6 +31,9 @@ func TestSQLiteGoalLoopLifecycle(t *testing.T) {
 	loop.SessionID = "ses_1"
 	loop.Status = domain.GoalLoopRunning
 	loop.CycleCount = 2
+	loop.PendingUserMessageID = "msg_goal"
+	loop.PromptSubmittedAt = now.Add(2 * time.Second)
+	loop.PromptIdleSince = now.Add(3 * time.Second)
 	loop.RetryAt = now.Add(time.Minute)
 	loop.UpdatedAt = now.Add(time.Second)
 	if err := database.SaveGoalLoop(ctx, loop); err != nil {
@@ -43,7 +46,7 @@ func TestSQLiteGoalLoopLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.SessionID != "ses_1" || stored.Status != domain.GoalLoopRunning || stored.CycleCount != 2 || stored.FailureLimit != 7 || stored.ModelProviderID != "openai" || stored.ModelID != "gpt-test" || stored.ModelVariant != "high" || stored.PermissionApprovalMode != domain.GoalPermissionAllowAll {
+	if stored.SessionID != "ses_1" || stored.Status != domain.GoalLoopRunning || stored.CycleCount != 2 || stored.FailureLimit != 7 || stored.ModelProviderID != "openai" || stored.ModelID != "gpt-test" || stored.ModelVariant != "high" || stored.PermissionApprovalMode != domain.GoalPermissionAllowAll || stored.PendingUserMessageID != "msg_goal" || !stored.PromptSubmittedAt.Equal(now.Add(2*time.Second)) || !stored.PromptIdleSince.Equal(now.Add(3*time.Second)) {
 		t.Fatalf("stored loop = %+v", stored)
 	}
 	events, err := database.ListGoalLoopEvents(ctx, loop.ID, 10)

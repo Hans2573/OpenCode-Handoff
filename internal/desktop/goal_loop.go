@@ -23,13 +23,17 @@ var (
 	goalBlockedPattern    = regexp.MustCompile("(?s)```goal-status\\s*<<<\\s*\\{.*\"completed\"\\s*:\\s*false.*\"blocked\"\\s*:\\s*true.*\\}\\s*>>>\\s*```\\s*$")
 )
 
-const goalContinuationPrompt = `继续完成这个 Session 最初的目标。不要停留在进度汇报；请继续检查、执行和验证工作。只有当目标已经完全达成时，才在回复末尾单独输出以下标记；未完成时不要输出它：
+const (
+	goalPromptIdleTimeout  = 30 * time.Second
+	goalContinuationPrompt = `继续完成这个 Session 最初的目标。不要停留在进度汇报；请继续检查、执行和验证工作。只有当目标已经完全达成时，才在回复末尾单独输出以下标记；未完成时不要输出它：
 
 ` + "```goal-status\n<<<{\"completed\":true}>>>\n```" + `
 
 如果目标与不可关闭的安全边界存在确定冲突，并且已经穷尽安全替代方案，才在回复末尾输出：
 
 ` + "```goal-status\n<<<{\"completed\":false,\"blocked\":true,\"reason\":\"具体阻塞原因\",\"attempts\":[\"已经尝试的安全方案\"],\"required_capability\":\"缺少的条件\"}>>>\n```"
+	goalOrphanRecoveryPrompt = `上一条 Goal 指令已经提交，但 Session 持续空闲且没有产生对应的 Agent 回合。请从当前工作区状态继续完成这个 Session 最初的目标，不要重复已经完成的工作。`
+)
 
 func (m *Manager) goalLoopSupervisor() {
 	ticker := time.NewTicker(3 * time.Second)
@@ -82,17 +86,20 @@ func (m *Manager) processGoalLoop(ctx context.Context, loop domain.GoalLoop) {
 
 	questions, err := m.raw.ListQuestions(ctx, loop.Directory)
 	if err != nil {
+		loop.PromptIdleSince = time.Time{}
 		m.recordGoalFailure(ctx, &loop, err)
 		return
 	}
 	permissions, err := m.raw.ListPermissions(ctx, loop.Directory)
 	if err != nil {
+		loop.PromptIdleSince = time.Time{}
 		m.recordGoalFailure(ctx, &loop, err)
 		return
 	}
 	if loop.AutomationMode == domain.GoalLoopAutonomous {
 		handled, decisionErr := m.processAutonomousRequests(ctx, &loop, questions, permissions)
 		if decisionErr != nil {
+			loop.PromptIdleSince = time.Time{}
 			m.recordSupervisorFailure(ctx, &loop, decisionErr)
 			return
 		}
@@ -115,20 +122,21 @@ func (m *Manager) processGoalLoop(ctx context.Context, loop domain.GoalLoop) {
 
 	statuses, err := m.raw.GetSessionStatuses(ctx, loop.Directory)
 	if err != nil {
+		loop.PromptIdleSince = time.Time{}
 		m.recordGoalFailure(ctx, &loop, err)
 		return
 	}
-	status, busy := statuses[loop.SessionID]
-	if busy && !slices.Contains([]string{"", "idle", "error", "failed", "stopped", "interrupted"}, strings.ToLower(status.Type)) {
+	if goalSessionBusy(statuses, loop.SessionID) {
 		nextStatus := domain.GoalLoopRunning
 		if loop.CycleCount == 0 && loop.AttachedSession {
 			nextStatus = domain.GoalLoopWaitingTakeover
 		}
-		if loop.Status != nextStatus || loop.ConsecutiveFailures != 0 {
+		if loop.Status != nextStatus || loop.ConsecutiveFailures != 0 || !loop.PromptIdleSince.IsZero() {
 			loop.Status = nextStatus
 			loop.ConsecutiveFailures = 0
 			loop.LastError = ""
 			loop.RetryAt = time.Time{}
+			loop.PromptIdleSince = time.Time{}
 			loop.UpdatedAt = time.Now().UTC()
 			_ = m.store.SaveGoalLoop(ctx, loop)
 		}
@@ -143,14 +151,38 @@ func (m *Manager) processGoalLoop(ctx context.Context, loop domain.GoalLoop) {
 
 	messages, err := m.raw.GetMessages(ctx, loop.SessionID, loop.Directory, 50)
 	if err != nil {
+		loop.PromptIdleSince = time.Time{}
 		m.recordGoalFailure(ctx, &loop, err)
 		return
 	}
-	if goalSessionTurnPending(messages) {
+	trackingChanged := reconcilePendingGoalUser(&loop, messages)
+	output, ok, matchedPending := goalAssistantOutput(loop, messages)
+	if ok && matchedPending && !loop.PromptIdleSince.IsZero() {
+		loop.PromptIdleSince = time.Time{}
+		trackingChanged = true
+	}
+	if ok && output.Created > 0 && output.Completed == 0 {
+		if trackingChanged {
+			loop.UpdatedAt = time.Now().UTC()
+			_ = m.store.SaveGoalLoop(ctx, loop)
+		}
 		return
 	}
-	output, ok := opencode.LastAssistantOutput(messages)
+	if !ok && (loop.PendingUserMessageID != "" || !loop.PromptSubmittedAt.IsZero()) {
+		m.waitOrRecoverOrphanedGoalPrompt(ctx, &loop, trackingChanged)
+		return
+	}
+	if !ok && goalAssistantTurnPending(messages) {
+		return
+	}
+	if matchedPending {
+		clearGoalPromptTracking(&loop)
+	}
 	if !ok || output.MessageID == "" || (output.MessageID == loop.LastAssistantMessageID && loop.PendingFeedback == "") {
+		if trackingChanged {
+			loop.UpdatedAt = time.Now().UTC()
+			_ = m.store.SaveGoalLoop(ctx, loop)
+		}
 		return
 	}
 	if output.Error != "" && output.MessageID != loop.LastAssistantMessageID {
@@ -209,7 +241,7 @@ func (m *Manager) processGoalLoop(ctx context.Context, loop domain.GoalLoop) {
 	if loop.PendingFeedback != "" {
 		prompt = loop.PendingFeedback + "\n\n" + goalContinuationPrompt
 	}
-	if err := m.raw.SendPrompt(ctx, loop.SessionID, loop.Directory, prompt, goalModelRef(loop)); err != nil {
+	if err := m.sendGoalPrompt(ctx, &loop, prompt); err != nil {
 		m.recordGoalFailure(ctx, &loop, err)
 		return
 	}
@@ -225,15 +257,166 @@ func (m *Manager) processGoalLoop(ctx context.Context, loop domain.GoalLoop) {
 	_ = m.store.AppendGoalLoopEvent(ctx, loop.ID, "continued", fmt.Sprintf("第 %d 轮：已向 OpenCode 提交继续指令，等待执行", loop.CycleCount))
 }
 
-func goalSessionTurnPending(messages []opencode.Message) bool {
+func goalAssistantTurnPending(messages []opencode.Message) bool {
 	if len(messages) == 0 {
 		return false
 	}
 	latest := messages[len(messages)-1].Info
-	if latest.Role == "user" {
+	return latest.Role == "assistant" && latest.Time.Created > 0 && latest.Time.Completed == 0
+}
+
+func goalSessionBusy(statuses map[string]opencode.SessionStatus, sessionID string) bool {
+	status, exists := statuses[sessionID]
+	return exists && !slices.Contains([]string{"", "idle", "error", "failed", "stopped", "interrupted"}, strings.ToLower(status.Type))
+}
+
+func reconcilePendingGoalUser(loop *domain.GoalLoop, messages []opencode.Message) bool {
+	if loop.PendingUserMessageID != "" || len(messages) == 0 {
+		return false
+	}
+	minimumCreated := loop.PromptSubmittedAt.UnixMilli()
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if message.Info.Role != "user" || message.Info.ID == "" {
+			continue
+		}
+		if !loop.PromptSubmittedAt.IsZero() && message.Info.Time.Created > 0 && message.Info.Time.Created < minimumCreated-2000 {
+			continue
+		}
+		if loop.PromptSubmittedAt.IsZero() && index != len(messages)-1 {
+			return false
+		}
+		loop.PendingUserMessageID = message.Info.ID
+		if loop.PromptSubmittedAt.IsZero() {
+			loop.PromptSubmittedAt = time.UnixMilli(message.Info.Time.Created).UTC()
+			if message.Info.Time.Created == 0 {
+				loop.PromptSubmittedAt = time.Now().UTC()
+			}
+		}
 		return true
 	}
-	return latest.Role == "assistant" && latest.Time.Created > 0 && latest.Time.Completed == 0
+	return false
+}
+
+func goalAssistantOutput(loop domain.GoalLoop, messages []opencode.Message) (opencode.AssistantOutput, bool, bool) {
+	if loop.PendingUserMessageID == "" {
+		output, ok := opencode.LastAssistantOutput(messages)
+		if !ok || loop.PromptSubmittedAt.IsZero() || output.MessageID == loop.LastAssistantMessageID {
+			return output, ok, false
+		}
+		if output.Created > 0 && output.Created < loop.PromptSubmittedAt.UnixMilli() {
+			return opencode.AssistantOutput{}, false, false
+		}
+		return output, true, true
+	}
+	if output, ok := opencode.LastAssistantOutputForParent(messages, loop.PendingUserMessageID); ok {
+		return output, true, true
+	}
+	// Older OpenCode responses may omit parentID. Only accept a new assistant
+	// created after this submission; a different parentID is definitively unrelated.
+	output, ok := opencode.LastAssistantOutput(messages)
+	if !ok || output.ParentID != "" || output.MessageID == loop.LastAssistantMessageID {
+		return opencode.AssistantOutput{}, false, false
+	}
+	if !loop.PromptSubmittedAt.IsZero() && output.Created > 0 && output.Created < loop.PromptSubmittedAt.UnixMilli() {
+		return opencode.AssistantOutput{}, false, false
+	}
+	return output, true, true
+}
+
+func (m *Manager) waitOrRecoverOrphanedGoalPrompt(ctx context.Context, loop *domain.GoalLoop, changed bool) {
+	now := time.Now().UTC()
+	if loop.PromptIdleSince.IsZero() {
+		loop.PromptIdleSince = now
+		loop.UpdatedAt = now
+		_ = m.store.SaveGoalLoop(ctx, *loop)
+		return
+	}
+	if now.Sub(loop.PromptIdleSince) < goalPromptIdleTimeout {
+		if changed {
+			loop.UpdatedAt = now
+			_ = m.store.SaveGoalLoop(ctx, *loop)
+		}
+		return
+	}
+	statuses, err := m.raw.GetSessionStatuses(ctx, loop.Directory)
+	if err != nil {
+		loop.PromptIdleSince = time.Time{}
+		m.recordGoalFailure(ctx, loop, fmt.Errorf("确认 Goal 回合空闲状态：%w", err))
+		return
+	}
+	if goalSessionBusy(statuses, loop.SessionID) {
+		loop.PromptIdleSince = time.Time{}
+		loop.UpdatedAt = now
+		_ = m.store.SaveGoalLoop(ctx, *loop)
+		return
+	}
+	messages, err := m.raw.GetMessages(ctx, loop.SessionID, loop.Directory, 50)
+	if err != nil {
+		loop.PromptIdleSince = time.Time{}
+		m.recordGoalFailure(ctx, loop, fmt.Errorf("确认 Goal 回合消息状态：%w", err))
+		return
+	}
+	reconcilePendingGoalUser(loop, messages)
+	if output, ok, matched := goalAssistantOutput(*loop, messages); ok && (matched || (output.Created > 0 && output.Completed == 0)) {
+		loop.PromptIdleSince = time.Time{}
+		loop.UpdatedAt = now
+		_ = m.store.SaveGoalLoop(ctx, *loop)
+		return
+	}
+	orphanedMessageID := loop.PendingUserMessageID
+	prompt := goalOrphanRecoveryPrompt + "\n\n" + goalContinuationPrompt
+	if err := m.sendGoalPrompt(ctx, loop, prompt); err != nil {
+		m.recordGoalFailure(ctx, loop, fmt.Errorf("重新唤醒未启动的 Goal 回合：%w", err))
+		return
+	}
+	loop.CycleCount++
+	loop.Status = domain.GoalLoopRunning
+	loop.ConsecutiveFailures = 0
+	loop.LastError = ""
+	loop.RetryAt = time.Time{}
+	loop.UpdatedAt = now
+	_ = m.store.SaveGoalLoop(ctx, *loop)
+	_ = m.store.AppendGoalLoopEventDetails(ctx, loop.ID, "orphan_recovered", "Goal 指令提交后未启动，已自动重新唤醒 Session", map[string]any{"orphanedUserMessageId": orphanedMessageID})
+}
+
+func (m *Manager) sendGoalPrompt(ctx context.Context, loop *domain.GoalLoop, prompt string) error {
+	submittedAt := time.Now().UTC()
+	if err := m.raw.SendPrompt(ctx, loop.SessionID, loop.Directory, prompt, goalModelRef(*loop)); err != nil {
+		return err
+	}
+	loop.PendingUserMessageID = ""
+	loop.PromptSubmittedAt = submittedAt
+	loop.PromptIdleSince = time.Time{}
+	messages, err := m.raw.GetMessages(ctx, loop.SessionID, loop.Directory, 10)
+	if err == nil {
+		for index := len(messages) - 1; index >= 0; index-- {
+			message := messages[index]
+			if message.Info.Role == "user" &&
+				(message.Info.Time.Created == 0 || message.Info.Time.Created >= submittedAt.UnixMilli()-2000) &&
+				strings.TrimSpace(messageText(message)) == strings.TrimSpace(prompt) {
+				loop.PendingUserMessageID = message.Info.ID
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func messageText(message opencode.Message) string {
+	var chunks []string
+	for _, part := range message.Parts {
+		if part.Type == "text" && strings.TrimSpace(part.Text) != "" {
+			chunks = append(chunks, part.Text)
+		}
+	}
+	return strings.Join(chunks, "\n\n")
+}
+
+func clearGoalPromptTracking(loop *domain.GoalLoop) {
+	loop.PendingUserMessageID = ""
+	loop.PromptSubmittedAt = time.Time{}
+	loop.PromptIdleSince = time.Time{}
 }
 
 func (m *Manager) ensureGoalApprovalNotifications(ctx context.Context, loop domain.GoalLoop, questions []opencode.QuestionRequest, permissions []opencode.PermissionRequest) {
@@ -280,7 +463,7 @@ func (m *Manager) launchGoalLoop(ctx context.Context, loop *domain.GoalLoop) err
 		prompt += "\n\n这是一个接入现有 Session 的 Goal Loop。请先检查当前 Session 已经完成的工作和工作区现状，保留有效成果，然后继续完成剩余目标。不要假定此前任务失败，也不要无必要地重新实现。"
 		prompt += "\n\n" + goalContinuationPrompt
 	}
-	if err := m.raw.SendPrompt(ctx, loop.SessionID, loop.Directory, prompt, goalModelRef(*loop)); err != nil {
+	if err := m.sendGoalPrompt(ctx, loop, prompt); err != nil {
 		return fmt.Errorf("发送 /goal：%w", err)
 	}
 	loop.Status = domain.GoalLoopRunning
@@ -705,6 +888,7 @@ func resetGoalLoopForRestart(loop *domain.GoalLoop) {
 	loop.LastAssistantMessageID = ""
 	loop.LastError = ""
 	loop.PendingFeedback = ""
+	clearGoalPromptTracking(loop)
 	loop.SupervisorLastMessageID = ""
 	clearSupervisorDecision(loop)
 	loop.RetryAt = time.Time{}
@@ -807,7 +991,7 @@ func (m *Manager) ResumeGoalLoop(id string) (GoalLoopPage, error) {
 	if loop.SessionID == "" || loop.CycleCount == 0 {
 		err = m.launchGoalLoop(ctx, &loop)
 	} else {
-		err = m.raw.SendPrompt(ctx, loop.SessionID, loop.Directory, goalContinuationPrompt, goalModelRef(loop))
+		err = m.sendGoalPrompt(ctx, &loop, goalContinuationPrompt)
 		if err == nil {
 			loop.CycleCount++
 			loop.Status = domain.GoalLoopRunning
@@ -1159,6 +1343,7 @@ func (m *Manager) prepareAttachedGoalLoop(ctx context.Context, loop *domain.Goal
 	}
 	loop.Status = domain.GoalLoopWaitingTakeover
 	loop.CycleCount = 0
+	clearGoalPromptTracking(loop)
 	loop.UpdatedAt = time.Now().UTC()
 	if err := m.store.SaveGoalLoop(ctx, *loop); err != nil {
 		return err

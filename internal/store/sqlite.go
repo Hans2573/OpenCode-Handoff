@@ -194,6 +194,9 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			consecutive_failures INTEGER NOT NULL DEFAULT 0,
 			cycle_count INTEGER NOT NULL DEFAULT 0,
 			last_assistant_message_id TEXT NOT NULL DEFAULT '',
+			pending_user_message_id TEXT NOT NULL DEFAULT '',
+			prompt_submitted_at INTEGER,
+			prompt_idle_since INTEGER,
 			last_error TEXT NOT NULL DEFAULT '',
 			retry_at INTEGER,
 			created_at INTEGER NOT NULL,
@@ -252,6 +255,9 @@ func (s *SQLite) migrate(ctx context.Context) error {
 		"pending_request_type":         "TEXT NOT NULL DEFAULT ''",
 		"supervisor_last_message_id":   "TEXT NOT NULL DEFAULT ''",
 		"pending_feedback":             "TEXT NOT NULL DEFAULT ''",
+		"pending_user_message_id":      "TEXT NOT NULL DEFAULT ''",
+		"prompt_submitted_at":          "INTEGER",
+		"prompt_idle_since":            "INTEGER",
 	} {
 		if err := s.ensureColumn(ctx, "goal_loops", name, definition); err != nil {
 			return err

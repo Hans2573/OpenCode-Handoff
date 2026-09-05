@@ -55,6 +55,7 @@ type Message struct {
 
 type MessageInfo struct {
 	ID        string          `json:"id"`
+	ParentID  string          `json:"parentID,omitempty"`
 	SessionID string          `json:"sessionID"`
 	Role      string          `json:"role"`
 	Model     *ModelRef       `json:"model,omitempty"`
@@ -72,8 +73,11 @@ type Part struct {
 
 type AssistantOutput struct {
 	MessageID string
+	ParentID  string
 	Text      string
 	Error     string
+	Created   int64
+	Completed int64
 }
 
 type Event struct {
@@ -150,25 +154,45 @@ func LastAssistantOutput(messages []Message) (AssistantOutput, bool) {
 		if message.Info.Role != "assistant" {
 			continue
 		}
-		start := 0
-		for index, part := range message.Parts {
-			if part.Type == "tool" {
-				start = index + 1
-			}
-		}
-		var chunks []string
-		for _, part := range message.Parts[start:] {
-			if part.Type == "text" && strings.TrimSpace(part.Text) != "" {
-				chunks = append(chunks, part.Text)
-			}
-		}
-		return AssistantOutput{
-			MessageID: message.Info.ID,
-			Text:      strings.TrimSpace(strings.Join(chunks, "\n\n")),
-			Error:     ErrorSummary(message.Info.Error),
-		}, true
+		return assistantOutput(message), true
 	}
 	return AssistantOutput{}, false
+}
+
+func LastAssistantOutputForParent(messages []Message, parentID string) (AssistantOutput, bool) {
+	if parentID == "" {
+		return AssistantOutput{}, false
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		message := messages[i]
+		if message.Info.Role == "assistant" && message.Info.ParentID == parentID {
+			return assistantOutput(message), true
+		}
+	}
+	return AssistantOutput{}, false
+}
+
+func assistantOutput(message Message) AssistantOutput {
+	start := 0
+	for index, part := range message.Parts {
+		if part.Type == "tool" {
+			start = index + 1
+		}
+	}
+	var chunks []string
+	for _, part := range message.Parts[start:] {
+		if part.Type == "text" && strings.TrimSpace(part.Text) != "" {
+			chunks = append(chunks, part.Text)
+		}
+	}
+	return AssistantOutput{
+		MessageID: message.Info.ID,
+		ParentID:  message.Info.ParentID,
+		Text:      strings.TrimSpace(strings.Join(chunks, "\n\n")),
+		Error:     ErrorSummary(message.Info.Error),
+		Created:   message.Info.Time.Created,
+		Completed: message.Info.Time.Completed,
+	}
 }
 
 func ErrorSummary(raw json.RawMessage) string {

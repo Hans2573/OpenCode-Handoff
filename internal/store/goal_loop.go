@@ -25,9 +25,10 @@ func (s *SQLite) CreateGoalLoop(ctx context.Context, loop domain.GoalLoop) error
 			supervisor_model_variant, supervisor_session_id, pending_request_id,
 			pending_request_type, supervisor_last_message_id, pending_feedback,
 			status, require_completion_confirmation, failure_limit,
-			consecutive_failures, cycle_count, last_assistant_message_id, last_error,
+			consecutive_failures, cycle_count, last_assistant_message_id,
+			pending_user_message_id, prompt_submitted_at, prompt_idle_since, last_error,
 			retry_at, created_at, updated_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		loop.ID, loop.Name, loop.Goal, loop.ProjectID, loop.ProjectName, loop.Directory,
 		loop.AgentID, loop.AgentName, loop.ModelProviderID, loop.ModelID, loop.ModelName, loop.ModelVariant,
 		loop.SessionID, boolInt(loop.AttachedSession), loop.AutomationMode, loop.PermissionApprovalMode, string(allowedDirectories),
@@ -36,6 +37,7 @@ func (s *SQLite) CreateGoalLoop(ctx context.Context, loop domain.GoalLoop) error
 		loop.PendingRequestType, loop.SupervisorLastMessageID, loop.PendingFeedback,
 		loop.Status, boolInt(loop.RequireCompletionConfirmation),
 		loop.FailureLimit, loop.ConsecutiveFailures, loop.CycleCount, loop.LastAssistantMessageID,
+		loop.PendingUserMessageID, nullableTime(loop.PromptSubmittedAt), nullableTime(loop.PromptIdleSince),
 		loop.LastError, nullableTime(loop.RetryAt), loop.CreatedAt.UTC().UnixMilli(),
 		loop.UpdatedAt.UTC().UnixMilli(), nullableTime(loop.CompletedAt))
 	if err != nil {
@@ -59,7 +61,8 @@ func (s *SQLite) SaveGoalLoop(ctx context.Context, loop domain.GoalLoop) error {
 			supervisor_model_variant = ?, supervisor_session_id = ?, pending_request_id = ?,
 			pending_request_type = ?, supervisor_last_message_id = ?, pending_feedback = ?, status = ?,
 			require_completion_confirmation = ?, failure_limit = ?, consecutive_failures = ?,
-			cycle_count = ?, last_assistant_message_id = ?, last_error = ?, retry_at = ?,
+			cycle_count = ?, last_assistant_message_id = ?, pending_user_message_id = ?,
+			prompt_submitted_at = ?, prompt_idle_since = ?, last_error = ?, retry_at = ?,
 			updated_at = ?, completed_at = ?
 		WHERE id = ?`,
 		loop.Name, loop.Goal, loop.ProjectID, loop.ProjectName, loop.Directory,
@@ -69,7 +72,9 @@ func (s *SQLite) SaveGoalLoop(ctx context.Context, loop domain.GoalLoop) error {
 		loop.SupervisorModelVariant, loop.SupervisorSessionID, loop.PendingRequestID,
 		loop.PendingRequestType, loop.SupervisorLastMessageID, loop.PendingFeedback, loop.Status,
 		boolInt(loop.RequireCompletionConfirmation), loop.FailureLimit, loop.ConsecutiveFailures,
-		loop.CycleCount, loop.LastAssistantMessageID, loop.LastError, nullableTime(loop.RetryAt),
+		loop.CycleCount, loop.LastAssistantMessageID, loop.PendingUserMessageID,
+		nullableTime(loop.PromptSubmittedAt), nullableTime(loop.PromptIdleSince),
+		loop.LastError, nullableTime(loop.RetryAt),
 		loop.UpdatedAt.UTC().UnixMilli(), nullableTime(loop.CompletedAt), loop.ID)
 	if err != nil {
 		return fmt.Errorf("save goal loop: %w", err)
@@ -245,7 +250,8 @@ const goalLoopSelect = `
 		supervisor_model_variant, supervisor_session_id, pending_request_id,
 		pending_request_type, supervisor_last_message_id, pending_feedback,
 		status, require_completion_confirmation, failure_limit,
-		consecutive_failures, cycle_count, last_assistant_message_id, last_error,
+		consecutive_failures, cycle_count, last_assistant_message_id,
+		pending_user_message_id, prompt_submitted_at, prompt_idle_since, last_error,
 		retry_at, created_at, updated_at, completed_at
 	FROM goal_loops`
 
@@ -258,7 +264,7 @@ func scanGoalLoop(row rowScanner) (domain.GoalLoop, error) {
 	var requireConfirmation int
 	var attachedSession int
 	var allowedDirectoriesJSON string
-	var retryAt, completedAt sql.NullInt64
+	var retryAt, promptSubmittedAt, promptIdleSince, completedAt sql.NullInt64
 	var createdAt, updatedAt int64
 	err := row.Scan(
 		&loop.ID, &loop.Name, &loop.Goal, &loop.ProjectID, &loop.ProjectName, &loop.Directory,
@@ -269,7 +275,8 @@ func scanGoalLoop(row rowScanner) (domain.GoalLoop, error) {
 		&loop.PendingRequestType, &loop.SupervisorLastMessageID, &loop.PendingFeedback,
 		&loop.Status, &requireConfirmation,
 		&loop.FailureLimit, &loop.ConsecutiveFailures, &loop.CycleCount,
-		&loop.LastAssistantMessageID, &loop.LastError, &retryAt, &createdAt, &updatedAt, &completedAt,
+		&loop.LastAssistantMessageID, &loop.PendingUserMessageID, &promptSubmittedAt, &promptIdleSince,
+		&loop.LastError, &retryAt, &createdAt, &updatedAt, &completedAt,
 	)
 	if err != nil {
 		return domain.GoalLoop{}, err
@@ -287,6 +294,12 @@ func scanGoalLoop(row rowScanner) (domain.GoalLoop, error) {
 	loop.UpdatedAt = time.UnixMilli(updatedAt).UTC()
 	if retryAt.Valid {
 		loop.RetryAt = time.UnixMilli(retryAt.Int64).UTC()
+	}
+	if promptSubmittedAt.Valid {
+		loop.PromptSubmittedAt = time.UnixMilli(promptSubmittedAt.Int64).UTC()
+	}
+	if promptIdleSince.Valid {
+		loop.PromptIdleSince = time.UnixMilli(promptIdleSince.Int64).UTC()
 	}
 	if completedAt.Valid {
 		loop.CompletedAt = time.UnixMilli(completedAt.Int64).UTC()

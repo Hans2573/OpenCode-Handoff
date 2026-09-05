@@ -477,6 +477,121 @@ func TestGoalLoopDoesNotContinueWhileLatestTurnIsPending(t *testing.T) {
 	}
 }
 
+func TestGoalLoopRecoversOrphanedUserPromptAfterContinuousIdle(t *testing.T) {
+	now := time.Now().UTC()
+	recovered := false
+	var prompts []string
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodGet && (request.URL.Path == "/question" || request.URL.Path == "/permission"):
+			_, _ = io.WriteString(response, `[]`)
+		case request.Method == http.MethodGet && request.URL.Path == "/session/status":
+			_, _ = io.WriteString(response, `{}`)
+		case request.Method == http.MethodGet && request.URL.Path == "/session/ses_orphan/message":
+			messages := []map[string]any{
+				{"info": map[string]any{"id": "msg_previous", "sessionID": "ses_orphan", "role": "assistant", "parentID": "msg_previous_user", "time": map[string]any{"created": now.Add(-time.Minute).UnixMilli(), "completed": now.Add(-time.Minute + time.Second).UnixMilli()}}, "parts": []map[string]any{{"type": "text", "text": "previous turn"}}},
+				{"info": map[string]any{"id": "msg_orphan", "sessionID": "ses_orphan", "role": "user", "time": map[string]any{"created": now.Add(-time.Minute).UnixMilli()}}, "parts": []map[string]any{{"type": "text", "text": "/goal continue"}}},
+			}
+			if recovered {
+				messages = append(messages, map[string]any{"info": map[string]any{"id": "msg_recovery", "sessionID": "ses_orphan", "role": "user", "time": map[string]any{"created": time.Now().UTC().UnixMilli()}}, "parts": []map[string]any{{"type": "text", "text": goalOrphanRecoveryPrompt + "\n\n" + goalContinuationPrompt}}})
+			}
+			_ = json.NewEncoder(response).Encode(messages)
+		case request.Method == http.MethodPost && request.URL.Path == "/session/ses_orphan/prompt_async":
+			var body struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			}
+			_ = json.NewDecoder(request.Body).Decode(&body)
+			if len(body.Parts) > 0 {
+				prompts = append(prompts, body.Parts[0].Text)
+			}
+			recovered = true
+			response.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	manager, database, project := newGoalLoopTestManager(t, server.URL)
+	loop := domain.GoalLoop{
+		ID: "goal_orphan", Name: "orphan", Goal: "finish", ProjectID: project.ID,
+		ProjectName: project.Name, Directory: project.Directory, SessionID: "ses_orphan",
+		AutomationMode: domain.GoalLoopAutonomous, Status: domain.GoalLoopRunning,
+		FailureLimit: 3, CycleCount: 1, LastAssistantMessageID: "msg_previous",
+		PendingUserMessageID: "msg_orphan", PromptSubmittedAt: now.Add(-time.Minute),
+		PromptIdleSince: now.Add(-goalPromptIdleTimeout - time.Second), CreatedAt: now, UpdatedAt: now,
+	}
+	if err := database.CreateGoalLoop(context.Background(), loop); err != nil {
+		t.Fatal(err)
+	}
+
+	manager.processGoalLoop(context.Background(), loop)
+	stored, err := database.GetGoalLoop(context.Background(), loop.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prompts) != 1 || !strings.HasPrefix(prompts[0], goalOrphanRecoveryPrompt) {
+		t.Fatalf("recovery prompts=%q", prompts)
+	}
+	if stored.CycleCount != 2 || stored.PendingUserMessageID != "msg_recovery" || !stored.PromptIdleSince.IsZero() {
+		t.Fatalf("recovered loop=%+v", stored)
+	}
+	events, err := database.ListGoalLoopEvents(context.Background(), loop.ID, 10)
+	if err != nil || len(events) != 1 || events[0].Type != "orphan_recovered" {
+		t.Fatalf("events=%+v err=%v", events, err)
+	}
+}
+
+func TestGoalLoopDoesNotRecoverWhenTrackedAssistantHasStarted(t *testing.T) {
+	now := time.Now().UTC()
+	prompts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodGet && (request.URL.Path == "/question" || request.URL.Path == "/permission"):
+			_, _ = io.WriteString(response, `[]`)
+		case request.Method == http.MethodGet && request.URL.Path == "/session/status":
+			_, _ = io.WriteString(response, `{}`)
+		case request.Method == http.MethodGet && request.URL.Path == "/session/ses_slow/message":
+			_ = json.NewEncoder(response).Encode([]map[string]any{
+				{"info": map[string]any{"id": "msg_goal", "sessionID": "ses_slow", "role": "user", "time": map[string]any{"created": now.Add(-time.Minute).UnixMilli()}}, "parts": []map[string]any{{"type": "text", "text": "/goal continue"}}},
+				{"info": map[string]any{"id": "msg_slow", "parentID": "msg_goal", "sessionID": "ses_slow", "role": "assistant", "time": map[string]any{"created": now.Add(-time.Minute + time.Second).UnixMilli()}}, "parts": []map[string]any{}},
+			})
+		case request.Method == http.MethodPost && request.URL.Path == "/session/ses_slow/prompt_async":
+			prompts++
+			response.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	manager, database, project := newGoalLoopTestManager(t, server.URL)
+	loop := domain.GoalLoop{
+		ID: "goal_slow", Name: "slow", Goal: "finish", ProjectID: project.ID,
+		ProjectName: project.Name, Directory: project.Directory, SessionID: "ses_slow",
+		AutomationMode: domain.GoalLoopAutonomous, Status: domain.GoalLoopRunning,
+		FailureLimit: 3, CycleCount: 1, PendingUserMessageID: "msg_goal",
+		PromptSubmittedAt: now.Add(-time.Minute), PromptIdleSince: now.Add(-goalPromptIdleTimeout - time.Second),
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := database.CreateGoalLoop(context.Background(), loop); err != nil {
+		t.Fatal(err)
+	}
+
+	manager.processGoalLoop(context.Background(), loop)
+	stored, err := database.GetGoalLoop(context.Background(), loop.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prompts != 0 || stored.PendingUserMessageID != "msg_goal" || !stored.PromptIdleSince.IsZero() {
+		t.Fatalf("prompts=%d loop=%+v", prompts, stored)
+	}
+}
+
 func TestGoalLoopAttachesExistingIdleSessionWithoutInterruptingIt(t *testing.T) {
 	var prompts []string
 	createdSessions := 0

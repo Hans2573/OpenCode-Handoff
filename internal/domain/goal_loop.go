@@ -59,6 +59,9 @@ type GoalLoop struct {
 	ConsecutiveFailures           int
 	CycleCount                    int
 	LastAssistantMessageID        string
+	PendingUserMessageID          string
+	PromptSubmittedAt             time.Time
+	PromptIdleSince               time.Time
 	LastError                     string
 	RetryAt                       time.Time
 	CreatedAt                     time.Time

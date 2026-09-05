@@ -481,6 +481,9 @@ func (e *Engine) handleGoalCompletionReply(ctx context.Context, handoff domain.H
 	if reply.GoalComplete || isGoalCompletionApproval(text) {
 		now := time.Now().UTC()
 		loop.Status = domain.GoalLoopCompleted
+		loop.PendingUserMessageID = ""
+		loop.PromptSubmittedAt = time.Time{}
+		loop.PromptIdleSince = time.Time{}
 		loop.CompletedAt = now
 		loop.UpdatedAt = now
 		if err := e.store.SaveGoalLoop(ctx, loop); err != nil {
@@ -512,7 +515,10 @@ func (e *Engine) handleGoalCompletionReply(ctx context.Context, handoff domain.H
 	loop.ConsecutiveFailures = 0
 	loop.LastError = ""
 	loop.RetryAt = time.Time{}
-	loop.UpdatedAt = time.Now().UTC()
+	loop.PendingUserMessageID = ""
+	loop.PromptSubmittedAt = time.Now().UTC()
+	loop.PromptIdleSince = time.Time{}
+	loop.UpdatedAt = loop.PromptSubmittedAt
 	if err := e.store.SaveGoalLoop(ctx, loop); err != nil {
 		if reopenErr := e.store.Reopen(context.WithoutCancel(ctx), handoff.ID); reopenErr != nil {
 			e.logger.Error("reopen Goal completion handoff after state failure", "handoff_id", handoff.ID, "error", reopenErr)
