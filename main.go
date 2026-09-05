@@ -125,7 +125,9 @@ func newDesktopLogger(path string) (*slog.Logger, *os.File, *slog.LevelVar, erro
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	writer := io.MultiWriter(os.Stderr, file)
+	// Windows GUI builds may have no stderr handle. Write the log first so an
+	// unavailable console cannot prevent persistent startup diagnostics.
+	writer := io.MultiWriter(file, os.Stderr)
 	level := &slog.LevelVar{}
 	level.Set(slog.LevelInfo)
 	return slog.New(slog.NewTextHandler(writer, &slog.HandlerOptions{Level: level})), file, level, nil

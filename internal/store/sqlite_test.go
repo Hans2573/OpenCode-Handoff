@@ -239,6 +239,10 @@ func TestSQLiteProjectRoutesRequireExplicitOptIn(t *testing.T) {
 	if err := database.SyncProjects(ctx, []domain.AgentProject{project}); err != nil {
 		t.Fatal(err)
 	}
+	routes, err := database.ListProjectRoutes(ctx)
+	if err != nil || len(routes) != 1 || routes[0].RouteEnabled {
+		t.Fatalf("new project should be disabled: %+v, %v", routes, err)
+	}
 	if err := database.SetProjectRoute(ctx, project.ID, DefaultChannelID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -246,8 +250,8 @@ func TestSQLiteProjectRoutesRequireExplicitOptIn(t *testing.T) {
 	if err != nil || !reset {
 		t.Fatalf("first EnsureProjectRoutesOptIn() = %v, %v", reset, err)
 	}
-	routes, err := database.ListProjectRoutes(ctx)
-	if err != nil || len(routes) != 1 || routes[0].RouteEnabled {
+	routes, err = database.ListProjectRoutes(ctx)
+	if err != nil || len(routes) != 1 || !routes[0].RouteEnabled {
 		t.Fatalf("routes after opt-in migration = %+v, err = %v", routes, err)
 	}
 	if err := database.SetProjectRoute(ctx, project.ID, DefaultChannelID, true); err != nil {

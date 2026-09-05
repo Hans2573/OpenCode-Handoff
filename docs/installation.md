@@ -46,18 +46,20 @@ opencode serve --hostname 127.0.0.1 --port 4096
 
 ## 数据目录
 
-桌面端的配置、SQLite 数据库和日志默认位于：
+Windows 桌面端的配置、SQLite 数据库和日志默认位于用户目录：
 
 ```text
-%LOCALAPPDATA%\Agent Handoff
+%USERPROFILE%\.agent-handoff
 ```
+
+此目录不受启动器的 AppData 虚拟化影响，从普通 PowerShell、Codex 或安装程序启动均使用同一份数据。可通过绝对路径环境变量 `AGENT_HANDOFF_DATA_DIR` 显式指定其他数据目录；不同启动方式需要使用同一个值。
 
 常用文件包括：
 
 ```text
-%LOCALAPPDATA%\Agent Handoff\config.yaml
-%LOCALAPPDATA%\Agent Handoff\opencode-handoff.db
-%LOCALAPPDATA%\Agent Handoff\logs\agent-handoff.log
+%USERPROFILE%\.agent-handoff\config.yaml
+%USERPROFILE%\.agent-handoff\opencode-handoff.db
+%USERPROFILE%\.agent-handoff\logs\agent-handoff.log
 ```
 
 配置仍是本机明文 YAML；设置页会掩码显示密钥，并标识被环境变量覆盖的字段。不要把配置文件或 SQLite 数据库加入版本控制或 Release。
@@ -66,11 +68,11 @@ opencode serve --hostname 127.0.0.1 --port 4096
 
 桌面端首次启动会尝试从以下位置导入旧 `config.yaml` 和 SQLite 数据库：
 
+- 原 `%LOCALAPPDATA%\Agent Handoff`、`%LOCALAPPDATA%\OpenCode Handoff` 及 Windows 应用隔离目录中的历史数据（优先）
 - 可执行文件附近
 - 当前工作目录
-- `%LOCALAPPDATA%\OpenCode Handoff`
 
-成功迁移后会保留 `.imported.bak` 备份。已经完成飞书绑定的旧用户通常不需要重新 `/bind`。
+导入时通过 SQLite 一致性快照保留 WAL 中已经提交的数据，并保留 `.imported.bak` 备份。已有新目录配置不会被旧文件覆盖。若发现多个不同的历史数据库，会停止自动导入并提示源路径，需先备份、核对并合并，避免默默选择一套空库。已经完成飞书绑定的旧用户通常不需要重新 `/bind`。
 
 桌面端与旧 CLI 使用单实例保护。检测到旧 CLI 正在运行时，桌面端会提示冲突，但不会强制结束 CLI；先停止旧 CLI，再在桌面端点击重试。
 

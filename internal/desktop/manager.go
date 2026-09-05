@@ -61,6 +61,12 @@ func NewManager(parent context.Context, paths Paths, logger *slog.Logger) (*Mana
 		storePath = paths.StorePath
 		cfg.Store.Path = storePath
 	}
+	if storePath == ":memory:" || strings.HasPrefix(storePath, "file:") {
+		cancel()
+		return nil, fmt.Errorf("desktop store.path must name a persistent database file")
+	}
+	paths.StorePath = storePath
+	logger.Info("desktop data paths", "data_dir", paths.DataDir, "config_path", paths.ConfigPath, "store_path", storePath)
 	database, err := store.OpenSQLite(ctx, storePath)
 	if err != nil {
 		cancel()
@@ -71,7 +77,7 @@ func NewManager(parent context.Context, paths Paths, logger *slog.Logger) (*Mana
 		cancel()
 		return nil, err
 	}
-	routesReset, err := database.EnsureProjectRoutesOptIn(ctx)
+	routesInitialized, err := database.EnsureProjectRoutesOptIn(ctx)
 	if err != nil {
 		database.Close()
 		cancel()
@@ -108,8 +114,8 @@ func NewManager(parent context.Context, paths Paths, logger *slog.Logger) (*Mana
 		manager.Close()
 		return nil, err
 	}
-	if routesReset {
-		_ = manager.appendEvent("info", "routes.opt_in_initialized", "projects", "项目接入已初始化为全部未接入", nil)
+	if routesInitialized {
+		_ = manager.appendEvent("info", "routes.opt_in_initialized", "projects", "项目接入策略已初始化，保留现有接入选择", nil)
 	}
 	_ = manager.RefreshProjects()
 	manager.startEngine()

@@ -84,6 +84,6 @@ CLI 的 `config.yaml` 包含本机凭据，SQLite 包含绑定身份、Session �
 
 升级旧 CLI 时，解压新版程序并替换 `opencode-handoff.exe`，同时保留原 `config.yaml` 和 `opencode-handoff.db`。
 
-迁移到桌面端时，首次启动会尝试从可执行文件附近、当前工作目录和 `%LOCALAPPDATA%\OpenCode Handoff` 导入旧配置与数据库，并保留 `.imported.bak`。已经绑定的用户通常无需重新配对。
+迁移到桌面端时，首次启动会尝试从可执行文件附近、当前工作目录和 `%LOCALAPPDATA%\OpenCode Handoff` 导入旧配置与数据库，通过 SQLite 快照导入到 `%USERPROFILE%\.agent-handoff`，并保留 `.imported.bak`。发现多套数据库时会停止自动导入，详情见[数据目录与迁移](installation.md#从旧版迁移)。已经绑定的用户通常无需重新配对。
 
 不要同时运行桌面端 Handoff 引擎和旧 CLI。实例锁检测到冲突时，桌面端会提示先关闭 CLI，不会强制结束进程。

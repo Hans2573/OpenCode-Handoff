@@ -56,13 +56,13 @@ Feishu is not paired; send this command to the bot command="/bind 8A31C29F10"
 桌面端日志位于：
 
 ```text
-%LOCALAPPDATA%\Agent Handoff\logs\agent-handoff.log
+%USERPROFILE%\.agent-handoff\logs\agent-handoff.log
 ```
 
 可用 PowerShell 查看末尾日志：
 
 ```powershell
-Get-Content "$env:LOCALAPPDATA\Agent Handoff\logs\agent-handoff.log" -Tail 100
+Get-Content "$env:USERPROFILE\.agent-handoff\logs\agent-handoff.log" -Tail 100
 ```
 
 将完整的 `/bind <配对码>` 发给机器人：

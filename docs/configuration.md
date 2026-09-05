@@ -126,7 +126,7 @@ handoff:
 
 - `store.path` 是 SQLite 路径。相对路径按配置文件所在目录解析；首次运行会自动创建数据库和表结构。
 - `logging.level` 支持 `debug`、`info`、`warn`、`error`。
-- 桌面端默认把配置、数据库和日志放在 `%LOCALAPPDATA%\Agent Handoff`。
+- 桌面端默认把配置、数据库和日志放在 `%USERPROFILE%\.agent-handoff`。
 
 ## 配置校验
 

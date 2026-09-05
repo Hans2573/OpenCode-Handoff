@@ -35,9 +35,9 @@ func (s *SQLite) EnsureDesktopDefaults(ctx context.Context, endpoint string) err
 	return nil
 }
 
-// EnsureProjectRoutesOptIn applies the desktop's explicit opt-in policy once.
-// It also corrects preview databases created by older builds that automatically
-// enabled every imported project. Later calls preserve the user's choices.
+// EnsureProjectRoutesOptIn records the opt-in policy without changing existing
+// choices. SyncProjects already creates new routes disabled; a missing migration
+// marker is not evidence that an enabled route was chosen automatically.
 func (s *SQLite) EnsureProjectRoutesOptIn(ctx context.Context) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -53,9 +53,6 @@ func (s *SQLite) EnsureProjectRoutesOptIn(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("read project route policy: %w", err)
 	}
 	now := time.Now().UTC().UnixMilli()
-	if _, err := tx.ExecContext(ctx, `UPDATE project_routes SET enabled = 0, updated_at = ?`, now); err != nil {
-		return false, fmt.Errorf("reset project routes to opt-in: %w", err)
-	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO app_settings (key, value, updated_at) VALUES (?, 'true', ?)`, projectRoutesOptInPolicyKey, now); err != nil {
 		return false, fmt.Errorf("record project route policy: %w", err)
 	}
