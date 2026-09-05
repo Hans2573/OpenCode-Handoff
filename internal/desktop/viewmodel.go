@@ -16,15 +16,17 @@ type Dashboard struct {
 }
 
 type ServiceStatus struct {
-	State           string `json:"state"`
-	Message         string `json:"message"`
-	EngineRunning   bool   `json:"engineRunning"`
-	OpenCodeOnline  bool   `json:"openCodeOnline"`
-	FeishuConnected bool   `json:"feishuConnected"`
-	FeishuState     string `json:"feishuState"`
-	FeishuMessage   string `json:"feishuMessage"`
-	ConfigValid     bool   `json:"configValid"`
-	OpenCodeURL     string `json:"openCodeUrl"`
+	State                 string `json:"state"`
+	Message               string `json:"message"`
+	EngineRunning         bool   `json:"engineRunning"`
+	OpenCodeOnline        bool   `json:"openCodeOnline"`
+	FeishuConnected       bool   `json:"feishuConnected"`
+	FeishuState           string `json:"feishuState"`
+	FeishuMessage         string `json:"feishuMessage"`
+	FeishuPairingRequired bool   `json:"feishuPairingRequired"`
+	FeishuPairingCode     string `json:"feishuPairingCode"`
+	ConfigValid           bool   `json:"configValid"`
+	OpenCodeURL           string `json:"openCodeUrl"`
 }
 
 type DashboardSummary struct {

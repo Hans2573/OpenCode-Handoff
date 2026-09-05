@@ -615,14 +615,18 @@ func (m *Manager) serviceStatus() ServiceStatus {
 	defer m.mu.RUnlock()
 	running := m.engine != nil && m.engine.Running()
 	feishuState, feishuMessage := "stopped", "飞书监听未启动"
+	var feishuPairingRequired bool
+	var feishuPairingCode string
 	if m.engine != nil {
 		health := m.engine.ChannelHealth()
 		feishuState, feishuMessage = health.State, health.Message
+		feishuPairingRequired, feishuPairingCode = health.PairingRequired, health.PairingCode
 	}
 	return ServiceStatus{
 		State: m.serviceState, Message: m.serviceMessage, EngineRunning: running,
-		OpenCodeOnline: m.opencodeOnline, FeishuConnected: feishuState == "connected",
+		OpenCodeOnline: m.opencodeOnline, FeishuConnected: feishuState == "connected" && !feishuPairingRequired,
 		FeishuState: feishuState, FeishuMessage: feishuMessage,
+		FeishuPairingRequired: feishuPairingRequired, FeishuPairingCode: feishuPairingCode,
 		ConfigValid: m.configError == "", OpenCodeURL: m.cfg.OpenCode.BaseURL,
 	}
 }
@@ -922,15 +926,19 @@ func (m *Manager) agentViews(service ServiceStatus) []IntegrationView {
 
 func (m *Manager) channelViews(service ServiceStatus) []IntegrationView {
 	status, label := "offline", "未连接"
-	switch service.FeishuState {
-	case "connected":
-		status, label = "connected", "已连接"
-	case "connecting":
-		status, label = "connecting", "连接中"
-	case "reconnecting":
-		status, label = "connecting", "重连中"
-	case "error":
-		status, label = "error", "连接错误"
+	if service.FeishuPairingRequired {
+		status, label = "pairing", "待配对"
+	} else {
+		switch service.FeishuState {
+		case "connected":
+			status, label = "connected", "已连接"
+		case "connecting":
+			status, label = "connecting", "连接中"
+		case "reconnecting":
+			status, label = "connecting", "重连中"
+		case "error":
+			status, label = "error", "连接错误"
+		}
 	}
 	return []IntegrationView{
 		{ID: store.DefaultChannelID, Type: "feishu", Name: "飞书", Status: status, StatusLabel: label, Endpoint: service.FeishuMessage, Available: true},

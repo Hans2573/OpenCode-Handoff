@@ -1117,6 +1117,7 @@ func TestOnMessagePairsFromCommand(t *testing.T) {
 		allowed:      map[string]struct{}{},
 		replies:      make(chan domain.UserReply, 1),
 		logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		health:       Health{State: "connected", PairingRequired: true, PairingCode: "ABC123"},
 		replyText: func(_ context.Context, _ string, text string) error {
 			confirmation = text
 			return nil
@@ -1147,10 +1148,22 @@ func TestOnMessagePairsFromCommand(t *testing.T) {
 	if !strings.Contains(confirmation, "配对成功") {
 		t.Fatalf("confirmation = %q", confirmation)
 	}
+	if health := client.Health(); health.PairingRequired || health.PairingCode != "" || health.State != "connected" {
+		t.Fatalf("health after pairing = %+v", health)
+	}
 	select {
 	case <-client.paired:
 	default:
 		t.Fatal("pairing did not unblock senders")
+	}
+}
+
+func TestHealthKeepsPairingPromptAcrossConnectionChanges(t *testing.T) {
+	client := New(Options{PairingCode: "abc123"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	client.setHealth("connected", "飞书 WebSocket 已连接")
+	health := client.Health()
+	if !health.PairingRequired || health.PairingCode != "ABC123" || health.State != "connected" {
+		t.Fatalf("health before pairing = %+v", health)
 	}
 }
 

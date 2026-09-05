@@ -109,10 +109,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .page-header p, .section-description { margin: 0; color: var(--muted); font-size: var(--font-emphasis); line-height: 1.55; }
 
 .banner { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 11px 13px; border: 1px solid; border-radius: 8px; font-size: var(--font-emphasis); }
-.banner span { flex: 1; }
-.banner button { border: 0; background: transparent; color: inherit; cursor: pointer; font-weight: 600; }
+.banner > span { flex: 1; }
+.banner button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: inherit; cursor: pointer; font-weight: 600; white-space: nowrap; }
 .error-banner { color: #ffc5c8; border-color: rgba(240,91,97,.38); background: rgba(240,91,97,.1); }
 .warning-banner { color: #ffd399; border-color: rgba(242,140,40,.35); background: rgba(242,140,40,.1); }
+.pairing-message { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
+.pairing-message strong { font-size: var(--font-emphasis); }
+.pairing-message span { color: #e8bd83; font-size: var(--font-caption); }
+.pairing-message code { padding: 2px 5px; border: 1px solid rgba(242,140,40,.28); border-radius: 4px; background: rgba(0,0,0,.18); color: #ffe1b8; font-family: Consolas, monospace; }
 
 .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 15px; margin-bottom: 16px; }
 .summary-card { display: flex; align-items: center; justify-content: space-between; min-height: 112px; padding: 20px 22px; border: 1px solid var(--line); border-radius: 9px; background: linear-gradient(145deg, rgba(21,31,42,.98), rgba(16,24,33,.98)); box-shadow: 0 10px 22px rgba(0,0,0,.12); }

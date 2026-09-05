@@ -229,6 +229,8 @@ export interface ServiceStatus {
     "feishuConnected": boolean;
     "feishuState": string;
     "feishuMessage": string;
+    "feishuPairingRequired": boolean;
+    "feishuPairingCode": string;
     "configValid": boolean;
     "openCodeUrl": string;
 }

@@ -39,8 +39,10 @@ type Options struct {
 }
 
 type Health struct {
-	State   string
-	Message string
+	State           string
+	Message         string
+	PairingRequired bool
+	PairingCode     string
 }
 
 const handoffSeparatorQuietPeriod = 10 * time.Second
@@ -86,7 +88,12 @@ func New(options Options, logger *slog.Logger) *Client {
 		logger:         logger,
 		maxOutputChars: options.MaxOutputChars,
 		lastHandoffAt:  make(map[string]time.Time),
-		health:         Health{State: "stopped", Message: "飞书监听未启动"},
+		health: Health{
+			State:           "stopped",
+			Message:         "飞书监听未启动",
+			PairingRequired: options.PairingCode != "",
+			PairingCode:     strings.ToUpper(options.PairingCode),
+		},
 	}
 	client.replyText = client.sendTextReply
 	client.sendCard = client.sendInteractiveMessage
@@ -111,7 +118,15 @@ func New(options Options, logger *slog.Logger) *Client {
 
 func (c *Client) setHealth(state, message string) {
 	c.healthMu.Lock()
-	c.health = Health{State: state, Message: message}
+	c.health.State = state
+	c.health.Message = message
+	c.healthMu.Unlock()
+}
+
+func (c *Client) markPaired() {
+	c.healthMu.Lock()
+	c.health.PairingRequired = false
+	c.health.PairingCode = ""
 	c.healthMu.Unlock()
 }
 
@@ -728,6 +743,7 @@ func (c *Client) handlePairing(ctx context.Context, messageID, chatID string, se
 	if err != nil {
 		return err
 	}
+	c.markPaired()
 	c.pairOnce.Do(func() { close(c.paired) })
 	c.logger.Info("Feishu pairing completed", "chat_id", chatID, "sender_id", senderIDs[0])
 	return c.replyText(ctx, messageID, "OpenCode Handoff 配对成功。")

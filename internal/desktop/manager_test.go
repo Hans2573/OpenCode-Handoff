@@ -159,3 +159,13 @@ func TestFlattenProjectsIncludesGlobalSessionDirectories(t *testing.T) {
 		t.Fatalf("discovered session project = %+v", tokenhub)
 	}
 }
+
+func TestChannelViewsShowsPairingRequired(t *testing.T) {
+	items := (&Manager{}).channelViews(ServiceStatus{
+		FeishuState:           "connected",
+		FeishuPairingRequired: true,
+	})
+	if len(items) == 0 || items[0].Status != "pairing" || items[0].StatusLabel != "待配对" {
+		t.Fatalf("channel views = %+v", items)
+	}
+}

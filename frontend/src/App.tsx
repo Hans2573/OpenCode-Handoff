@@ -13,6 +13,7 @@ import {
   CircleAlert,
   Clock3,
   CodeXml,
+  Copy,
   Download,
   FileClock,
   Folder,
@@ -77,6 +78,8 @@ const emptyDashboard: Dashboard = {
     feishuConnected: false,
 	feishuState: "connecting",
 	feishuMessage: "正在连接飞书 WebSocket",
+    feishuPairingRequired: false,
+    feishuPairingCode: "",
     configValid: true,
     openCodeUrl: "http://127.0.0.1:4096",
   },
@@ -161,6 +164,16 @@ function App({ initialInterfaceDensity }: { initialInterfaceDensity: InterfaceDe
     }
   };
 
+  const copyPairingCommand = async () => {
+    const command = `/bind ${dashboard.service.feishuPairingCode}`;
+    try {
+      await navigator.clipboard.writeText(command);
+      showToast("飞书绑定命令已复制");
+    } catch (reason) {
+      showToast(`复制失败：${errorMessage(reason)}`);
+    }
+  };
+
   const openSession = async (session: SessionView) => {
     try {
       await AppService.OpenSession(session.id, session.directory);
@@ -223,6 +236,16 @@ function App({ initialInterfaceDensity }: { initialInterfaceDensity: InterfaceDe
           )}
           {dashboard.service.state === "config_error" && (
             <div className="banner warning-banner"><SlidersHorizontal size={18} /><span>{dashboard.service.message}</span><button onClick={() => setPage("settings")}>打开设置</button></div>
+          )}
+          {dashboard.service.feishuPairingRequired && (
+            <div className="banner warning-banner pairing-banner">
+              <Unplug size={18} />
+              <div className="pairing-message">
+                <strong>飞书尚未配对，通知暂时无法发送</strong>
+                <span>请在飞书机器人会话发送 <code>/bind {dashboard.service.feishuPairingCode}</code></span>
+              </div>
+              <button type="button" title="复制飞书绑定命令" onClick={() => void copyPairingCommand()}><Copy size={16} />复制命令</button>
+            </div>
           )}
 
           {page === "overview" && <Overview dashboard={dashboard} loading={loading} onNavigate={setPage} onRoute={changeRoute} onRefresh={refreshProjects} />}
