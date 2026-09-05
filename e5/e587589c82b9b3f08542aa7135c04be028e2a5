@@ -1,0 +1,45 @@
+frontend/bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/models.ts
+  s_96bf2573427e9b::t_d6588121d0dd4c 232-233
+internal/channel/feishu/client.go
+  s_96bf2573427e9b::t_ef1d25af55b028 42-45,91-96,121-129,746
+internal/desktop/manager_test.go
+  s_96bf2573427e9b::t_9682f1b704dd19 162-171
+internal/desktop/manager.go
+  s_96bf2573427e9b::t_d6588121d0dd4c 618-619,623,627,629,929-941
+frontend/src/styles.css
+  s_96bf2573427e9b::t_3302a8b78c21bf 112-113,116-119
+frontend/src/App.tsx
+  s_96bf2573427e9b::t_3302a8b78c21bf 16,81-82,167-176,240-248
+  s_96bf2573427e9b::t_35f9f91322e2dd 249
+internal/channel/feishu/client_test.go
+  s_96bf2573427e9b::t_68d4f2f6bf6a32 1161-1166
+  s_96bf2573427e9b::t_3302a8b78c21bf 1120,1151-1152
+  s_03ab8f909a0271::t_53f7189b2e65f0 1153,1167-1169
+internal/desktop/viewmodel.go
+  s_96bf2573427e9b::t_d6588121d0dd4c 23-29
+  s_96bf2573427e9b::t_a87212b28bcf54 19-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e5e587589c82b9b3f08542aa7135c04be028e2a5",
+  "prompts": {},
+  "sessions": {
+    "s_03ab8f909a0271": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f8fc73c0dffe44nKPNIy3N7hWu",
+        "model": "unknown"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    },
+    "s_96bf2573427e9b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06d3d-8578-7992-bdc3-02a5ffd0ebc3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Hans2573 <70685549+Hans2573@users.noreply.github.com>"
+    }
+  }
+}
