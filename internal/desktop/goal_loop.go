@@ -458,13 +458,9 @@ func (m *Manager) launchGoalLoop(ctx context.Context, loop *domain.GoalLoop) err
 		_ = m.syncGoalSessions(ctx)
 		_ = m.store.AppendGoalLoopEvent(ctx, loop.ID, "session_created", "已创建 OpenCode Session "+session.ID)
 	}
-	prompt := "/goal " + loop.Goal
-	if loop.AttachedSession {
-		prompt += "\n\n这是一个接入现有 Session 的 Goal Loop。请先检查当前 Session 已经完成的工作和工作区现状，保留有效成果，然后继续完成剩余目标。不要假定此前任务失败，也不要无必要地重新实现。"
-		prompt += "\n\n" + goalContinuationPrompt
-	}
+	prompt := goalLaunchPrompt(*loop)
 	if err := m.sendGoalPrompt(ctx, loop, prompt); err != nil {
-		return fmt.Errorf("发送 /goal：%w", err)
+		return fmt.Errorf("发送 Goal 启动指令：%w", err)
 	}
 	loop.Status = domain.GoalLoopRunning
 	loop.CycleCount = 1
@@ -480,13 +476,31 @@ func (m *Manager) launchGoalLoop(ctx context.Context, loop *domain.GoalLoop) err
 			ProviderID: loop.ModelProviderID, ModelID: loop.ModelID, ModelName: loop.ModelName, Variant: loop.ModelVariant,
 		})
 	}
-	message := "已发送 /goal 并开始监听 Session"
+	message := "已发送目标并开始监听 Session"
+	if loop.UseGoalCommand {
+		message = "已发送 /goal 并开始监听 Session"
+	}
 	if loop.AttachedSession {
-		message = "已接管现有 Session，发送 /goal 并开始监听"
+		message = "已接管现有 Session，发送目标并开始监听"
+		if loop.UseGoalCommand {
+			message = "已接管现有 Session，发送 /goal 并开始监听"
+		}
 	}
 	_ = m.store.AppendGoalLoopEvent(ctx, loop.ID, "started", message)
 	m.notifyGoalTerminal(ctx, *loop, "Goal 已启动", message)
 	return nil
+}
+
+func goalLaunchPrompt(loop domain.GoalLoop) string {
+	prompt := loop.Goal
+	if loop.UseGoalCommand {
+		prompt = "/goal " + prompt
+	}
+	if loop.AttachedSession {
+		prompt += "\n\n这是一个接入现有 Session 的 Goal Loop。请先检查当前 Session 已经完成的工作和工作区现状，保留有效成果，然后继续完成剩余目标。不要假定此前任务失败，也不要无必要地重新实现。"
+		prompt += "\n\n" + goalContinuationPrompt
+	}
+	return prompt
 }
 
 func (m *Manager) recordGoalFailure(ctx context.Context, loop *domain.GoalLoop, cause error) {
@@ -698,7 +712,7 @@ func (m *Manager) CreateGoalLoop(input GoalLoopInput) (GoalLoopPage, error) {
 	if err != nil {
 		return GoalLoopPage{}, err
 	}
-	if input.StartNow && !input.GoalCommandConfirmed {
+	if input.StartNow && input.UseGoalCommand && !input.GoalCommandConfirmed {
 		return GoalLoopPage{}, errors.New("请先确认所选 Agent 支持 /goal")
 	}
 	now := time.Now().UTC()
@@ -723,7 +737,8 @@ func (m *Manager) CreateGoalLoop(input GoalLoopInput) (GoalLoopPage, error) {
 	}
 	loop := domain.GoalLoop{
 		ID: newGoalLoopID(), Name: createGoalName(input.Name, input.Goal), Goal: strings.TrimSpace(input.Goal),
-		ProjectID: project.ProjectID, ProjectName: project.Name, Directory: project.Directory,
+		UseGoalCommand: input.UseGoalCommand,
+		ProjectID:      project.ProjectID, ProjectName: project.Name, Directory: project.Directory,
 		AgentID: store.DefaultAgentID, AgentName: "OpenCode", Status: domain.GoalLoopDraft,
 		ModelProviderID: model.ProviderID, ModelID: model.ID, ModelName: model.Name, ModelVariant: input.ModelVariant,
 		SessionID: strings.TrimSpace(input.SessionID), AttachedSession: strings.TrimSpace(input.SessionID) != "",
@@ -787,6 +802,7 @@ func (m *Manager) UpdateGoalLoop(id string, input GoalLoopInput) (GoalLoopPage, 
 		loop.Name = goalName(input.Name)
 	}
 	loop.Goal = strings.TrimSpace(input.Goal)
+	loop.UseGoalCommand = input.UseGoalCommand
 	loop.ProjectID, loop.ProjectName, loop.Directory = project.ProjectID, project.Name, project.Directory
 	loop.ModelProviderID, loop.ModelID, loop.ModelName, loop.ModelVariant = model.ProviderID, model.ID, model.Name, input.ModelVariant
 	if !terminalEdit {
@@ -817,9 +833,6 @@ func (m *Manager) UpdateGoalLoop(id string, input GoalLoopInput) (GoalLoopPage, 
 }
 
 func (m *Manager) StartGoalLoop(id string, goalCommandConfirmed bool) (GoalLoopPage, error) {
-	if !goalCommandConfirmed {
-		return GoalLoopPage{}, errors.New("请先确认所选 Agent 支持 /goal")
-	}
 	m.goalMu.Lock()
 	defer m.goalMu.Unlock()
 	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
@@ -830,6 +843,9 @@ func (m *Manager) StartGoalLoop(id string, goalCommandConfirmed bool) (GoalLoopP
 	}
 	if loop.Status != domain.GoalLoopDraft {
 		return GoalLoopPage{}, errors.New("只有草稿可以启动")
+	}
+	if loop.UseGoalCommand && !goalCommandConfirmed {
+		return GoalLoopPage{}, errors.New("请先确认所选 Agent 支持 /goal")
 	}
 	if err := m.validateGoalSessionBinding(ctx, loop.SessionID, loop.Directory, loop.ID); err != nil {
 		return GoalLoopPage{}, err
@@ -847,9 +863,6 @@ func (m *Manager) StartGoalLoop(id string, goalCommandConfirmed bool) (GoalLoopP
 }
 
 func (m *Manager) RestartGoalLoop(id string, goalCommandConfirmed bool) (GoalLoopPage, error) {
-	if !goalCommandConfirmed {
-		return GoalLoopPage{}, errors.New("请先确认所选 Agent 支持 /goal")
-	}
 	m.goalMu.Lock()
 	defer m.goalMu.Unlock()
 	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
@@ -860,6 +873,9 @@ func (m *Manager) RestartGoalLoop(id string, goalCommandConfirmed bool) (GoalLoo
 	}
 	if loop.Status != domain.GoalLoopBlocked && loop.Status != domain.GoalLoopTerminated {
 		return GoalLoopPage{}, errors.New("只有受阻或已终止的 Goal 可以重新启动")
+	}
+	if loop.UseGoalCommand && !goalCommandConfirmed {
+		return GoalLoopPage{}, errors.New("请先确认所选 Agent 支持 /goal")
 	}
 	if err := m.validateGoalSessionBinding(ctx, loop.SessionID, loop.Directory, loop.ID); err != nil {
 		return GoalLoopPage{}, err
@@ -1433,7 +1449,7 @@ func (m *Manager) collectLoopApprovals(ctx context.Context, loops []domain.GoalL
 
 func goalLoopView(loop domain.GoalLoop) GoalLoopView {
 	return GoalLoopView{
-		ID: loop.ID, Name: loop.Name, Goal: loop.Goal, ProjectID: loop.ProjectID,
+		ID: loop.ID, Name: loop.Name, Goal: loop.Goal, UseGoalCommand: loop.UseGoalCommand, ProjectID: loop.ProjectID,
 		ProjectName: loop.ProjectName, Directory: loop.Directory, AgentID: loop.AgentID,
 		AgentName: loop.AgentName, SessionID: loop.SessionID, Status: loop.Status,
 		AttachedSession: loop.AttachedSession, AutomationMode: loop.AutomationMode,

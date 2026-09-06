@@ -313,7 +313,7 @@ func TestGoalLoopStartsContinuesAndCompletesInOneSession(t *testing.T) {
 	manager := &Manager{ctx: ctx, cancel: cancel, store: database, raw: client, routes: routes, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	t.Cleanup(func() { _ = manager.Close() })
 
-	page, err := manager.CreateGoalLoop(GoalLoopInput{Name: "Ship the task", Goal: "finish the task", ProjectID: project.ID, AgentID: store.DefaultAgentID, ModelProviderID: "openai", ModelID: "gpt-test", ModelVariant: "high", FailureLimit: 3, GoalCommandConfirmed: true, StartNow: true})
+	page, err := manager.CreateGoalLoop(GoalLoopInput{Name: "Ship the task", Goal: "finish the task", UseGoalCommand: true, ProjectID: project.ID, AgentID: store.DefaultAgentID, ModelProviderID: "openai", ModelID: "gpt-test", ModelVariant: "high", FailureLimit: 3, GoalCommandConfirmed: true, StartNow: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,6 +343,25 @@ func TestGoalLoopStartsContinuesAndCompletesInOneSession(t *testing.T) {
 	}
 	if loop.Status != domain.GoalLoopCompleted || loop.SessionID != "ses_goal" || len(prompts) != 2 {
 		t.Fatalf("completed loop=%+v prompts=%q", loop, prompts)
+	}
+
+	page, err = manager.CreateGoalLoop(GoalLoopInput{Name: "Plain goal", Goal: "finish without a command", UseGoalCommand: false, ProjectID: project.ID, AgentID: store.DefaultAgentID, ModelProviderID: "openai", ModelID: "gpt-test", FailureLimit: 3, GoalCommandConfirmed: false, StartNow: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prompts) != 3 || prompts[2] != "finish without a command" || page.Loops[0].UseGoalCommand {
+		t.Fatalf("plain Goal launch page=%+v prompts=%q", page.Loops[0], prompts)
+	}
+}
+
+func TestGoalLaunchPromptMakesCommandPrefixOptional(t *testing.T) {
+	loop := domain.GoalLoop{Goal: "complete the task"}
+	if got := goalLaunchPrompt(loop); got != "complete the task" {
+		t.Fatalf("plain prompt = %q", got)
+	}
+	loop.UseGoalCommand = true
+	if got := goalLaunchPrompt(loop); got != "/goal complete the task" {
+		t.Fatalf("command prompt = %q", got)
 	}
 }
 
@@ -629,7 +648,7 @@ func TestGoalLoopAttachesExistingIdleSessionWithoutInterruptingIt(t *testing.T) 
 	defer server.Close()
 
 	manager, database, project := newGoalLoopTestManager(t, server.URL)
-	page, err := manager.CreateGoalLoop(GoalLoopInput{Goal: "finish attached work", ProjectID: project.ID, AgentID: store.DefaultAgentID, SessionID: "ses_existing", AutomationMode: domain.GoalLoopAutonomous, ModelProviderID: "openai", ModelID: "gpt-test", ModelVariant: "high", FailureLimit: 3, GoalCommandConfirmed: true, StartNow: true})
+	page, err := manager.CreateGoalLoop(GoalLoopInput{Goal: "finish attached work", UseGoalCommand: true, ProjectID: project.ID, AgentID: store.DefaultAgentID, SessionID: "ses_existing", AutomationMode: domain.GoalLoopAutonomous, ModelProviderID: "openai", ModelID: "gpt-test", ModelVariant: "high", FailureLimit: 3, GoalCommandConfirmed: true, StartNow: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -686,7 +705,7 @@ func TestGoalLoopWaitsForBusyAttachedSessionBeforeSendingGoal(t *testing.T) {
 	defer server.Close()
 
 	manager, database, project := newGoalLoopTestManager(t, server.URL)
-	page, err := manager.CreateGoalLoop(GoalLoopInput{Goal: "wait then continue", ProjectID: project.ID, AgentID: store.DefaultAgentID, SessionID: "ses_busy", AutomationMode: domain.GoalLoopAutonomous, ModelProviderID: "openai", ModelID: "gpt-test", FailureLimit: 3, GoalCommandConfirmed: true, StartNow: true})
+	page, err := manager.CreateGoalLoop(GoalLoopInput{Goal: "wait then continue", UseGoalCommand: true, ProjectID: project.ID, AgentID: store.DefaultAgentID, SessionID: "ses_busy", AutomationMode: domain.GoalLoopAutonomous, ModelProviderID: "openai", ModelID: "gpt-test", FailureLimit: 3, GoalCommandConfirmed: true, StartNow: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -791,12 +810,12 @@ func TestTerminalGoalCanUpdateAllowedPathsAndRestartOriginalSession(t *testing.T
 
 			manager, database, project := newGoalLoopTestManager(t, server.URL)
 			now := time.Now().UTC()
-			loop := domain.GoalLoop{ID: "goal_terminal_" + terminalStatus, Name: "terminal", Goal: "old goal", ProjectID: project.ID, ProjectName: project.Name, Directory: project.Directory, AgentID: store.DefaultAgentID, AgentName: "OpenCode", ModelProviderID: "openai", ModelID: "gpt-test", ModelName: "GPT Test", SessionID: "ses_existing", AttachedSession: attachedSession, AutomationMode: domain.GoalLoopAutonomous, Status: terminalStatus, FailureLimit: 3, CycleCount: 4, LastAssistantMessageID: "old_terminal", LastError: "old error", CreatedAt: now.Add(-time.Hour), UpdatedAt: now, CompletedAt: now}
+			loop := domain.GoalLoop{ID: "goal_terminal_" + terminalStatus, Name: "terminal", Goal: "old goal", UseGoalCommand: true, ProjectID: project.ID, ProjectName: project.Name, Directory: project.Directory, AgentID: store.DefaultAgentID, AgentName: "OpenCode", ModelProviderID: "openai", ModelID: "gpt-test", ModelName: "GPT Test", SessionID: "ses_existing", AttachedSession: attachedSession, AutomationMode: domain.GoalLoopAutonomous, Status: terminalStatus, FailureLimit: 3, CycleCount: 4, LastAssistantMessageID: "old_terminal", LastError: "old error", CreatedAt: now.Add(-time.Hour), UpdatedAt: now, CompletedAt: now}
 			if err := database.CreateGoalLoop(context.Background(), loop); err != nil {
 				t.Fatal(err)
 			}
 			allowedPath := filepath.Join(t.TempDir(), "source.html")
-			_, err := manager.UpdateGoalLoop(loop.ID, GoalLoopInput{Name: inputName, Goal: "revised goal", ProjectID: project.ID, AgentID: store.DefaultAgentID, ModelProviderID: "openai", ModelID: "gpt-test", SessionID: "ses_existing", AutomationMode: domain.GoalLoopAutonomous, AllowedDirectories: []string{allowedPath}, FailureLimit: 4})
+			_, err := manager.UpdateGoalLoop(loop.ID, GoalLoopInput{Name: inputName, Goal: "revised goal", UseGoalCommand: true, ProjectID: project.ID, AgentID: store.DefaultAgentID, ModelProviderID: "openai", ModelID: "gpt-test", SessionID: "ses_existing", AutomationMode: domain.GoalLoopAutonomous, AllowedDirectories: []string{allowedPath}, FailureLimit: 4})
 			if err != nil {
 				t.Fatal(err)
 			}

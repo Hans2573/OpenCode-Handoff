@@ -30,6 +30,7 @@ type GoalLoop struct {
 	ID                            string
 	Name                          string
 	Goal                          string
+	UseGoalCommand                bool
 	ProjectID                     string
 	ProjectName                   string
 	Directory                     string

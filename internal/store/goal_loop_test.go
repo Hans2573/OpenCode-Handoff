@@ -16,10 +16,17 @@ func TestSQLiteGoalLoopLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
+	var useGoalCommandDefault string
+	if err := database.db.QueryRowContext(ctx, `SELECT dflt_value FROM pragma_table_info('goal_loops') WHERE name = 'use_goal_command'`).Scan(&useGoalCommandDefault); err != nil {
+		t.Fatal(err)
+	}
+	if useGoalCommandDefault != "1" {
+		t.Fatalf("use_goal_command default = %q", useGoalCommandDefault)
+	}
 
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	loop := domain.GoalLoop{
-		ID: "goal_1", Name: "ship it", Goal: "ship it", ProjectID: "project_1",
+		ID: "goal_1", Name: "ship it", Goal: "ship it", UseGoalCommand: true, ProjectID: "project_1",
 		ProjectName: "project", Directory: "/work/project", AgentID: DefaultAgentID,
 		AgentName: "OpenCode", ModelProviderID: "openai", ModelID: "gpt-test", ModelName: "GPT Test", ModelVariant: "high",
 		PermissionApprovalMode: domain.GoalPermissionAllowAll, Status: domain.GoalLoopDraft, FailureLimit: 7,
@@ -46,7 +53,7 @@ func TestSQLiteGoalLoopLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.SessionID != "ses_1" || stored.Status != domain.GoalLoopRunning || stored.CycleCount != 2 || stored.FailureLimit != 7 || stored.ModelProviderID != "openai" || stored.ModelID != "gpt-test" || stored.ModelVariant != "high" || stored.PermissionApprovalMode != domain.GoalPermissionAllowAll || stored.PendingUserMessageID != "msg_goal" || !stored.PromptSubmittedAt.Equal(now.Add(2*time.Second)) || !stored.PromptIdleSince.Equal(now.Add(3*time.Second)) {
+	if stored.SessionID != "ses_1" || stored.Status != domain.GoalLoopRunning || stored.CycleCount != 2 || stored.FailureLimit != 7 || !stored.UseGoalCommand || stored.ModelProviderID != "openai" || stored.ModelID != "gpt-test" || stored.ModelVariant != "high" || stored.PermissionApprovalMode != domain.GoalPermissionAllowAll || stored.PendingUserMessageID != "msg_goal" || !stored.PromptSubmittedAt.Equal(now.Add(2*time.Second)) || !stored.PromptIdleSince.Equal(now.Add(3*time.Second)) {
 		t.Fatalf("stored loop = %+v", stored)
 	}
 	events, err := database.ListGoalLoopEvents(ctx, loop.ID, 10)

@@ -18,7 +18,7 @@ func (s *SQLite) CreateGoalLoop(ctx context.Context, loop domain.GoalLoop) error
 	}
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO goal_loops (
-			id, name, goal, project_id, project_name, directory, agent_id, agent_name,
+			id, name, goal, use_goal_command, project_id, project_name, directory, agent_id, agent_name,
 			model_provider_id, model_id, model_name, model_variant, session_id,
 			attached_session, automation_mode, permission_approval_mode, allowed_directories_json,
 			supervisor_model_provider_id, supervisor_model_id, supervisor_model_name,
@@ -28,8 +28,8 @@ func (s *SQLite) CreateGoalLoop(ctx context.Context, loop domain.GoalLoop) error
 			consecutive_failures, cycle_count, last_assistant_message_id,
 			pending_user_message_id, prompt_submitted_at, prompt_idle_since, last_error,
 			retry_at, created_at, updated_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		loop.ID, loop.Name, loop.Goal, loop.ProjectID, loop.ProjectName, loop.Directory,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		loop.ID, loop.Name, loop.Goal, boolInt(loop.UseGoalCommand), loop.ProjectID, loop.ProjectName, loop.Directory,
 		loop.AgentID, loop.AgentName, loop.ModelProviderID, loop.ModelID, loop.ModelName, loop.ModelVariant,
 		loop.SessionID, boolInt(loop.AttachedSession), loop.AutomationMode, loop.PermissionApprovalMode, string(allowedDirectories),
 		loop.SupervisorModelProviderID, loop.SupervisorModelID, loop.SupervisorModelName,
@@ -53,7 +53,7 @@ func (s *SQLite) SaveGoalLoop(ctx context.Context, loop domain.GoalLoop) error {
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE goal_loops SET
-			name = ?, goal = ?, project_id = ?, project_name = ?, directory = ?,
+			name = ?, goal = ?, use_goal_command = ?, project_id = ?, project_name = ?, directory = ?,
 			agent_id = ?, agent_name = ?, model_provider_id = ?, model_id = ?,
 			model_name = ?, model_variant = ?, session_id = ?, attached_session = ?,
 			automation_mode = ?, permission_approval_mode = ?, allowed_directories_json = ?,
@@ -65,7 +65,7 @@ func (s *SQLite) SaveGoalLoop(ctx context.Context, loop domain.GoalLoop) error {
 			prompt_submitted_at = ?, prompt_idle_since = ?, last_error = ?, retry_at = ?,
 			updated_at = ?, completed_at = ?
 		WHERE id = ?`,
-		loop.Name, loop.Goal, loop.ProjectID, loop.ProjectName, loop.Directory,
+		loop.Name, loop.Goal, boolInt(loop.UseGoalCommand), loop.ProjectID, loop.ProjectName, loop.Directory,
 		loop.AgentID, loop.AgentName, loop.ModelProviderID, loop.ModelID, loop.ModelName, loop.ModelVariant,
 		loop.SessionID, boolInt(loop.AttachedSession), loop.AutomationMode, loop.PermissionApprovalMode, string(allowedDirectories),
 		loop.SupervisorModelProviderID, loop.SupervisorModelID, loop.SupervisorModelName,
@@ -243,7 +243,7 @@ func (s *SQLite) GetOpenHandoffByRequest(ctx context.Context, requestID string) 
 }
 
 const goalLoopSelect = `
-	SELECT id, name, goal, project_id, project_name, directory, agent_id, agent_name,
+	SELECT id, name, goal, use_goal_command, project_id, project_name, directory, agent_id, agent_name,
 		model_provider_id, model_id, model_name, model_variant, session_id,
 		attached_session, automation_mode, permission_approval_mode, allowed_directories_json,
 		supervisor_model_provider_id, supervisor_model_id, supervisor_model_name,
@@ -263,11 +263,12 @@ func scanGoalLoop(row rowScanner) (domain.GoalLoop, error) {
 	var loop domain.GoalLoop
 	var requireConfirmation int
 	var attachedSession int
+	var useGoalCommand int
 	var allowedDirectoriesJSON string
 	var retryAt, promptSubmittedAt, promptIdleSince, completedAt sql.NullInt64
 	var createdAt, updatedAt int64
 	err := row.Scan(
-		&loop.ID, &loop.Name, &loop.Goal, &loop.ProjectID, &loop.ProjectName, &loop.Directory,
+		&loop.ID, &loop.Name, &loop.Goal, &useGoalCommand, &loop.ProjectID, &loop.ProjectName, &loop.Directory,
 		&loop.AgentID, &loop.AgentName, &loop.ModelProviderID, &loop.ModelID, &loop.ModelName, &loop.ModelVariant,
 		&loop.SessionID, &attachedSession, &loop.AutomationMode, &loop.PermissionApprovalMode, &allowedDirectoriesJSON,
 		&loop.SupervisorModelProviderID, &loop.SupervisorModelID, &loop.SupervisorModelName,
@@ -283,6 +284,7 @@ func scanGoalLoop(row rowScanner) (domain.GoalLoop, error) {
 	}
 	loop.RequireCompletionConfirmation = requireConfirmation != 0
 	loop.AttachedSession = attachedSession != 0
+	loop.UseGoalCommand = useGoalCommand != 0
 	_ = json.Unmarshal([]byte(allowedDirectoriesJSON), &loop.AllowedDirectories)
 	if loop.AutomationMode == "" {
 		loop.AutomationMode = domain.GoalLoopManual

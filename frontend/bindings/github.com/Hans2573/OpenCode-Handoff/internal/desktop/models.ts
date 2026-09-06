@@ -91,6 +91,7 @@ export interface GoalLoopEventView {
 export interface GoalLoopInput {
     "name": string;
     "goal": string;
+    "useGoalCommand": boolean;
     "projectId": string;
     "agentId": string;
     "modelProviderId": string;
@@ -119,6 +120,7 @@ export interface GoalLoopView {
     "id": string;
     "name": string;
     "goal": string;
+    "useGoalCommand": boolean;
     "projectId": string;
     "projectName": string;
     "directory": string;

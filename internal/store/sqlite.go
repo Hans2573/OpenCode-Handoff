@@ -165,6 +165,7 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
 			goal TEXT NOT NULL,
+			use_goal_command INTEGER NOT NULL DEFAULT 1,
 			project_id TEXT NOT NULL,
 			project_name TEXT NOT NULL,
 			directory TEXT NOT NULL,
@@ -238,6 +239,7 @@ func (s *SQLite) migrate(ctx context.Context) error {
 		}
 	}
 	for name, definition := range map[string]string{
+		"use_goal_command":             "INTEGER NOT NULL DEFAULT 1",
 		"model_provider_id":            "TEXT NOT NULL DEFAULT ''",
 		"model_id":                     "TEXT NOT NULL DEFAULT ''",
 		"model_name":                   "TEXT NOT NULL DEFAULT ''",

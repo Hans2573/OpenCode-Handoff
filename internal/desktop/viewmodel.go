@@ -187,6 +187,7 @@ type GoalLoopView struct {
 	ID                            string    `json:"id"`
 	Name                          string    `json:"name"`
 	Goal                          string    `json:"goal"`
+	UseGoalCommand                bool      `json:"useGoalCommand"`
 	ProjectID                     string    `json:"projectId"`
 	ProjectName                   string    `json:"projectName"`
 	Directory                     string    `json:"directory"`
@@ -224,6 +225,7 @@ type GoalLoopView struct {
 type GoalLoopInput struct {
 	Name                          string   `json:"name"`
 	Goal                          string   `json:"goal"`
+	UseGoalCommand                bool     `json:"useGoalCommand"`
 	ProjectID                     string   `json:"projectId"`
 	AgentID                       string   `json:"agentId"`
 	ModelProviderID               string   `json:"modelProviderId"`
