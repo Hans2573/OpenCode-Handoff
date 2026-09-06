@@ -9,6 +9,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // @ts-ignore: Unused imports
 import * as desktop$0 from "./internal/desktop/models.js";
 
+export function AbortSessionExecution(sessionID: string, directory: string): $CancellablePromise<void> {
+    return $Call.ByID(1371904766, sessionID, directory);
+}
+
 export function ClearEvents(): $CancellablePromise<void> {
     return $Call.ByID(2269489590);
 }
@@ -131,6 +135,10 @@ export function SetProjectRoute(projectID: string, enabled: boolean): $Cancellab
 
 export function ShowWindow(): $CancellablePromise<void> {
     return $Call.ByID(3051797087);
+}
+
+export function SnoozeSessionStall(sessionID: string, directory: string, minutes: number): $CancellablePromise<void> {
+    return $Call.ByID(1142449278, sessionID, directory, minutes);
 }
 
 export function StartGoalLoop(loopID: string, goalCommandConfirmed: boolean): $CancellablePromise<desktop$0.GoalLoopPage> {

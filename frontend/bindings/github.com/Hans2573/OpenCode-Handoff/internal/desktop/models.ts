@@ -31,6 +31,8 @@ export interface DashboardSummary {
     "connectedProjects": number;
     "completedSessions": number;
     "pendingActions": number;
+    "suspectedStalls": number;
+    "stalledSessions": number;
     "connectedChannels": number;
 }
 
@@ -92,6 +94,7 @@ export interface GoalLoopInput {
     "name": string;
     "goal": string;
     "useGoalCommand": boolean;
+    "autoRecoverStalls": boolean;
     "projectId": string;
     "agentId": string;
     "modelProviderId": string;
@@ -121,6 +124,7 @@ export interface GoalLoopView {
     "name": string;
     "goal": string;
     "useGoalCommand": boolean;
+    "autoRecoverStalls": boolean;
     "projectId": string;
     "projectName": string;
     "directory": string;
@@ -148,6 +152,16 @@ export interface GoalLoopView {
     "failureLimit": number;
     "consecutiveFailures": number;
     "cycleCount": number;
+    "stallRecoveryCycle": number;
+    "activityLevel": string;
+    "lastActivityAt": string;
+    "noActivitySeconds": number;
+    "operationType": string;
+    "operationSummary": string;
+    "operationStatus": string;
+    "activitySourceTitle": string;
+    "activitySourceAgent": string;
+    "activityFromSubagent": boolean;
     "lastError": string;
     "retryAt": string;
     "createdAt": string;
@@ -266,6 +280,19 @@ export interface SessionView {
     "executionCount": number;
     "goalLoopId": string;
     "goalLoopActive": boolean;
+    "goalAutoRecoverStalls": boolean;
+    "activityLevel": string;
+    "lastActivityAt": string;
+    "noActivitySeconds": number;
+    "operationStartedAt": string;
+    "operationType": string;
+    "operationSummary": string;
+    "operationStatus": string;
+    "activitySourceSessionId": string;
+    "activitySourceTitle": string;
+    "activitySourceAgent": string;
+    "activityFromSubagent": boolean;
+    "stallSnoozedUntil": string;
 }
 
 export interface SettingsInput {
@@ -287,6 +314,8 @@ export interface SettingsInput {
     "notifyPermission": boolean;
     "loggingLevel": string;
     "executionRetentionDays": number;
+    "activitySuspectedAfter": string;
+    "activityStalledAfter": string;
 }
 
 export interface SettingsView {
@@ -309,6 +338,8 @@ export interface SettingsView {
     "notifyPermission": boolean;
     "loggingLevel": string;
     "executionRetentionDays": number;
+    "activitySuspectedAfter": string;
+    "activityStalledAfter": string;
     "environmentOverrides": { [_ in string]?: string } | null;
     "configError": string;
 }

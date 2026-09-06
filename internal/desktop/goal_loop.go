@@ -33,6 +33,7 @@ const (
 
 ` + "```goal-status\n<<<{\"completed\":false,\"blocked\":true,\"reason\":\"具体阻塞原因\",\"attempts\":[\"已经尝试的安全方案\"],\"required_capability\":\"缺少的条件\"}>>>\n```"
 	goalOrphanRecoveryPrompt = `上一条 Goal 指令已经提交，但 Session 持续空闲且没有产生对应的 Agent 回合。请从当前工作区状态继续完成这个 Session 最初的目标，不要重复已经完成的工作。`
+	goalStallRecoveryPrompt  = `上一轮执行长时间没有产生任何活动，已被中断。请先检查当前工作区和进程状态，再继续完成这个 Session 最初的目标。不要重复已经完成的操作；涉及可能产生副作用的命令时，先确认当前状态。`
 )
 
 func (m *Manager) goalLoopSupervisor() {
@@ -127,6 +128,15 @@ func (m *Manager) processGoalLoop(ctx context.Context, loop domain.GoalLoop) {
 		return
 	}
 	if goalSessionBusy(statuses, loop.SessionID) {
+		if loop.AutoRecoverStalls {
+			activity, activityErr := m.store.GetSessionActivity(ctx, loop.SessionID, loop.Directory)
+			if activityErr == nil && activity.Level == domain.SessionActivityStalled && loop.StallRecoveryCycle != loop.CycleCount {
+				if err := m.recoverStalledGoal(ctx, &loop, activity); err != nil {
+					m.recordGoalFailure(ctx, &loop, err)
+				}
+				return
+			}
+		}
 		nextStatus := domain.GoalLoopRunning
 		if loop.CycleCount == 0 && loop.AttachedSession {
 			nextStatus = domain.GoalLoopWaitingTakeover
@@ -270,6 +280,56 @@ func goalSessionBusy(statuses map[string]opencode.SessionStatus, sessionID strin
 	return exists && !slices.Contains([]string{"", "idle", "error", "failed", "stopped", "interrupted"}, strings.ToLower(status.Type))
 }
 
+func (m *Manager) recoverStalledGoal(ctx context.Context, loop *domain.GoalLoop, activity domain.SessionActivitySnapshot) error {
+	source := "主 Agent"
+	if activity.SourceIsSubagent {
+		source = "Subagent " + activity.SourceSessionTitle
+	}
+	_ = m.store.AppendGoalLoopEventDetails(ctx, loop.ID, "stall_detected", source+" 长时间没有活动，开始自动恢复", map[string]any{
+		"sourceSessionId": activity.SourceSessionID,
+		"operation":       activity.OperationSummary,
+		"lastActivityAt":  activity.LastActivityAt,
+	})
+	if err := m.raw.AbortSession(ctx, loop.SessionID, loop.Directory); err != nil {
+		return fmt.Errorf("中断停滞的 Goal Session：%w", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		statuses, err := m.raw.GetSessionStatuses(ctx, loop.Directory)
+		if err != nil {
+			return fmt.Errorf("确认 Goal Session 已停止：%w", err)
+		}
+		if !goalSessionBusy(statuses, loop.SessionID) {
+			break
+		}
+		if time.Now().After(deadline) {
+			return errors.New("中断后 Session 在 10 秒内仍未停止")
+		}
+		timer := time.NewTimer(500 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	if err := m.sendGoalPrompt(ctx, loop, goalStallRecoveryPrompt+"\n\n"+goalContinuationPrompt); err != nil {
+		return fmt.Errorf("重新提交 Goal 恢复指令：%w", err)
+	}
+	loop.CycleCount++
+	loop.StallRecoveryCycle = loop.CycleCount
+	loop.Status = domain.GoalLoopRunning
+	loop.ConsecutiveFailures = 0
+	loop.LastError = ""
+	loop.RetryAt = time.Time{}
+	loop.UpdatedAt = time.Now().UTC()
+	if err := m.store.SaveGoalLoop(ctx, *loop); err != nil {
+		return err
+	}
+	_ = m.store.AppendGoalLoopEvent(ctx, loop.ID, "stall_recovered", fmt.Sprintf("第 %d 轮：已中断主 Session，并从当前工作区状态继续 Goal", loop.CycleCount))
+	return nil
+}
+
 func reconcilePendingGoalUser(loop *domain.GoalLoop, messages []opencode.Message) bool {
 	if loop.PendingUserMessageID != "" || len(messages) == 0 {
 		return false
@@ -385,6 +445,7 @@ func (m *Manager) sendGoalPrompt(ctx context.Context, loop *domain.GoalLoop, pro
 	if err := m.raw.SendPrompt(ctx, loop.SessionID, loop.Directory, prompt, goalModelRef(*loop)); err != nil {
 		return err
 	}
+	_ = m.store.TouchSessionActivity(ctx, loop.SessionID, loop.Directory, "goal", "已提交 Goal 指令，等待 Agent 执行", submittedAt)
 	loop.PendingUserMessageID = ""
 	loop.PromptSubmittedAt = submittedAt
 	loop.PromptIdleSince = time.Time{}
@@ -683,7 +744,13 @@ func (m *Manager) GetGoalLoops() (GoalLoopPage, error) {
 	}
 	views := make([]GoalLoopView, 0, len(loops))
 	for _, loop := range loops {
-		views = append(views, goalLoopView(loop))
+		view := goalLoopView(loop)
+		if loop.SessionID != "" {
+			if activity, activityErr := m.store.GetSessionActivity(ctx, loop.SessionID, loop.Directory); activityErr == nil {
+				applyGoalActivityView(&view, activity)
+			}
+		}
+		views = append(views, view)
 	}
 	approvals := m.collectLoopApprovals(ctx, loops)
 	return GoalLoopPage{GeneratedAt: time.Now().UTC(), Loops: views, Approvals: approvals}, nil
@@ -737,8 +804,8 @@ func (m *Manager) CreateGoalLoop(input GoalLoopInput) (GoalLoopPage, error) {
 	}
 	loop := domain.GoalLoop{
 		ID: newGoalLoopID(), Name: createGoalName(input.Name, input.Goal), Goal: strings.TrimSpace(input.Goal),
-		UseGoalCommand: input.UseGoalCommand,
-		ProjectID:      project.ProjectID, ProjectName: project.Name, Directory: project.Directory,
+		UseGoalCommand: input.UseGoalCommand, AutoRecoverStalls: input.AutoRecoverStalls,
+		ProjectID: project.ProjectID, ProjectName: project.Name, Directory: project.Directory,
 		AgentID: store.DefaultAgentID, AgentName: "OpenCode", Status: domain.GoalLoopDraft,
 		ModelProviderID: model.ProviderID, ModelID: model.ID, ModelName: model.Name, ModelVariant: input.ModelVariant,
 		SessionID: strings.TrimSpace(input.SessionID), AttachedSession: strings.TrimSpace(input.SessionID) != "",
@@ -747,7 +814,7 @@ func (m *Manager) CreateGoalLoop(input GoalLoopInput) (GoalLoopPage, error) {
 		SupervisorModelProviderID: supervisorModel.ProviderID, SupervisorModelID: supervisorModel.ID,
 		SupervisorModelName: supervisorModel.Name, SupervisorModelVariant: supervisorVariant,
 		RequireCompletionConfirmation: input.RequireCompletionConfirmation,
-		FailureLimit:                  input.FailureLimit, CreatedAt: now, UpdatedAt: now,
+		FailureLimit:                  input.FailureLimit, StallRecoveryCycle: -1, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := m.store.CreateGoalLoop(ctx, loop); err != nil {
 		return GoalLoopPage{}, err
@@ -803,6 +870,7 @@ func (m *Manager) UpdateGoalLoop(id string, input GoalLoopInput) (GoalLoopPage, 
 	}
 	loop.Goal = strings.TrimSpace(input.Goal)
 	loop.UseGoalCommand = input.UseGoalCommand
+	loop.AutoRecoverStalls = input.AutoRecoverStalls
 	loop.ProjectID, loop.ProjectName, loop.Directory = project.ProjectID, project.Name, project.Directory
 	loop.ModelProviderID, loop.ModelID, loop.ModelName, loop.ModelVariant = model.ProviderID, model.ID, model.Name, input.ModelVariant
 	if !terminalEdit {
@@ -900,6 +968,7 @@ func (m *Manager) RestartGoalLoop(id string, goalCommandConfirmed bool) (GoalLoo
 func resetGoalLoopForRestart(loop *domain.GoalLoop) {
 	loop.Status = domain.GoalLoopWaitingTakeover
 	loop.CycleCount = 0
+	loop.StallRecoveryCycle = -1
 	loop.ConsecutiveFailures = 0
 	loop.LastAssistantMessageID = ""
 	loop.LastError = ""
@@ -1359,6 +1428,7 @@ func (m *Manager) prepareAttachedGoalLoop(ctx context.Context, loop *domain.Goal
 	}
 	loop.Status = domain.GoalLoopWaitingTakeover
 	loop.CycleCount = 0
+	loop.StallRecoveryCycle = -1
 	clearGoalPromptTracking(loop)
 	loop.UpdatedAt = time.Now().UTC()
 	if err := m.store.SaveGoalLoop(ctx, *loop); err != nil {
@@ -1449,7 +1519,7 @@ func (m *Manager) collectLoopApprovals(ctx context.Context, loops []domain.GoalL
 
 func goalLoopView(loop domain.GoalLoop) GoalLoopView {
 	return GoalLoopView{
-		ID: loop.ID, Name: loop.Name, Goal: loop.Goal, UseGoalCommand: loop.UseGoalCommand, ProjectID: loop.ProjectID,
+		ID: loop.ID, Name: loop.Name, Goal: loop.Goal, UseGoalCommand: loop.UseGoalCommand, AutoRecoverStalls: loop.AutoRecoverStalls, ProjectID: loop.ProjectID,
 		ProjectName: loop.ProjectName, Directory: loop.Directory, AgentID: loop.AgentID,
 		AgentName: loop.AgentName, SessionID: loop.SessionID, Status: loop.Status,
 		AttachedSession: loop.AttachedSession, AutomationMode: loop.AutomationMode,
@@ -1460,7 +1530,7 @@ func goalLoopView(loop domain.GoalLoop) GoalLoopView {
 		ModelProviderID: loop.ModelProviderID, ModelID: loop.ModelID, ModelName: loop.ModelName, ModelVariant: loop.ModelVariant,
 		StatusLabel: goalLoopStatusLabel(loop.Status), RequireCompletionConfirmation: loop.RequireCompletionConfirmation,
 		FailureLimit: loop.FailureLimit, ConsecutiveFailures: loop.ConsecutiveFailures,
-		CycleCount: loop.CycleCount, LastError: loop.LastError, RetryAt: loop.RetryAt,
+		CycleCount: loop.CycleCount, StallRecoveryCycle: loop.StallRecoveryCycle, LastError: loop.LastError, RetryAt: loop.RetryAt,
 		CreatedAt: loop.CreatedAt, UpdatedAt: loop.UpdatedAt, CompletedAt: loop.CompletedAt,
 	}
 }

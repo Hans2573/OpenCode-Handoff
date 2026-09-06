@@ -33,6 +33,8 @@ type DashboardSummary struct {
 	ConnectedProjects int `json:"connectedProjects"`
 	CompletedSessions int `json:"completedSessions"`
 	PendingActions    int `json:"pendingActions"`
+	SuspectedStalls   int `json:"suspectedStalls"`
+	StalledSessions   int `json:"stalledSessions"`
 	ConnectedChannels int `json:"connectedChannels"`
 }
 
@@ -51,28 +53,41 @@ type ProjectView struct {
 }
 
 type SessionView struct {
-	ID                     string    `json:"id"`
-	Title                  string    `json:"title"`
-	ProjectName            string    `json:"projectName"`
-	Directory              string    `json:"directory"`
-	AgentName              string    `json:"agentName"`
-	ChannelName            string    `json:"channelName"`
-	Status                 string    `json:"status"`
-	StatusLabel            string    `json:"statusLabel"`
-	StatusDetail           string    `json:"statusDetail"`
-	RouteEnabled           bool      `json:"routeEnabled"`
-	UpdatedAt              time.Time `json:"updatedAt"`
-	BusyForSeconds         int64     `json:"busyForSeconds"`
-	SinceLastInputSeconds  int64     `json:"sinceLastInputSeconds"`
-	LastInput              string    `json:"lastInput"`
-	HasLastInput           bool      `json:"hasLastInput"`
-	CurrentModel           string    `json:"currentModel"`
-	CurrentVariant         string    `json:"currentVariant"`
-	LatestExecutionSeconds int64     `json:"latestExecutionSeconds"`
-	TotalExecutionSeconds  int64     `json:"totalExecutionSeconds"`
-	ExecutionCount         int       `json:"executionCount"`
-	GoalLoopID             string    `json:"goalLoopId"`
-	GoalLoopActive         bool      `json:"goalLoopActive"`
+	ID                      string    `json:"id"`
+	Title                   string    `json:"title"`
+	ProjectName             string    `json:"projectName"`
+	Directory               string    `json:"directory"`
+	AgentName               string    `json:"agentName"`
+	ChannelName             string    `json:"channelName"`
+	Status                  string    `json:"status"`
+	StatusLabel             string    `json:"statusLabel"`
+	StatusDetail            string    `json:"statusDetail"`
+	RouteEnabled            bool      `json:"routeEnabled"`
+	UpdatedAt               time.Time `json:"updatedAt"`
+	BusyForSeconds          int64     `json:"busyForSeconds"`
+	SinceLastInputSeconds   int64     `json:"sinceLastInputSeconds"`
+	LastInput               string    `json:"lastInput"`
+	HasLastInput            bool      `json:"hasLastInput"`
+	CurrentModel            string    `json:"currentModel"`
+	CurrentVariant          string    `json:"currentVariant"`
+	LatestExecutionSeconds  int64     `json:"latestExecutionSeconds"`
+	TotalExecutionSeconds   int64     `json:"totalExecutionSeconds"`
+	ExecutionCount          int       `json:"executionCount"`
+	GoalLoopID              string    `json:"goalLoopId"`
+	GoalLoopActive          bool      `json:"goalLoopActive"`
+	GoalAutoRecoverStalls   bool      `json:"goalAutoRecoverStalls"`
+	ActivityLevel           string    `json:"activityLevel"`
+	LastActivityAt          time.Time `json:"lastActivityAt"`
+	NoActivitySeconds       int64     `json:"noActivitySeconds"`
+	OperationStartedAt      time.Time `json:"operationStartedAt"`
+	OperationType           string    `json:"operationType"`
+	OperationSummary        string    `json:"operationSummary"`
+	OperationStatus         string    `json:"operationStatus"`
+	ActivitySourceSessionID string    `json:"activitySourceSessionId"`
+	ActivitySourceTitle     string    `json:"activitySourceTitle"`
+	ActivitySourceAgent     string    `json:"activitySourceAgent"`
+	ActivityFromSubagent    bool      `json:"activityFromSubagent"`
+	StallSnoozedUntil       time.Time `json:"stallSnoozedUntil"`
 }
 
 type ExecutionRunView struct {
@@ -132,6 +147,8 @@ type SettingsView struct {
 	NotifyPermission       bool              `json:"notifyPermission"`
 	LoggingLevel           string            `json:"loggingLevel"`
 	ExecutionRetentionDays int               `json:"executionRetentionDays"`
+	ActivitySuspectedAfter string            `json:"activitySuspectedAfter"`
+	ActivityStalledAfter   string            `json:"activityStalledAfter"`
 	EnvironmentOverrides   map[string]string `json:"environmentOverrides"`
 	ConfigError            string            `json:"configError"`
 }
@@ -161,6 +178,8 @@ type SettingsInput struct {
 	NotifyPermission       bool     `json:"notifyPermission"`
 	LoggingLevel           string   `json:"loggingLevel"`
 	ExecutionRetentionDays int      `json:"executionRetentionDays"`
+	ActivitySuspectedAfter string   `json:"activitySuspectedAfter"`
+	ActivityStalledAfter   string   `json:"activityStalledAfter"`
 }
 
 type EventPage struct {
@@ -188,6 +207,7 @@ type GoalLoopView struct {
 	Name                          string    `json:"name"`
 	Goal                          string    `json:"goal"`
 	UseGoalCommand                bool      `json:"useGoalCommand"`
+	AutoRecoverStalls             bool      `json:"autoRecoverStalls"`
 	ProjectID                     string    `json:"projectId"`
 	ProjectName                   string    `json:"projectName"`
 	Directory                     string    `json:"directory"`
@@ -215,6 +235,16 @@ type GoalLoopView struct {
 	FailureLimit                  int       `json:"failureLimit"`
 	ConsecutiveFailures           int       `json:"consecutiveFailures"`
 	CycleCount                    int       `json:"cycleCount"`
+	StallRecoveryCycle            int       `json:"stallRecoveryCycle"`
+	ActivityLevel                 string    `json:"activityLevel"`
+	LastActivityAt                time.Time `json:"lastActivityAt"`
+	NoActivitySeconds             int64     `json:"noActivitySeconds"`
+	OperationType                 string    `json:"operationType"`
+	OperationSummary              string    `json:"operationSummary"`
+	OperationStatus               string    `json:"operationStatus"`
+	ActivitySourceTitle           string    `json:"activitySourceTitle"`
+	ActivitySourceAgent           string    `json:"activitySourceAgent"`
+	ActivityFromSubagent          bool      `json:"activityFromSubagent"`
 	LastError                     string    `json:"lastError"`
 	RetryAt                       time.Time `json:"retryAt"`
 	CreatedAt                     time.Time `json:"createdAt"`
@@ -226,6 +256,7 @@ type GoalLoopInput struct {
 	Name                          string   `json:"name"`
 	Goal                          string   `json:"goal"`
 	UseGoalCommand                bool     `json:"useGoalCommand"`
+	AutoRecoverStalls             bool     `json:"autoRecoverStalls"`
 	ProjectID                     string   `json:"projectId"`
 	AgentID                       string   `json:"agentId"`
 	ModelProviderID               string   `json:"modelProviderId"`

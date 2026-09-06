@@ -40,8 +40,9 @@ type Manager struct {
 	opencodeOnline bool
 	trackers       map[string]sessionTracker
 
-	engineMu sync.Mutex
-	goalMu   sync.Mutex
+	engineMu   sync.Mutex
+	goalMu     sync.Mutex
+	activityMu sync.Mutex
 }
 
 type sessionTracker struct {
@@ -124,6 +125,7 @@ func NewManager(parent context.Context, paths Paths, logger *slog.Logger) (*Mana
 	_ = manager.cleanupSessionExecutions(ctx)
 	go manager.refreshLoop()
 	go manager.goalLoopSupervisor()
+	go manager.sessionActivityLoop()
 	return manager, nil
 }
 
@@ -428,6 +430,12 @@ func (m *Manager) GetDashboard() (Dashboard, error) {
 		case "waiting_permission", "waiting_answer":
 			summary.PendingActions++
 		}
+		switch session.ActivityLevel {
+		case domain.SessionActivitySuspected:
+			summary.SuspectedStalls++
+		case domain.SessionActivityStalled:
+			summary.StalledSessions++
+		}
 	}
 	if service.FeishuConnected {
 		summary.ConnectedChannels = 1
@@ -464,6 +472,7 @@ func (m *Manager) annotateGoalSessions(ctx context.Context, sessions []SessionVi
 		}
 		if loop, ok := active[key]; ok {
 			session.GoalLoopID, session.GoalLoopActive = loop.ID, true
+			session.GoalAutoRecoverStalls = loop.AutoRecoverStalls
 		}
 		result = append(result, session)
 	}
@@ -693,19 +702,17 @@ func (m *Manager) collectDirectory(ctx context.Context, route domain.ProjectRout
 	statuses := make(map[string]opencode.SessionStatus)
 	questions := make(map[string]struct{})
 	permissions := make(map[string]struct{})
-	if route.RouteEnabled {
-		if value, err := client.GetSessionStatuses(ctx, route.Directory); err == nil {
-			statuses = value
+	if value, err := client.GetSessionStatuses(ctx, route.Directory); err == nil {
+		statuses = value
+	}
+	if value, err := client.ListQuestions(ctx, route.Directory); err == nil {
+		for _, item := range value {
+			questions[item.SessionID] = struct{}{}
 		}
-		if value, err := client.ListQuestions(ctx, route.Directory); err == nil {
-			for _, item := range value {
-				questions[item.SessionID] = struct{}{}
-			}
-		}
-		if value, err := client.ListPermissions(ctx, route.Directory); err == nil {
-			for _, item := range value {
-				permissions[item.SessionID] = struct{}{}
-			}
+	}
+	if value, err := client.ListPermissions(ctx, route.Directory); err == nil {
+		for _, item := range value {
+			permissions[item.SessionID] = struct{}{}
 		}
 	}
 	completedSessions := countCompletedSessions(route.RouteEnabled, sessions, statuses, questions, permissions)
@@ -718,7 +725,7 @@ func (m *Manager) collectDirectory(ctx context.Context, route domain.ProjectRout
 		if session.ParentID != "" {
 			continue
 		}
-		status, label, detail := mapSessionStatus(route.RouteEnabled, statuses[session.ID])
+		status, label, detail := mapSessionStatus(true, statuses[session.ID])
 		if _, ok := permissions[session.ID]; ok {
 			status, label, detail = "waiting_permission", "等待权限", "请在 OpenCode 或飞书中处理权限请求"
 		} else if _, ok := questions[session.ID]; ok {
@@ -729,6 +736,14 @@ func (m *Manager) collectDirectory(ctx context.Context, route domain.ProjectRout
 			Directory: route.Directory, AgentName: "OpenCode", Status: status,
 			StatusLabel: label, StatusDetail: detail, RouteEnabled: route.RouteEnabled,
 			UpdatedAt: time.UnixMilli(session.Time.Updated).UTC(),
+		}
+		if activity, activityErr := m.store.GetSessionActivity(ctx, session.ID, route.Directory); activityErr == nil {
+			applySessionActivityView(&view, activity)
+			if activity.Level == domain.SessionActivityWaiting && status != "waiting_permission" && status != "waiting_answer" {
+				view.Status = "waiting_answer"
+				view.StatusLabel = "等待人工操作"
+				view.StatusDetail = "主 Agent 或 Subagent 正在等待问题或权限处理"
+			}
 		}
 		if route.RouteEnabled {
 			view.ChannelName = "飞书"
@@ -967,7 +982,9 @@ func (m *Manager) GetSettings() SettingsView {
 		NotifyIdle: cfg.Handoff.NotifyIdle, NotifyError: cfg.Handoff.NotifyError,
 		NotifyQuestion: cfg.Handoff.NotifyQuestion, NotifyPermission: cfg.Handoff.NotifyPermission,
 		LoggingLevel: cfg.Logging.Level, ExecutionRetentionDays: cfg.Analytics.RetentionDays,
-		EnvironmentOverrides: config.EnvironmentOverrides(), ConfigError: configError,
+		ActivitySuspectedAfter: cfg.Activity.SuspectedAfter.Duration.String(),
+		ActivityStalledAfter:   cfg.Activity.StalledAfter.Duration.String(),
+		EnvironmentOverrides:   config.EnvironmentOverrides(), ConfigError: configError,
 	}
 }
 
@@ -1022,6 +1039,16 @@ func (m *Manager) SaveSettings(input SettingsInput) error {
 	}
 	if _, locked := overrides["analytics.retention_days"]; !locked {
 		next.Analytics.RetentionDays = input.ExecutionRetentionDays
+	}
+	if value, err := time.ParseDuration(strings.TrimSpace(input.ActivitySuspectedAfter)); err == nil {
+		next.Activity.SuspectedAfter = config.Duration{Duration: value}
+	} else {
+		return fmt.Errorf("疑似停滞时间无效：%w", err)
+	}
+	if value, err := time.ParseDuration(strings.TrimSpace(input.ActivityStalledAfter)); err == nil {
+		next.Activity.StalledAfter = config.Duration{Duration: value}
+	} else {
+		return fmt.Errorf("长时间停滞时间无效：%w", err)
 	}
 	if value, err := time.ParseDuration(strings.TrimSpace(input.PollingInterval)); err == nil {
 		next.Watcher.PollingInterval = config.Duration{Duration: value}

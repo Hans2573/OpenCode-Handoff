@@ -58,6 +58,7 @@ type MessageInfo struct {
 	ParentID  string          `json:"parentID,omitempty"`
 	SessionID string          `json:"sessionID"`
 	Role      string          `json:"role"`
+	Agent     string          `json:"agent,omitempty"`
 	Model     *ModelRef       `json:"model,omitempty"`
 	Error     json.RawMessage `json:"error,omitempty"`
 	Time      struct {
@@ -67,8 +68,24 @@ type MessageInfo struct {
 }
 
 type Part struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	ID        string `json:"id,omitempty"`
+	SessionID string `json:"sessionID,omitempty"`
+	MessageID string `json:"messageID,omitempty"`
+	Type      string `json:"type"`
+	Text      string `json:"text,omitempty"`
+	Tool      string `json:"tool,omitempty"`
+	State     struct {
+		Status   string         `json:"status,omitempty"`
+		Input    map[string]any `json:"input,omitempty"`
+		Output   string         `json:"output,omitempty"`
+		Metadata map[string]any `json:"metadata,omitempty"`
+		Title    string         `json:"title,omitempty"`
+		Error    string         `json:"error,omitempty"`
+		Time     struct {
+			Start int64 `json:"start,omitempty"`
+			End   int64 `json:"end,omitempty"`
+		} `json:"time,omitempty"`
+	} `json:"state,omitempty"`
 }
 
 type AssistantOutput struct {

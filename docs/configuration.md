@@ -17,6 +17,10 @@ watcher:
   polling_fallback: true
   polling_interval: 3s
 
+activity:
+  suspected_after: 10m
+  stalled_after: 30m
+
 handoff:
   max_output_chars: 3000
   notify_idle: true
@@ -113,6 +117,12 @@ opencode:
 handoff:
   notify_permission: true
 ```
+
+## Session 活动监测
+
+`activity.suspected_after` 和 `activity.stalled_after` 分别控制“疑似停滞”和“长时间停滞”阈值，默认是 10 分钟和 30 分钟，后者必须大于前者。应用根据 Assistant 消息、Tool 状态与时间、Session 状态、retry 变化以及 Subagent Session 的活动更新时间刷新计时；Question 和 Permission 等待人工处理时会暂停停滞判断。
+
+数据库只为每个根 Session 保存一条最新活动快照，新活动直接覆盖旧值，不保存活动历史。普通 Session 只提示并提供人工中断；Goal 可单独开启“Session 停滞时自动恢复”。
 
 ## Feishu 路由与绑定
 

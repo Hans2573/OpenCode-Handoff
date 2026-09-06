@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Hans2573/OpenCode-Handoff/internal/config"
 	"github.com/Hans2573/OpenCode-Handoff/internal/domain"
 	"github.com/Hans2573/OpenCode-Handoff/internal/opencode"
 	"github.com/Hans2573/OpenCode-Handoff/internal/store"
@@ -938,6 +939,69 @@ func TestGoalLoopAutonomouslyAnswersValidatedQuestion(t *testing.T) {
 	events, err := database.ListGoalLoopEvents(context.Background(), loop.ID, 10)
 	if err != nil || len(events) != 1 || events[0].Metadata["decision"] != "answer" {
 		t.Fatalf("events=%+v err=%v", events, err)
+	}
+}
+
+func TestGoalLoopAutomaticallyRecoversStalledSessionOnlyOncePerCycle(t *testing.T) {
+	var aborted atomic.Int32
+	var prompted atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.URL.Path == "/question" || request.URL.Path == "/permission":
+			_, _ = io.WriteString(response, `[]`)
+		case request.URL.Path == "/session/status":
+			if aborted.Load() > prompted.Load() {
+				_, _ = io.WriteString(response, `{}`)
+			} else {
+				_, _ = io.WriteString(response, `{"ses_stalled":{"type":"busy"}}`)
+			}
+		case request.URL.Path == "/session/ses_stalled/abort":
+			aborted.Add(1)
+			response.WriteHeader(http.StatusNoContent)
+		case request.URL.Path == "/session/ses_stalled/prompt_async":
+			prompted.Add(1)
+			response.WriteHeader(http.StatusNoContent)
+		case request.URL.Path == "/session/ses_stalled/message":
+			_, _ = io.WriteString(response, `[]`)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	manager, database, project := newGoalLoopTestManager(t, server.URL)
+	manager.cfg = config.Default()
+	manager.cfg.Activity.StalledAfter = config.Duration{Duration: 30 * time.Minute}
+	now := time.Now().UTC()
+	loop := domain.GoalLoop{
+		ID: "goal_stalled", Name: "stalled", Goal: "finish", ProjectID: project.ID,
+		ProjectName: project.Name, Directory: project.Directory, SessionID: "ses_stalled",
+		AutoRecoverStalls: true, AutomationMode: domain.GoalLoopAutonomous,
+		Status: domain.GoalLoopRunning, FailureLimit: 3, CycleCount: 1, StallRecoveryCycle: -1,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := database.CreateGoalLoop(context.Background(), loop); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.UpsertSessionActivity(context.Background(), domain.SessionActivitySnapshot{
+		SessionID: loop.SessionID, Directory: loop.Directory, Fingerprint: "stalled",
+		SessionStatus: "busy", Level: domain.SessionActivityStalled,
+		LastActivityAt: now.Add(-time.Hour), OperationType: "bash", OperationSummary: "long command",
+		SourceSessionID: loop.SessionID, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manager.processGoalLoop(context.Background(), loop)
+	stored, err := database.GetGoalLoop(context.Background(), loop.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aborted.Load() != 1 || prompted.Load() != 1 || stored.CycleCount != 2 || stored.StallRecoveryCycle != 2 {
+		t.Fatalf("aborted=%d prompted=%d loop=%+v", aborted.Load(), prompted.Load(), stored)
+	}
+	manager.processGoalLoop(context.Background(), stored)
+	if aborted.Load() != 1 || prompted.Load() != 1 {
+		t.Fatalf("same cycle recovered twice: aborted=%d prompted=%d", aborted.Load(), prompted.Load())
 	}
 }
 

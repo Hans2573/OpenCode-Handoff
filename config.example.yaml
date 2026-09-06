@@ -14,6 +14,11 @@ watcher:
   polling_fallback: true
   polling_interval: 3s
 
+# Session 无新消息、Tool 或 Subagent 活动时的分级阈值。
+activity:
+  suspected_after: 10m
+  stalled_after: 30m
+
 handoff:
   max_output_chars: 3000
   notify_idle: true

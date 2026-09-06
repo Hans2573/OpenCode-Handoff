@@ -83,7 +83,7 @@ const emptyDashboard: Dashboard = {
     configValid: true,
     openCodeUrl: "http://127.0.0.1:4096",
   },
-  summary: { connectedProjects: 0, completedSessions: 0, pendingActions: 0, connectedChannels: 0 },
+  summary: { connectedProjects: 0, completedSessions: 0, pendingActions: 0, suspectedStalls: 0, stalledSessions: 0, connectedChannels: 0 },
   projects: [],
   sessions: [],
   executionRuns: [],
@@ -222,7 +222,7 @@ function App({ initialInterfaceDensity }: { initialInterfaceDensity: InterfaceDe
             </span>
           </div>
           <div className="window-actions">
-            <button className="icon-button" aria-label="通知"><Bell size={18} /></button>
+            <button className="icon-button notification-button" aria-label="通知" title={dashboard.summary.stalledSessions ? `${dashboard.summary.stalledSessions} 个 Session 长时间停滞` : dashboard.summary.suspectedStalls ? `${dashboard.summary.suspectedStalls} 个 Session 疑似停滞` : "暂无停滞提醒"} onClick={() => setPage("sessions")}><Bell size={18} />{dashboard.summary.stalledSessions + dashboard.summary.suspectedStalls > 0 && <span>{dashboard.summary.stalledSessions + dashboard.summary.suspectedStalls}</span>}</button>
             <span className="divider vertical" />
             <button className="icon-button" title="最小化到托盘" onClick={() => void AppService.HideWindow()}><Minus size={19} /></button>
             <button className="icon-button" title="设置" onClick={() => setPage("settings")}><Settings size={19} /></button>
@@ -274,15 +274,16 @@ function Overview({ dashboard, loading, onNavigate, onRoute, onRefresh }: {
     { label: "已接入项目", value: dashboard.summary.connectedProjects, icon: Folder, tone: "blue" },
     { label: "已完成 Sessions", value: dashboard.summary.completedSessions, icon: CircleCheck, tone: "green" },
     { label: "等待操作", value: dashboard.summary.pendingActions, icon: Clock3, tone: "orange" },
+    { label: "停滞 Sessions", value: dashboard.summary.stalledSessions, detail: dashboard.summary.suspectedStalls ? `${dashboard.summary.suspectedStalls} 个疑似停滞` : "暂无疑似停滞", icon: CircleAlert, tone: "red" },
     { label: "已连接渠道", value: dashboard.summary.connectedChannels, icon: Link2, tone: "purple" },
   ];
-  const activeSessions = (dashboard.sessions ?? []).filter((session) => !["idle", "unmonitored"].includes(session.status)).slice(0, 5);
+  const activeSessions = (dashboard.sessions ?? []).filter((session) => !["idle", "unmonitored"].includes(session.status)).sort((a, b) => activityRank(b.activityLevel) - activityRank(a.activityLevel)).slice(0, 5);
   return (
     <section className="page overview-page">
       <div className="summary-grid">
-        {summaryCards.map(({ label, value, icon: Icon, tone }) => (
+        {summaryCards.map(({ label, value, detail, icon: Icon, tone }) => (
           <div className="summary-card" key={label}>
-            <div><span>{label}</span><strong>{value}</strong></div>
+            <div><span>{label}</span><strong>{value}</strong>{detail && <small>{detail}</small>}</div>
             <span className={`metric-icon ${tone}`}><Icon size={25} /></span>
           </div>
         ))}
@@ -360,6 +361,7 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
   const [channel, setChannel] = useState("all");
   const [timeRange, setTimeRange] = useState("7");
   const [metric, setMetric] = useState<ExecutionMetric>("round");
+  const [selectedSessionKey, setSelectedSessionKey] = useState("");
   const [pageNumber, setPageNumber] = useState(1);
   const [autoPageSize, setAutoPageSize] = useState<number>(8);
   const [manualPageSize, setManualPageSize] = useState<number | null>(null);
@@ -380,6 +382,7 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
   const projects = uniqueValues(sessions.map((item) => item.projectName));
   const channels = uniqueValues(sessions.map((item) => item.channelName));
   const sessionDetails = new Map(sessions.map((session) => [`${session.id}\u0000${session.directory}`, session]));
+  const selectedSession = selectedSessionKey ? sessionDetails.get(selectedSessionKey) ?? null : null;
   const filtered = sessions.filter((session) => {
     const matches = `${session.title} ${session.projectName} ${session.id}`.toLowerCase().includes(query.toLowerCase());
     const updatedAt = new Date(session.updatedAt).getTime();
@@ -509,13 +512,14 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
       <section className="sessions-data-panel">
         <div ref={tableViewportRef} className="sessions-table-scroll">
           <div className="sessions-table" role="table" aria-label="Session 列表">
-            <div className="sessions-table-row sessions-table-head" role="row"><span>Session</span><span>状态</span><span>{metric === "round" ? "本轮 / 最近一次" : "累计自主执行"}</span><span>最近输入</span><span>当前模型</span><span>最后活跃</span><span>操作</span></div>
-            {visibleSessions.map((session) => <SessionTableRow key={`${session.directory}-${session.id}`} session={session} metric={metric} onOpen={() => void onOpenSession(session)} onAddToGoal={() => onAddToGoal(session)} />)}
+            <div className="sessions-table-row sessions-table-head" role="row"><span>Session</span><span>状态</span><span>{metric === "round" ? "本轮 / 最近一次" : "累计自主执行"}</span><span>最近输入</span><span>当前模型</span><span>最后操作</span><span>操作</span></div>
+            {visibleSessions.map((session) => <SessionTableRow key={`${session.directory}-${session.id}`} session={session} metric={metric} onDetails={() => setSelectedSessionKey(`${session.id}\u0000${session.directory}`)} onAddToGoal={() => onAddToGoal(session)} />)}
             {!visibleSessions.length && <EmptyState icon={MessageSquareText} title="没有匹配的 Session" text="更改筛选条件，或先在 OpenCode 中创建 Session。" />}
           </div>
         </div>
         <div className="sessions-pagination"><div className="pagination-summary"><span>共 {filtered.length} 条记录</span><label>每页 <select value={manualPageSize === null ? "auto" : String(manualPageSize)} onChange={(event) => changePageSize(event.target.value)}><option value="auto">自动 ({autoPageSize})</option>{sessionPageSizes.map((size) => <option value={size} key={size}>{size}</option>)}</select></label></div><nav aria-label="分页"><button disabled={currentPage === 1} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}><ChevronLeft size={15} /></button>{paginationItems(currentPage, pageCount).map((item, index) => item === "…" ? <span className="pagination-ellipsis" key={`ellipsis-${index}`}>…</span> : <button className={currentPage === item ? "active" : ""} key={item} onClick={() => setPageNumber(Number(item))}>{item}</button>)}<button disabled={currentPage === pageCount} onClick={() => setPageNumber((value) => Math.min(pageCount, value + 1))}><ChevronRight size={15} /></button></nav></div>
       </section>
+      {selectedSession && <SessionDetailDialog session={selectedSession} onClose={() => setSelectedSessionKey("")} onOpen={() => void onOpenSession(selectedSession)} onRefresh={onRefresh} showToast={showToast} />}
     </section>
   );
 }
@@ -533,21 +537,47 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
   return <label className="session-filter"><span>{label}：</span><select value={value} onChange={(event) => onChange(event.target.value)}><option value="all">全部</option>{options.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>;
 }
 
-function SessionTableRow({ session, metric, onOpen, onAddToGoal }: { session: SessionView; metric: ExecutionMetric; onOpen: () => void; onAddToGoal: () => void }) {
-  const tone = statusTone(session.status);
+function SessionTableRow({ session, metric, onDetails, onAddToGoal }: { session: SessionView; metric: ExecutionMetric; onDetails: () => void; onAddToGoal: () => void }) {
+  const tone = activityTone(session);
   const modelLabel = `${session.currentModel || "默认模型"}${session.currentVariant ? ` · ${session.currentVariant}` : ""}`;
   const serverDuration = metric === "round" ? session.latestExecutionSeconds : session.totalExecutionSeconds;
   const duration = useLiveSeconds(serverDuration, isSessionBusy(session));
+  const noActivity = useLiveSeconds(session.noActivitySeconds, isSessionBusy(session) && session.activityLevel !== "waiting");
   return <article className="sessions-table-row" role="row">
     <div className="table-session-cell"><span className={`session-run-icon ${tone}`}>{session.status === "running" ? <Play size={15} /> : <Activity size={15} />}</span><div><strong title={session.title}>{session.title}</strong><span>项目：{session.projectName}<i />Agent：{session.agentName}<i />渠道：{session.channelName}</span><code>{shortID(session.id)}</code></div></div>
     <span><span className={`table-status ${tone}`}>{tone === "running" && <i className="health-dot online" />}{session.statusLabel}</span>{session.statusDetail && <small title={session.statusDetail}>{session.statusDetail}</small>}</span>
     <span className="duration-cell">{duration > 0 ? formatDuration(duration) : "—"}{session.busyForSeconds > 0 && metric === "round" ? <small>↑ LIVE</small> : session.executionCount > 0 && <small>{session.executionCount} 轮</small>}</span>
     <span className="last-input-cell" title={session.hasLastInput ? session.lastInput : "暂无用户输入"}>{session.hasLastInput ? session.lastInput : "—"}</span>
     <span className="model-cell" title={modelLabel}>{modelLabel}</span>
-    <time>{formatRecentTime(session.updatedAt)}</time>
-    <div className="table-actions"><button className="table-action" onClick={onOpen}>查看</button><button className="table-action goal-action" disabled={session.goalLoopActive || !session.routeEnabled} title={session.goalLoopActive ? "已加入活动 Goal Loop" : !session.routeEnabled ? "请先在项目接入中启用该项目" : "将当前 Session 接入 Goal Loop"} onClick={onAddToGoal}>{session.goalLoopActive ? "已接入" : "加入 Goal"}</button></div>
+    <span className={`activity-cell ${session.activityLevel}`} title={session.operationSummary || "暂无操作信息"}><strong>{operationLabel(session)}</strong><small>{isSessionBusy(session) ? `无动作 ${formatDuration(noActivity)}` : `最后活动 ${formatRecentTime(session.lastActivityAt || session.updatedAt)}`}</small></span>
+    <div className="table-actions"><button className="table-action" onClick={onDetails}>详情</button><button className="table-action goal-action" disabled={session.goalLoopActive || !session.routeEnabled} title={session.goalLoopActive ? "已加入活动 Goal Loop" : !session.routeEnabled ? "请先在项目接入中启用该项目" : "将当前 Session 接入 Goal Loop"} onClick={onAddToGoal}>{session.goalLoopActive ? "已接入" : "加入 Goal"}</button></div>
   </article>;
 }
+
+function SessionDetailDialog({ session, onClose, onOpen, onRefresh, showToast }: { session: SessionView; onClose: () => void; onOpen: () => void; onRefresh: () => void; showToast: (message: string) => void }) {
+  const [busy, setBusy] = useState("");
+  const [waitMinutes, setWaitMinutes] = useState(30);
+  const noActivity = useLiveSeconds(session.noActivitySeconds, isSessionBusy(session) && session.activityLevel !== "waiting");
+  const act = async (label: string, successMessage: string, action: () => Promise<void>) => {
+    setBusy(label);
+    try { await action(); showToast(successMessage); onRefresh(); } catch (reason) { showToast(`操作失败：${errorMessage(reason)}`); } finally { setBusy(""); }
+  };
+  const abort = () => {
+    const source = session.activityFromSubagent ? `检测到 Subagent「${session.activitySourceTitle}」停滞；该操作会中断主 Session。` : "该操作会中断当前主 Session。";
+    if (window.confirm(`${source}确定继续？`)) void act("abort", "已请求中断主 Session", () => AppService.AbortSessionExecution(session.id, session.directory));
+  };
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="session-detail-modal" role="dialog" aria-modal="true" aria-label="Session 详情">
+    <header><div><span>Session 详情</span><h2>{session.title}</h2><code>{session.id}</code></div><button onClick={onClose} aria-label="关闭"><X size={17} /></button></header>
+    <div className="session-detail-body">
+      <div className={`stall-banner ${session.activityLevel}`}><CircleAlert size={19} /><div><strong>{activityStatusLabel(session)}</strong><span>{isSessionBusy(session) ? `已经 ${formatDuration(noActivity)} 没有检测到新动作` : `最后活动于 ${formatDateTime(session.lastActivityAt || session.updatedAt)}`}</span></div></div>
+      <div className="session-detail-grid"><DetailFact label="当前状态" value={session.statusLabel} hint={session.statusDetail || "OpenCode 当前状态"} /><DetailFact label="执行类型" value={session.goalLoopActive ? "Goal Session" : "普通 Session"} hint={session.goalLoopActive ? session.goalAutoRecoverStalls ? "已开启停滞自动恢复" : "自动恢复未开启" : "停滞后由人工处理"} /><DetailFact label="最后操作" value={operationLabel(session)} hint={session.operationSummary || "尚未获取到操作摘要"} /><DetailFact label="操作状态" value={session.operationStatus || "未知"} hint={session.operationStartedAt ? `${formatDateTime(session.operationStartedAt)} 开始` : "暂无开始时间"} /><DetailFact label="执行来源" value={session.activityFromSubagent ? `Subagent · ${session.activitySourceAgent}` : session.activitySourceAgent || "主 Agent"} hint={session.activitySourceTitle || session.title} /><DetailFact label="最后活动" value={formatDateTime(session.lastActivityAt || session.updatedAt)} hint={isSessionBusy(session) ? `无动作 ${formatDuration(noActivity)}` : "当前未运行"} /></div>
+      {session.activityFromSubagent && <div className="subagent-impact"><Bot size={17} /><span><strong>停滞发生在 Subagent</strong><small>{session.activitySourceTitle} · {shortID(session.activitySourceSessionId)}。执行中断会作用于主 Session。</small></span></div>}
+    </div>
+    <footer>{["suspected", "stalled"].includes(session.activityLevel) && <div className="stall-wait-control"><select aria-label="继续等待时长" value={waitMinutes} disabled={!!busy} onChange={(event) => setWaitMinutes(Number(event.target.value))}><option value={15}>15 分钟</option><option value={30}>30 分钟</option><option value={60}>60 分钟</option></select><button className="secondary-button" disabled={!!busy} onClick={() => void act("snooze", `已继续等待 ${waitMinutes} 分钟`, () => AppService.SnoozeSessionStall(session.id, session.directory, waitMinutes))}><Clock3 size={15} />继续等待</button></div>}<span className="toolbar-spacer" /><button className="secondary-button" onClick={onOpen}>打开 OpenCode</button>{isSessionBusy(session) && <button className="danger-button" disabled={!!busy} onClick={abort}>{busy === "abort" ? <LoaderCircle size={15} className="spin" /> : <X size={15} />}中断主 Session</button>}</footer>
+  </section></div>;
+}
+
+function DetailFact({ label, value, hint }: { label: string; value: string; hint: string }) { return <div><span>{label}</span><strong title={value}>{value}</strong><small title={hint}>{hint}</small></div>; }
 
 function rankingTone(item: ExecutionRankingItem): string {
   if (item.active) return "running";
@@ -662,6 +692,7 @@ function SettingsPage({ interfaceDensity, onInterfaceDensityChange, showToast, o
         <section className="panel settings-section">
           <h2>Handoff 与通知</h2>
           <div className="form-grid two"><FormField label="轮询间隔"><input value={form.pollingInterval} onChange={(event) => update("pollingInterval", event.target.value)} /></FormField><FormField label="最大输出字符" lockedBy={locked("handoff.max_output_chars")}><input type="number" value={form.maxOutputChars} disabled={!!locked("handoff.max_output_chars")} onChange={(event) => update("maxOutputChars", Number(event.target.value))} /></FormField></div>
+          <div className="form-grid two"><FormField label="疑似停滞时间" hint="例如 10m；必须小于长时间停滞阈值"><input value={form.activitySuspectedAfter} onChange={(event) => update("activitySuspectedAfter", event.target.value)} /></FormField><FormField label="长时间停滞时间" hint="例如 30m；Goal 可在达到后自动恢复"><input value={form.activityStalledAfter} onChange={(event) => update("activityStalledAfter", event.target.value)} /></FormField></div>
           <FormField label="自主执行记录保留天数" hint="默认 30 天；保存后会立即清理超过保留期的统计记录" lockedBy={locked("analytics.retention_days")}><input type="number" min="1" max="3650" value={form.executionRetentionDays} disabled={!!locked("analytics.retention_days")} onChange={(event) => update("executionRetentionDays", Number(event.target.value))} /></FormField>
           <ToggleRow label="通知 Session 空闲" checked={form.notifyIdle} disabled={!!locked("handoff.notify_idle")} onChange={(value) => update("notifyIdle", value)} />
           <ToggleRow label="通知运行错误" checked={form.notifyError} disabled={!!locked("handoff.notify_error")} onChange={(value) => update("notifyError", value)} />
@@ -718,17 +749,19 @@ function ProjectTable({ projects, onRoute, roomy = false }: { projects: ProjectV
 }
 
 function SessionCard({ session, compact = false }: { session: SessionView; compact?: boolean }) {
-  const tone = statusTone(session.status);
+  const tone = activityTone(session);
   const modelLabel = `${session.currentModel || "OpenCode 默认/尚未识别"}${session.currentVariant ? ` · ${session.currentVariant}` : ""}`;
   const busy = isSessionBusy(session);
   const busyForSeconds = useLiveSeconds(session.busyForSeconds, busy);
   const sinceLastInputSeconds = useLiveSeconds(session.sinceLastInputSeconds, session.hasLastInput);
+  const noActivitySeconds = useLiveSeconds(session.noActivitySeconds, busy && session.activityLevel !== "waiting");
   return (
     <article className={`session-card ${tone} ${compact ? "compact" : ""}`}>
       <div className="session-card-head"><span className={`session-icon ${tone}`}>{session.status === "running" ? <Play size={17} /> : session.status.startsWith("waiting") ? <Clock3 size={17} /> : session.status === "retrying" ? <RotateCcw size={17} /> : <Activity size={17} />}</span><div className="session-title"><strong>{session.title}</strong><code>{shortID(session.id)}</code></div><span className={`status-pill ${tone}`}>{session.statusLabel}</span></div>
       <div className="session-meta"><span>项目：{session.projectName}</span><i /> <span>Agent：{session.agentName}</span><i /> <span>渠道：{session.channelName}</span></div>
       {session.statusDetail && <p className="status-detail">{session.statusDetail}</p>}
       <div className="session-model-row" title={`模型：${modelLabel}`}><Bot size={14} /><span>模型：{modelLabel}</span></div>
+      <div className={`session-activity-row ${session.activityLevel}`}><strong>{operationLabel(session)}</strong><span>{busy ? `无动作 ${formatDuration(noActivitySeconds)}` : `最后活动 ${formatRecentTime(session.lastActivityAt || session.updatedAt)}`}</span>{session.activityFromSubagent && <small>Subagent · {session.activitySourceTitle}</small>}</div>
       <div className="session-time-row"><span>{busy ? `当前忙碌 ${formatDuration(busyForSeconds)}` : "当前未忙碌"}</span><span>{session.hasLastInput ? `距最后用户输入 ${formatDuration(sinceLastInputSeconds)}` : "暂无用户输入"}</span></div>
       {!compact && session.hasLastInput && <details className="last-input"><summary>完整最后输入</summary><pre>{session.lastInput}</pre></details>}
     </article>
@@ -770,6 +803,8 @@ function settingsToInput(settings: SettingsView): SettingsInput {
     notifyPermission: settings.notifyPermission,
     loggingLevel: settings.loggingLevel,
     executionRetentionDays: settings.executionRetentionDays,
+    activitySuspectedAfter: settings.activitySuspectedAfter,
+    activityStalledAfter: settings.activityStalledAfter,
   };
 }
 
@@ -777,6 +812,10 @@ function normaliseDashboard(value: Dashboard): Dashboard { return { ...value, pr
 function errorMessage(reason: unknown): string { return reason instanceof Error ? reason.message : String(reason); }
 function serviceStateLabel(state: string): string { return ({ conflict: "等待关闭 CLI", config_error: "配置待完善", error: "服务异常", stopped: "服务已停止", loading: "正在启动" } as Record<string, string>)[state] ?? "未运行"; }
 function statusTone(status: string): string { return ({ running: "running", waiting_permission: "permission", waiting_answer: "question", retrying: "retry", idle: "idle", unmonitored: "neutral" } as Record<string, string>)[status] ?? "neutral"; }
+function activityTone(session: SessionView): string { return session.activityLevel === "stalled" ? "stalled" : session.activityLevel === "suspected" ? "suspected" : statusTone(session.status); }
+function activityRank(level: string): number { return ({ stalled: 3, suspected: 2, waiting: 1 } as Record<string, number>)[level] ?? 0; }
+function activityStatusLabel(session: SessionView): string { return ({ stalled: "长时间停滞", suspected: "疑似停滞", waiting: "等待人工处理" } as Record<string, string>)[session.activityLevel] ?? (isSessionBusy(session) ? "正在执行" : "当前空闲"); }
+function operationLabel(session: SessionView): string { const type = session.operationType && session.operationType !== "Session" ? session.operationType : "活动"; return `${type}${session.operationSummary ? ` · ${session.operationSummary}` : ""}`; }
 function isSessionBusy(session: SessionView): boolean { return session.status === "running" || session.status === "retrying"; }
 function LiveDuration({ seconds, running }: { seconds: number; running: boolean }) { return <>{formatDuration(useLiveSeconds(seconds, running))}</>; }
 function useLiveSeconds(serverSeconds: number, running: boolean): number {

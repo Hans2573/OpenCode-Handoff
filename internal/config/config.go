@@ -34,6 +34,7 @@ func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 type Config struct {
 	OpenCode  OpenCodeConfig  `yaml:"opencode"`
 	Watcher   WatcherConfig   `yaml:"watcher"`
+	Activity  ActivityConfig  `yaml:"activity"`
 	Handoff   HandoffConfig   `yaml:"handoff"`
 	Channel   ChannelConfig   `yaml:"channel"`
 	Feishu    FeishuConfig    `yaml:"feishu"`
@@ -41,6 +42,11 @@ type Config struct {
 	Analytics AnalyticsConfig `yaml:"analytics"`
 	Store     StoreConfig     `yaml:"store"`
 	Logging   LoggingConfig   `yaml:"logging"`
+}
+
+type ActivityConfig struct {
+	SuspectedAfter Duration `yaml:"suspected_after"`
+	StalledAfter   Duration `yaml:"stalled_after"`
 }
 
 type OpenCodeConfig struct {
@@ -98,6 +104,10 @@ func Default() Config {
 			SSE:             true,
 			PollingFallback: true,
 			PollingInterval: Duration{Duration: 3 * time.Second},
+		},
+		Activity: ActivityConfig{
+			SuspectedAfter: Duration{Duration: 10 * time.Minute},
+			StalledAfter:   Duration{Duration: 30 * time.Minute},
 		},
 		Handoff: HandoffConfig{
 			MaxOutputChars:   3000,
@@ -396,6 +406,12 @@ func (c Config) Validate() error {
 	}
 	if c.Watcher.PollingFallback && c.Watcher.PollingInterval.Duration <= 0 {
 		return errors.New("watcher.polling_interval must be positive")
+	}
+	if c.Activity.SuspectedAfter.Duration <= 0 {
+		return errors.New("activity.suspected_after must be positive")
+	}
+	if c.Activity.StalledAfter.Duration <= c.Activity.SuspectedAfter.Duration {
+		return errors.New("activity.stalled_after must be greater than activity.suspected_after")
 	}
 	if c.Handoff.MaxOutputChars <= 0 {
 		return errors.New("handoff.max_output_chars must be positive")

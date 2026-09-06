@@ -31,6 +31,7 @@ type GoalLoop struct {
 	Name                          string
 	Goal                          string
 	UseGoalCommand                bool
+	AutoRecoverStalls             bool
 	ProjectID                     string
 	ProjectName                   string
 	Directory                     string
@@ -59,6 +60,7 @@ type GoalLoop struct {
 	FailureLimit                  int
 	ConsecutiveFailures           int
 	CycleCount                    int
+	StallRecoveryCycle            int
 	LastAssistantMessageID        string
 	PendingUserMessageID          string
 	PromptSubmittedAt             time.Time

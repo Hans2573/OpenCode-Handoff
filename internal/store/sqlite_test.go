@@ -225,6 +225,47 @@ func TestSQLiteSessionExecutionLifecycleAndRetention(t *testing.T) {
 	}
 }
 
+func TestSQLiteSessionActivityOverwritesLatestSnapshot(t *testing.T) {
+	ctx := context.Background()
+	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	item := domain.SessionActivitySnapshot{
+		SessionID: "ses_1", Directory: "/work/a", Fingerprint: "first",
+		SessionStatus: "busy", Level: domain.SessionActivitySuspected,
+		LastActivityAt: now.Add(-time.Minute), OperationType: "bash",
+		OperationSummary: "go test ./...", SourceSessionID: "ses_1", UpdatedAt: now,
+	}
+	if err := database.UpsertSessionActivity(ctx, item); err != nil {
+		t.Fatal(err)
+	}
+	item.Fingerprint = "second"
+	item.OperationSummary = "npm run build"
+	item.LastActivityAt = now
+	if err := database.UpsertSessionActivity(ctx, item); err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.ListSessionActivities(ctx)
+	if err != nil || len(items) != 1 || items[0].Fingerprint != "second" || items[0].OperationSummary != "npm run build" {
+		t.Fatalf("activities = %+v, err = %v", items, err)
+	}
+	second := item
+	second.SessionID = "ses_2"
+	if err := database.UpsertSessionActivity(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DeleteSessionActivitiesNotIn(ctx, item.Directory, []string{item.SessionID}); err != nil {
+		t.Fatal(err)
+	}
+	items, err = database.ListSessionActivities(ctx)
+	if err != nil || len(items) != 1 || items[0].SessionID != item.SessionID {
+		t.Fatalf("activities after pruning = %+v, err = %v", items, err)
+	}
+}
+
 func TestSQLiteProjectRoutesRequireExplicitOptIn(t *testing.T) {
 	ctx := context.Background()
 	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))

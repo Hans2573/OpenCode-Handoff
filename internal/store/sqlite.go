@@ -161,11 +161,31 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			ON session_execution_runs(ended_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_session_execution_runs_session
 			ON session_execution_runs(session_id, directory, started_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS session_activity_snapshots (
+			session_id TEXT NOT NULL,
+			directory TEXT NOT NULL,
+			fingerprint TEXT NOT NULL DEFAULT '',
+			session_status TEXT NOT NULL DEFAULT '',
+			level TEXT NOT NULL DEFAULT 'normal',
+			last_activity_at INTEGER NOT NULL,
+			operation_started_at INTEGER,
+			operation_type TEXT NOT NULL DEFAULT '',
+			operation_summary TEXT NOT NULL DEFAULT '',
+			operation_status TEXT NOT NULL DEFAULT '',
+			source_session_id TEXT NOT NULL DEFAULT '',
+			source_session_title TEXT NOT NULL DEFAULT '',
+			source_agent TEXT NOT NULL DEFAULT '',
+			source_is_subagent INTEGER NOT NULL DEFAULT 0,
+			snoozed_until INTEGER,
+			updated_at INTEGER NOT NULL,
+			PRIMARY KEY(session_id, directory)
+		)`,
 		`CREATE TABLE IF NOT EXISTS goal_loops (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
 			goal TEXT NOT NULL,
 			use_goal_command INTEGER NOT NULL DEFAULT 1,
+			auto_recover_stalls INTEGER NOT NULL DEFAULT 0,
 			project_id TEXT NOT NULL,
 			project_name TEXT NOT NULL,
 			directory TEXT NOT NULL,
@@ -194,6 +214,7 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			failure_limit INTEGER NOT NULL DEFAULT 3,
 			consecutive_failures INTEGER NOT NULL DEFAULT 0,
 			cycle_count INTEGER NOT NULL DEFAULT 0,
+			stall_recovery_cycle INTEGER NOT NULL DEFAULT -1,
 			last_assistant_message_id TEXT NOT NULL DEFAULT '',
 			pending_user_message_id TEXT NOT NULL DEFAULT '',
 			prompt_submitted_at INTEGER,
@@ -240,6 +261,7 @@ func (s *SQLite) migrate(ctx context.Context) error {
 	}
 	for name, definition := range map[string]string{
 		"use_goal_command":             "INTEGER NOT NULL DEFAULT 1",
+		"auto_recover_stalls":          "INTEGER NOT NULL DEFAULT 0",
 		"model_provider_id":            "TEXT NOT NULL DEFAULT ''",
 		"model_id":                     "TEXT NOT NULL DEFAULT ''",
 		"model_name":                   "TEXT NOT NULL DEFAULT ''",
@@ -260,6 +282,7 @@ func (s *SQLite) migrate(ctx context.Context) error {
 		"pending_user_message_id":      "TEXT NOT NULL DEFAULT ''",
 		"prompt_submitted_at":          "INTEGER",
 		"prompt_idle_since":            "INTEGER",
+		"stall_recovery_cycle":         "INTEGER NOT NULL DEFAULT -1",
 	} {
 		if err := s.ensureColumn(ctx, "goal_loops", name, definition); err != nil {
 			return err

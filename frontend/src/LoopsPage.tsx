@@ -287,6 +287,7 @@ export default function LoopsPage({ projects, sessions, initialSession, onInitia
               <div className="loop-detail-head"><div><span>Loop 详情</span><h2>{selected.name}</h2></div>{["waiting_approval", "deciding"].includes(selected.status) ? <button type="button" className="loop-status approval actionable" onClick={() => openLoopApprovals(selected)}>{selected.statusLabel}</button> : <em className={`loop-status ${loopTone(selected.status)}`}>{selected.statusLabel}</em>}</div>
               <div className="loop-detail-body">
                 <section className="loop-selected-summary"><span><Target size={17} /></span><div><strong>{selected.name}</strong><p>{selected.goal}</p></div></section>
+                {selected.sessionId && <section className={`loop-stall-status ${selected.activityLevel || "normal"}`}><Activity size={17} /><div><strong>{selected.activityLevel === "stalled" ? "Session 长时间停滞" : selected.activityLevel === "suspected" ? "Session 疑似停滞" : selected.activityLevel === "waiting" ? "Session 等待人工处理" : "Session 活动正常"}</strong><span>{selected.operationType ? `${selected.operationType} · ${selected.operationSummary || "正在执行"}` : "正在等待活动数据"}</span><small>{selected.activityFromSubagent ? `Subagent：${selected.activitySourceTitle || selected.activitySourceAgent}` : selected.activitySourceAgent || "主 Agent"}{selected.lastActivityAt ? ` · 最后活动 ${relativeTime(selected.lastActivityAt)}` : ""}</small></div></section>}
                 <div className="loop-detail-facts">
                   <div><span>类型</span><strong>Goal-based Loop</strong></div>
                   <div><span>关联项目</span><strong>{selected.projectName}</strong><small>{selected.agentName}</small></div>
@@ -300,6 +301,7 @@ export default function LoopsPage({ projects, sessions, initialSession, onInitia
                 <details className="loop-runtime-config"><summary><span><strong>运行配置</strong><small>策略、权限、监督与完成规则</small></span><ChevronDown size={15} /></summary><div className="loop-runtime-grid">
                   <RuntimeItem label="自主策略" value={selected.automationMode === "manual" ? "人工监督" : "完全自主"} hint={selected.automationMode === "manual" ? "应用或飞书处理请求" : "自动处理权限与选择框"} />
                   <RuntimeItem label="启动指令" value={selected.useGoalCommand ? "添加 /goal 前缀" : "直接发送目标"} hint={selected.useGoalCommand ? "需要 Agent 支持 /goal" : "适用于普通提示词"} />
+                  <RuntimeItem label="停滞恢复" value={selected.autoRecoverStalls ? "自动恢复" : "仅提醒"} hint={selected.autoRecoverStalls ? "达到长时间停滞阈值后中断主 Session，并从当前状态继续" : "由用户在 Session 详情中人工处理"} />
                   <RuntimeItem label="权限审批" value={selected.automationMode === "manual" ? "人工审批" : selected.permissionApprovalMode === "allow_all" ? "全部同意" : "AI 智能审批"} hint={selected.automationMode === "manual" ? "在应用或飞书中处理" : selected.permissionApprovalMode === "allow_all" ? "每个权限请求直接允许一次" : "监督模型判断风险和范围"} />
                   {selected.automationMode === "autonomous" && <RuntimeItem label="监督模型" value={selected.supervisorModelName || selected.supervisorModelId || selected.modelName} hint={selected.supervisorModelId === "__agent_default__" ? "Agent 默认模型" : `${selected.supervisorModelProviderId}/${selected.supervisorModelId}`} />}
                   <RuntimeItem label="连续失败阈值" value={`${selected.failureLimit} 次`} hint={`当前连续失败 ${selected.consecutiveFailures} 次`} />
@@ -401,6 +403,7 @@ function GoalEditor({ current, projects, sessions, initialSession, models, model
   const [failureLimit, setFailureLimit] = useState(current?.failureLimit ?? 3);
   const [confirmation, setConfirmation] = useState(current?.requireCompletionConfirmation ?? false);
   const [useGoalCommand, setUseGoalCommand] = useState(current?.useGoalCommand ?? true);
+  const [autoRecoverStalls, setAutoRecoverStalls] = useState(current?.autoRecoverStalls ?? false);
   const [commandConfirmed, setCommandConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generatingGoal, setGeneratingGoal] = useState(false);
@@ -467,7 +470,7 @@ function GoalEditor({ current, projects, sessions, initialSession, models, model
     }
     setSaving(true);
     const input: GoalLoopInput = {
-      name: name.trim(), goal: goal.trim(), useGoalCommand, projectId: projectID, agentId: "opencode-default",
+      name: name.trim(), goal: goal.trim(), useGoalCommand, autoRecoverStalls, projectId: projectID, agentId: "opencode-default",
       modelProviderId: selectedModel.providerId, modelId: selectedModel.id, modelVariant,
       sessionId: terminalEdit ? current?.sessionId ?? "" : source === "existing" ? sessionID : "", automationMode,
       permissionApprovalMode,
@@ -507,6 +510,7 @@ function GoalEditor({ current, projects, sessions, initialSession, models, model
       </div>}
       <div className="loop-form-grid"><label className="loop-form-field"><span>连续技术故障恢复阈值</span><input type="number" min="1" max="100" value={failureLimit} onChange={(event) => setFailureLimit(Math.max(1, Math.min(100, Number(event.target.value))))} /><small>达到阈值后重建监督 Session / 切换备用模型，并持续重试</small></label><label className="loop-check-card"><input type="checkbox" checked={confirmation} onChange={(event) => setConfirmation(event.target.checked)} /><span><strong>完成后需要人工确认</strong><small>默认关闭；关闭时收到完成标记即自动完成</small></span></label></div>
       <label className="loop-check-card"><input type="checkbox" checked={useGoalCommand} onChange={(event) => { setUseGoalCommand(event.target.checked); if (!event.target.checked) setCommandConfirmed(false); }} /><span><strong>启动时添加 <code>/goal</code> 前缀</strong><small>默认开启；关闭后直接发送目标文本，适用于不支持 /goal 的 Agent。</small></span></label>
+      <label className="loop-check-card"><input type="checkbox" checked={autoRecoverStalls} onChange={(event) => setAutoRecoverStalls(event.target.checked)} /><span><strong>Session 停滞时自动恢复</strong><small>默认关闭；达到设置中的长时间停滞阈值后，中断主 Session 并从当前工作区状态继续。同一轮最多恢复一次。</small></span></label>
       {useGoalCommand && <label className="goal-command-warning"><input type="checkbox" checked={commandConfirmed} onChange={(event) => setCommandConfirmed(event.target.checked)} /><CircleAlert size={18} /><span><strong>我已确认所选 Agent 支持 <code>/goal</code></strong><small>应用只添加命令前缀，不会安装或检测 Agent 的 /goal 能力。</small></span></label>}
       <div className="infinite-note"><InfinityIcon size={17} /><span>Goal Loop 不设置最大轮数；临时故障会持续自动恢复，确定不存在安全路径时才标记为受阻。</span></div>
     </div>

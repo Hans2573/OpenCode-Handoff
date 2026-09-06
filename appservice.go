@@ -186,6 +186,14 @@ func (s *AppService) OpenSession(sessionID, directory string) error {
 	return s.app.Browser.OpenURL(base.String())
 }
 
+func (s *AppService) AbortSessionExecution(sessionID, directory string) error {
+	return s.manager.AbortSessionExecution(sessionID, directory)
+}
+
+func (s *AppService) SnoozeSessionStall(sessionID, directory string, minutes int) error {
+	return s.manager.SnoozeSessionStall(sessionID, directory, minutes)
+}
+
 func (s *AppService) OpenDataDirectory() error {
 	return s.app.Env.OpenFileManager(s.manager.Paths().DataDir, false)
 }
