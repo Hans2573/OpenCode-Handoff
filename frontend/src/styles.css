@@ -653,6 +653,12 @@ button.loop-metric.actionable:hover { border-color: #80501f; background: linear-
 .stall-banner > div { display: flex; flex-direction: column; gap: 4px; }
 .stall-banner strong { color: #d6dfe8; font-size: var(--font-body); }
 .stall-banner span { font-size: var(--font-caption); }
+.current-operation { display: flex; min-width: 0; flex-direction: column; gap: 4px; margin-top: 5px; padding-top: 8px; border-top: 1px solid rgba(126,148,167,.2); }
+.current-operation > span { display: flex; min-width: 0; align-items: center; gap: 7px; }
+.current-operation > span code { flex: none; color: #89c8ff; font-size: var(--font-micro); }
+.current-operation > span b { overflow: hidden; color: #d6e1e9; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-caption); }
+.current-operation small { color: #8495a4; font-size: var(--font-micro); }
+.current-operation-input { max-width: 900px; overflow: hidden; color: #748797; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-micro); }
 .stall-banner.suspected { color: #efad6c; border-color: rgba(242,140,40,.45); background: rgba(72,43,23,.34); }
 .stall-banner.stalled { color: #ff8d91; border-color: rgba(240,91,97,.5); background: rgba(76,29,34,.4); }
 .session-detail-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
@@ -680,13 +686,13 @@ button.loop-metric.actionable:hover { border-color: #80501f; background: linear-
 .session-tool-breakdown > header span,.session-operation-analysis > header > span { color: #738392; font-size: var(--font-micro); }
 .session-tool-breakdown > header em { color: #e6a15c; font-size: var(--font-micro); font-style: normal; }
 .tool-stat-list { display: grid; padding: 6px 12px 10px; }
-.tool-stat-row { display: grid; grid-template-columns: 90px minmax(120px,1fr) 90px 150px; align-items: center; gap: 12px; min-height: 34px; border-bottom: 1px solid rgba(42,59,73,.55); }
+.tool-stat-row { display: grid; grid-template-columns: 90px minmax(160px,520px) 145px minmax(200px,1fr); align-items: center; gap: 12px; min-height: 34px; border-bottom: 1px solid rgba(42,59,73,.55); }
 .tool-stat-row:last-child { border-bottom: 0; }
 .tool-stat-row code { overflow: hidden; color: #8bc2f5; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-micro); }
 .tool-stat-row > div { height: 6px; overflow: hidden; border-radius: 3px; background: #263441; }
 .tool-stat-row > div i { display: block; height: 100%; border-radius: 3px; background: #3b91d9; }
-.tool-stat-row strong { color: #d3dce5; text-align: right; font-size: var(--font-caption); }
-.tool-stat-row > span { color: #7f8d9b; font-size: var(--font-micro); }
+.tool-stat-row strong { color: #d3dce5; text-align: right; white-space: nowrap; font-size: var(--font-caption); }
+.tool-stat-row > span { overflow: hidden; color: #7f8d9b; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-micro); }
 .analysis-tabs { display: inline-flex; padding: 3px; border: 1px solid #304352; border-radius: 6px; background: #0d161e; }
 .analysis-tabs button { min-height: 27px; padding: 0 11px; border: 0; border-radius: 4px; color: #8494a3; background: transparent; cursor: pointer; font-size: var(--font-micro); }
 .analysis-tabs button.active { color: #e7edf3; background: #285f91; }
@@ -810,6 +816,8 @@ button.loop-metric.actionable:hover { border-color: #80501f; background: linear-
   .loop-kind:last-child { grid-column: 1/-1; }
   .loop-filterbar { grid-template-columns: minmax(220px,1fr) repeat(3,minmax(105px,.5fr)); }
   .approval-grid { grid-template-columns: 1fr; }
+  .tool-stat-row { grid-template-columns: 80px minmax(120px,1fr) 130px; }
+  .tool-stat-row > span { display: none; }
   .session-analysis-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .session-analysis-summary > div:nth-child(2) { border-right: 0; }
   .session-analysis-summary > div:nth-child(-n+2) { border-bottom: 1px solid #2a3b49; }
@@ -824,7 +832,7 @@ button.loop-metric.actionable:hover { border-color: #80501f; background: linear-
   .session-detail-modal { width: 100%; height: 100vh; max-height: 100vh; border: 0; border-radius: 0; }
   .session-detail-body { padding: 12px; }
   .session-detail-modal > header,.session-detail-modal > footer { padding-left: 12px; padding-right: 12px; }
-  .tool-stat-row { grid-template-columns: 70px minmax(70px,1fr) 75px; gap: 8px; }
+  .tool-stat-row { grid-template-columns: 65px minmax(70px,1fr) 115px; gap: 8px; }
   .tool-stat-row > span { display: none; }
   .session-operation-analysis > header { align-items: flex-start; flex-direction: column; }
   .analysis-operation-row { grid-template-columns: 24px minmax(180px,1fr) 100px; padding-left: 7px; padding-right: 7px; }
