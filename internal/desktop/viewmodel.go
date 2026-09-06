@@ -90,6 +90,66 @@ type SessionView struct {
 	StallSnoozedUntil       time.Time `json:"stallSnoozedUntil"`
 }
 
+type SessionDetailView struct {
+	ID                    string                 `json:"id"`
+	Title                 string                 `json:"title"`
+	Directory             string                 `json:"directory"`
+	Status                string                 `json:"status"`
+	StatusLabel           string                 `json:"statusLabel"`
+	CreatedAt             time.Time              `json:"createdAt"`
+	UpdatedAt             time.Time              `json:"updatedAt"`
+	ElapsedSeconds        int64                  `json:"elapsedSeconds"`
+	MessageCount          int                    `json:"messageCount"`
+	ToolCallCount         int                    `json:"toolCallCount"`
+	TotalToolSeconds      int64                  `json:"totalToolSeconds"`
+	RunningOperationCount int                    `json:"runningOperationCount"`
+	FailedOperationCount  int                    `json:"failedOperationCount"`
+	SubagentCount         int                    `json:"subagentCount"`
+	Operations            []SessionOperationView `json:"operations"`
+	ToolStats             []SessionToolStatView  `json:"toolStats"`
+	Subagents             []SessionSubagentView  `json:"subagents"`
+	Truncated             bool                   `json:"truncated"`
+}
+
+type SessionOperationView struct {
+	ID              string    `json:"id"`
+	Tool            string    `json:"tool"`
+	InputPreview    string    `json:"inputPreview"`
+	Summary         string    `json:"summary"`
+	Status          string    `json:"status"`
+	SessionID       string    `json:"sessionId"`
+	SessionTitle    string    `json:"sessionTitle"`
+	Agent           string    `json:"agent"`
+	FromSubagent    bool      `json:"fromSubagent"`
+	StartedAt       time.Time `json:"startedAt"`
+	EndedAt         time.Time `json:"endedAt"`
+	DurationSeconds int64     `json:"durationSeconds"`
+	Running         bool      `json:"running"`
+	Failed          bool      `json:"failed"`
+	Persisted       bool      `json:"persisted"`
+}
+
+type SessionToolStatView struct {
+	Tool           string `json:"tool"`
+	CallCount      int    `json:"callCount"`
+	TotalSeconds   int64  `json:"totalSeconds"`
+	AverageSeconds int64  `json:"averageSeconds"`
+	LongestSeconds int64  `json:"longestSeconds"`
+	RunningCount   int    `json:"runningCount"`
+	FailedCount    int    `json:"failedCount"`
+}
+
+type SessionSubagentView struct {
+	ID               string `json:"id"`
+	Title            string `json:"title"`
+	Agent            string `json:"agent"`
+	ToolCallCount    int    `json:"toolCallCount"`
+	TotalToolSeconds int64  `json:"totalToolSeconds"`
+	LongestSeconds   int64  `json:"longestSeconds"`
+	RunningCount     int    `json:"runningCount"`
+	FailedCount      int    `json:"failedCount"`
+}
+
 type ExecutionRunView struct {
 	ID              int64     `json:"id"`
 	SessionID       string    `json:"sessionId"`
@@ -149,6 +209,7 @@ type SettingsView struct {
 	ExecutionRetentionDays int               `json:"executionRetentionDays"`
 	ActivitySuspectedAfter string            `json:"activitySuspectedAfter"`
 	ActivityStalledAfter   string            `json:"activityStalledAfter"`
+	SlowOperationAfter     string            `json:"slowOperationAfter"`
 	EnvironmentOverrides   map[string]string `json:"environmentOverrides"`
 	ConfigError            string            `json:"configError"`
 }
@@ -180,6 +241,7 @@ type SettingsInput struct {
 	ExecutionRetentionDays int      `json:"executionRetentionDays"`
 	ActivitySuspectedAfter string   `json:"activitySuspectedAfter"`
 	ActivityStalledAfter   string   `json:"activityStalledAfter"`
+	SlowOperationAfter     string   `json:"slowOperationAfter"`
 }
 
 type EventPage struct {

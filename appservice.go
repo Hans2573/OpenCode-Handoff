@@ -34,6 +34,10 @@ func (s *AppService) GetDashboard() (desktop.Dashboard, error) {
 	return s.manager.GetDashboard()
 }
 
+func (s *AppService) GetSessionDetail(sessionID, directory string) (desktop.SessionDetailView, error) {
+	return s.manager.GetSessionDetail(sessionID, directory)
+}
+
 func (s *AppService) RefreshProjects() (desktop.Dashboard, error) {
 	if err := s.manager.RefreshProjects(); err != nil {
 		return desktop.Dashboard{}, err

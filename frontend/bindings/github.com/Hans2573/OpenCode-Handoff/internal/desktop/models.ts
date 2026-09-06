@@ -251,10 +251,70 @@ export interface ServiceStatus {
     "openCodeUrl": string;
 }
 
+export interface SessionDetailView {
+    "id": string;
+    "title": string;
+    "directory": string;
+    "status": string;
+    "statusLabel": string;
+    "createdAt": string;
+    "updatedAt": string;
+    "elapsedSeconds": number;
+    "messageCount": number;
+    "toolCallCount": number;
+    "totalToolSeconds": number;
+    "runningOperationCount": number;
+    "failedOperationCount": number;
+    "subagentCount": number;
+    "operations": SessionOperationView[] | null;
+    "toolStats": SessionToolStatView[] | null;
+    "subagents": SessionSubagentView[] | null;
+    "truncated": boolean;
+}
+
 export interface SessionModelView {
     "providerId": string;
     "modelId": string;
     "variant": string;
+}
+
+export interface SessionOperationView {
+    "id": string;
+    "tool": string;
+    "inputPreview": string;
+    "summary": string;
+    "status": string;
+    "sessionId": string;
+    "sessionTitle": string;
+    "agent": string;
+    "fromSubagent": boolean;
+    "startedAt": string;
+    "endedAt": string;
+    "durationSeconds": number;
+    "running": boolean;
+    "failed": boolean;
+    "persisted": boolean;
+}
+
+export interface SessionSubagentView {
+    "id": string;
+    "title": string;
+    "agent": string;
+    "toolCallCount": number;
+    "totalToolSeconds": number;
+    "longestSeconds": number;
+    "runningCount": number;
+    "failedCount": number;
+}
+
+export interface SessionToolStatView {
+    "tool": string;
+    "callCount": number;
+    "totalSeconds": number;
+    "averageSeconds": number;
+    "longestSeconds": number;
+    "runningCount": number;
+    "failedCount": number;
 }
 
 export interface SessionView {
@@ -316,6 +376,7 @@ export interface SettingsInput {
     "executionRetentionDays": number;
     "activitySuspectedAfter": string;
     "activityStalledAfter": string;
+    "slowOperationAfter": string;
 }
 
 export interface SettingsView {
@@ -340,6 +401,7 @@ export interface SettingsView {
     "executionRetentionDays": number;
     "activitySuspectedAfter": string;
     "activityStalledAfter": string;
+    "slowOperationAfter": string;
     "environmentOverrides": { [_ in string]?: string } | null;
     "configError": string;
 }

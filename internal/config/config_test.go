@@ -44,6 +44,9 @@ store:
 	if cfg.Analytics.RetentionDays != 30 {
 		t.Fatalf("unexpected analytics retention: %d", cfg.Analytics.RetentionDays)
 	}
+	if cfg.Activity.SlowOperationAfter.Duration != 30*time.Second {
+		t.Fatalf("unexpected slow operation threshold: %s", cfg.Activity.SlowOperationAfter.Duration)
+	}
 	wantStore := filepath.Join(directory, "state", "handoff.db")
 	if cfg.Store.Path != wantStore {
 		t.Fatalf("store path = %q, want %q", cfg.Store.Path, wantStore)

@@ -18,6 +18,7 @@ watcher:
 activity:
   suspected_after: 10m
   stalled_after: 30m
+  slow_operation_after: 30s
 
 handoff:
   max_output_chars: 3000

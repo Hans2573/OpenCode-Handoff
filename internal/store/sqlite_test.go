@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -263,6 +264,52 @@ func TestSQLiteSessionActivityOverwritesLatestSnapshot(t *testing.T) {
 	items, err = database.ListSessionActivities(ctx)
 	if err != nil || len(items) != 1 || items[0].SessionID != item.SessionID {
 		t.Fatalf("activities after pruning = %+v, err = %v", items, err)
+	}
+}
+
+func TestSQLiteSlowOperationsUpsertPruneAndCleanup(t *testing.T) {
+	ctx := context.Background()
+	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "handoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	operation := domain.SlowOperation{
+		RootSessionID: "root", SourceSessionID: "root", Directory: "/work/a",
+		MessageID: "msg_1", PartID: "part_1", Tool: "bash", InputPreview: `{"command":"first"}`,
+		StartedAt: now.Add(-time.Minute), DurationSeconds: 60, UpdatedAt: now,
+	}
+	if err := database.UpsertSlowOperation(ctx, operation); err != nil {
+		t.Fatal(err)
+	}
+	operation.InputPreview = `{"command":"updated"}`
+	operation.DurationSeconds = 90
+	if err := database.UpsertSlowOperation(ctx, operation); err != nil {
+		t.Fatal(err)
+	}
+	for index, duration := range []int64{30, 120} {
+		item := operation
+		item.MessageID = fmt.Sprintf("msg_%d", index+2)
+		item.PartID = fmt.Sprintf("part_%d", index+2)
+		item.DurationSeconds = duration
+		if err := database.UpsertSlowOperation(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := database.PruneSlowOperations(ctx, operation.RootSessionID, operation.Directory, 2); err != nil {
+		t.Fatal(err)
+	}
+	items, err := database.ListSlowOperations(ctx, operation.RootSessionID, operation.Directory, 10)
+	if err != nil || len(items) != 2 || items[0].DurationSeconds != 120 || items[1].DurationSeconds != 90 || items[1].InputPreview != `{"command":"updated"}` {
+		t.Fatalf("slow operations = %+v, err = %v", items, err)
+	}
+	if err := database.CleanupSlowOperations(ctx, -time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	items, err = database.ListSlowOperations(ctx, operation.RootSessionID, operation.Directory, 10)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("slow operations after cleanup = %+v, err = %v", items, err)
 	}
 }
 

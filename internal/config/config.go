@@ -45,8 +45,9 @@ type Config struct {
 }
 
 type ActivityConfig struct {
-	SuspectedAfter Duration `yaml:"suspected_after"`
-	StalledAfter   Duration `yaml:"stalled_after"`
+	SuspectedAfter     Duration `yaml:"suspected_after"`
+	StalledAfter       Duration `yaml:"stalled_after"`
+	SlowOperationAfter Duration `yaml:"slow_operation_after"`
 }
 
 type OpenCodeConfig struct {
@@ -106,8 +107,9 @@ func Default() Config {
 			PollingInterval: Duration{Duration: 3 * time.Second},
 		},
 		Activity: ActivityConfig{
-			SuspectedAfter: Duration{Duration: 10 * time.Minute},
-			StalledAfter:   Duration{Duration: 30 * time.Minute},
+			SuspectedAfter:     Duration{Duration: 10 * time.Minute},
+			StalledAfter:       Duration{Duration: 30 * time.Minute},
+			SlowOperationAfter: Duration{Duration: 30 * time.Second},
 		},
 		Handoff: HandoffConfig{
 			MaxOutputChars:   3000,
@@ -412,6 +414,9 @@ func (c Config) Validate() error {
 	}
 	if c.Activity.StalledAfter.Duration <= c.Activity.SuspectedAfter.Duration {
 		return errors.New("activity.stalled_after must be greater than activity.suspected_after")
+	}
+	if c.Activity.SlowOperationAfter.Duration <= 0 {
+		return errors.New("activity.slow_operation_after must be positive")
 	}
 	if c.Handoff.MaxOutputChars <= 0 {
 		return errors.New("handoff.max_output_chars must be positive")

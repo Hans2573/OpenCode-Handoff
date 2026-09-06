@@ -180,6 +180,31 @@ func (s *SQLite) migrate(ctx context.Context) error {
 			updated_at INTEGER NOT NULL,
 			PRIMARY KEY(session_id, directory)
 		)`,
+		`CREATE TABLE IF NOT EXISTS session_slow_operations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			root_session_id TEXT NOT NULL,
+			source_session_id TEXT NOT NULL,
+			directory TEXT NOT NULL,
+			message_id TEXT NOT NULL,
+			part_id TEXT NOT NULL,
+			tool TEXT NOT NULL DEFAULT '',
+			input_preview TEXT NOT NULL DEFAULT '',
+			input_hash TEXT NOT NULL DEFAULT '',
+			summary TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT '',
+			source_title TEXT NOT NULL DEFAULT '',
+			source_agent TEXT NOT NULL DEFAULT '',
+			source_is_subagent INTEGER NOT NULL DEFAULT 0,
+			started_at INTEGER NOT NULL,
+			ended_at INTEGER,
+			duration_seconds INTEGER NOT NULL DEFAULT 0,
+			updated_at INTEGER NOT NULL,
+			UNIQUE(directory, source_session_id, message_id, part_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_session_slow_operations_root
+			ON session_slow_operations(root_session_id, directory, duration_seconds DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_session_slow_operations_updated
+			ON session_slow_operations(updated_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS goal_loops (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,

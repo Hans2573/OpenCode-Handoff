@@ -622,7 +622,11 @@ func (m *Manager) executionRetentionDays() int {
 }
 
 func (m *Manager) cleanupSessionExecutions(ctx context.Context) error {
-	return m.store.CleanupSessionExecutions(ctx, time.Duration(m.executionRetentionDays())*24*time.Hour)
+	maxAge := time.Duration(m.executionRetentionDays()) * 24 * time.Hour
+	if err := m.store.CleanupSessionExecutions(ctx, maxAge); err != nil {
+		return err
+	}
+	return m.store.CleanupSlowOperations(ctx, maxAge)
 }
 
 func (m *Manager) serviceStatus() ServiceStatus {
@@ -984,6 +988,7 @@ func (m *Manager) GetSettings() SettingsView {
 		LoggingLevel: cfg.Logging.Level, ExecutionRetentionDays: cfg.Analytics.RetentionDays,
 		ActivitySuspectedAfter: cfg.Activity.SuspectedAfter.Duration.String(),
 		ActivityStalledAfter:   cfg.Activity.StalledAfter.Duration.String(),
+		SlowOperationAfter:     cfg.Activity.SlowOperationAfter.Duration.String(),
 		EnvironmentOverrides:   config.EnvironmentOverrides(), ConfigError: configError,
 	}
 }
@@ -1049,6 +1054,11 @@ func (m *Manager) SaveSettings(input SettingsInput) error {
 		next.Activity.StalledAfter = config.Duration{Duration: value}
 	} else {
 		return fmt.Errorf("长时间停滞时间无效：%w", err)
+	}
+	if value, err := time.ParseDuration(strings.TrimSpace(input.SlowOperationAfter)); err == nil {
+		next.Activity.SlowOperationAfter = config.Duration{Duration: value}
+	} else {
+		return fmt.Errorf("耗时操作阈值无效：%w", err)
 	}
 	if value, err := time.ParseDuration(strings.TrimSpace(input.PollingInterval)); err == nil {
 		next.Watcher.PollingInterval = config.Duration{Duration: value}

@@ -23,7 +23,11 @@ export type {
     ProjectView,
     QuestionReplyInput,
     ServiceStatus,
+    SessionDetailView,
     SessionModelView,
+    SessionOperationView,
+    SessionSubagentView,
+    SessionToolStatView,
     SessionView,
     SettingsInput,
     SettingsView

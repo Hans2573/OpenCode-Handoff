@@ -65,6 +65,10 @@ export function GetGoalModels(): $CancellablePromise<desktop$0.GoalModelView[] |
     return $Call.ByID(2905334567);
 }
 
+export function GetSessionDetail(sessionID: string, directory: string): $CancellablePromise<desktop$0.SessionDetailView> {
+    return $Call.ByID(4293814507, sessionID, directory);
+}
+
 export function GetSessionModel(sessionID: string, directory: string): $CancellablePromise<desktop$0.SessionModelView> {
     return $Call.ByID(3485186231, sessionID, directory);
 }

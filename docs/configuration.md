@@ -20,6 +20,7 @@ watcher:
 activity:
   suspected_after: 10m
   stalled_after: 30m
+  slow_operation_after: 30s
 
 handoff:
   max_output_chars: 3000
@@ -121,6 +122,8 @@ handoff:
 ## Session 活动监测
 
 `activity.suspected_after` 和 `activity.stalled_after` 分别控制“疑似停滞”和“长时间停滞”阈值，默认是 10 分钟和 30 分钟，后者必须大于前者。应用根据 Assistant 消息、Tool 状态与时间、Session 状态、retry 变化以及 Subagent Session 的活动更新时间刷新计时；Question 和 Permission 等待人工处理时会暂停停滞判断。
+
+`activity.slow_operation_after` 控制耗时工具调用的保存阈值，默认 `30s`。输入先按敏感字段脱敏并截断到 4 KB，同一工具调用只更新一条记录，每个主 Session 最多保留最慢的 100 条，并沿用自主执行记录的保留天数。
 
 数据库只为每个根 Session 保存一条最新活动快照，新活动直接覆盖旧值，不保存活动历史。普通 Session 只提示并提供人工中断；Goal 可单独开启“Session 停滞时自动恢复”。
 

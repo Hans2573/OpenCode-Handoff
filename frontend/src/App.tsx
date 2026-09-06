@@ -51,6 +51,8 @@ import type {
   IntegrationView,
   ProjectView,
   SessionView,
+  SessionDetailView,
+  SessionOperationView,
   SettingsInput,
   SettingsView,
 } from "../bindings/github.com/Hans2573/OpenCode-Handoff/internal/desktop/models";
@@ -174,15 +176,6 @@ function App({ initialInterfaceDensity }: { initialInterfaceDensity: InterfaceDe
     }
   };
 
-  const openSession = async (session: SessionView) => {
-    try {
-      await AppService.OpenSession(session.id, session.directory);
-      showToast("已打开 OpenCode，Session ID 已复制到剪贴板");
-    } catch (reason) {
-      showToast(`无法打开 Agent：${errorMessage(reason)}`);
-    }
-  };
-
   const changeInterfaceDensity = (density: InterfaceDensity) => {
     setInterfaceDensity(density);
     saveInterfaceDensity(density);
@@ -250,7 +243,7 @@ function App({ initialInterfaceDensity }: { initialInterfaceDensity: InterfaceDe
 
           {page === "overview" && <Overview dashboard={dashboard} loading={loading} onNavigate={setPage} onRoute={changeRoute} onRefresh={refreshProjects} />}
           {page === "projects" && <ProjectsPage projects={dashboard.projects ?? []} loading={loading} onRoute={changeRoute} onRefresh={refreshProjects} />}
-          {page === "sessions" && <SessionsPage sessions={dashboard.sessions ?? []} executionRuns={dashboard.executionRuns ?? []} executionSessions={dashboard.executionSessions ?? []} retentionDays={dashboard.executionRetentionDays || 30} onOpenSession={openSession} onAddToGoal={(session) => { setGoalSession(session); setPage("loops"); }} onRefresh={() => void loadDashboard()} showToast={showToast} />}
+          {page === "sessions" && <SessionsPage sessions={dashboard.sessions ?? []} executionRuns={dashboard.executionRuns ?? []} executionSessions={dashboard.executionSessions ?? []} retentionDays={dashboard.executionRetentionDays || 30} onAddToGoal={(session) => { setGoalSession(session); setPage("loops"); }} onRefresh={() => void loadDashboard()} showToast={showToast} />}
           {page === "agents" && <IntegrationsPage title="Agents" description="本地 Agent 实例及连接状态" items={dashboard.agents ?? []} />}
           {page === "loops" && <LoopsPage projects={dashboard.projects ?? []} sessions={dashboard.sessions ?? []} initialSession={goalSession} onInitialSessionConsumed={() => setGoalSession(null)} showToast={showToast} />}
           {page === "channels" && <IntegrationsPage title="渠道" description="项目事件可以路由到一个或多个通信渠道" items={dashboard.channels ?? []} />}
@@ -344,13 +337,12 @@ type ExecutionRankingItem = { key: string; title: string; context: string; durat
 const sessionPageSizes = [5, 8, 10, 15, 20] as const;
 const sessionLeaderboardPreferenceKey = "agent-handoff:sessions:leaderboard-expanded";
 
-function SessionsPage({ sessions, executionRuns, executionSessions, retentionDays, onOpenSession, onAddToGoal, onRefresh, showToast }: {
+function SessionsPage({ sessions, executionRuns, executionSessions, retentionDays, onAddToGoal, onRefresh, showToast }: {
   sessions: SessionView[];
   executionRuns: ExecutionRunView[];
   executionSessions: ExecutionSessionView[];
   retentionDays: number;
-  onOpenSession: (session: SessionView) => Promise<void>;
-	onAddToGoal: (session: SessionView) => void;
+  onAddToGoal: (session: SessionView) => void;
   onRefresh: () => void;
   showToast: (message: string) => void;
 }) {
@@ -519,7 +511,7 @@ function SessionsPage({ sessions, executionRuns, executionSessions, retentionDay
         </div>
         <div className="sessions-pagination"><div className="pagination-summary"><span>共 {filtered.length} 条记录</span><label>每页 <select value={manualPageSize === null ? "auto" : String(manualPageSize)} onChange={(event) => changePageSize(event.target.value)}><option value="auto">自动 ({autoPageSize})</option>{sessionPageSizes.map((size) => <option value={size} key={size}>{size}</option>)}</select></label></div><nav aria-label="分页"><button disabled={currentPage === 1} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}><ChevronLeft size={15} /></button>{paginationItems(currentPage, pageCount).map((item, index) => item === "…" ? <span className="pagination-ellipsis" key={`ellipsis-${index}`}>…</span> : <button className={currentPage === item ? "active" : ""} key={item} onClick={() => setPageNumber(Number(item))}>{item}</button>)}<button disabled={currentPage === pageCount} onClick={() => setPageNumber((value) => Math.min(pageCount, value + 1))}><ChevronRight size={15} /></button></nav></div>
       </section>
-      {selectedSession && <SessionDetailDialog session={selectedSession} onClose={() => setSelectedSessionKey("")} onOpen={() => void onOpenSession(selectedSession)} onRefresh={onRefresh} showToast={showToast} />}
+      {selectedSession && <SessionDetailDialog session={selectedSession} onClose={() => setSelectedSessionKey("")} onRefresh={onRefresh} showToast={showToast} />}
     </section>
   );
 }
@@ -554,30 +546,72 @@ function SessionTableRow({ session, metric, onDetails, onAddToGoal }: { session:
   </article>;
 }
 
-function SessionDetailDialog({ session, onClose, onOpen, onRefresh, showToast }: { session: SessionView; onClose: () => void; onOpen: () => void; onRefresh: () => void; showToast: (message: string) => void }) {
+function SessionDetailDialog({ session, onClose, onRefresh, showToast }: { session: SessionView; onClose: () => void; onRefresh: () => void; showToast: (message: string) => void }) {
   const [busy, setBusy] = useState("");
   const [waitMinutes, setWaitMinutes] = useState(30);
+  const [detail, setDetail] = useState<SessionDetailView | null>(null);
+  const [detailError, setDetailError] = useState("");
+  const [detailLoading, setDetailLoading] = useState(true);
+  const [detailTab, setDetailTab] = useState<"slow" | "recent" | "subagents">("slow");
   const noActivity = useLiveSeconds(session.noActivitySeconds, isSessionBusy(session) && session.activityLevel !== "waiting");
+  const loadDetail = useCallback(async () => {
+    setDetailLoading(true);
+    setDetailError("");
+    try {
+      const value = await AppService.GetSessionDetail(session.id, session.directory);
+      setDetail({ ...value, operations: value.operations ?? [], toolStats: value.toolStats ?? [], subagents: value.subagents ?? [] });
+    } catch (reason) {
+      setDetailError(errorMessage(reason));
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [session.id, session.directory]);
+  useEffect(() => { void loadDetail(); }, [loadDetail]);
+  const slowOperations = useMemo(() => (detail?.operations ?? []).filter((operation) => operation.persisted || operation.running).sort((left, right) => right.durationSeconds - left.durationSeconds), [detail]);
+  const recentOperations = useMemo(() => [...(detail?.operations ?? [])].sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime()), [detail]);
+  const toolStats = detail?.toolStats ?? [];
+  const subagents = detail?.subagents ?? [];
+  const maxToolSeconds = Math.max(1, ...toolStats.map((item) => item.totalSeconds));
   const act = async (label: string, successMessage: string, action: () => Promise<void>) => {
     setBusy(label);
-    try { await action(); showToast(successMessage); onRefresh(); } catch (reason) { showToast(`操作失败：${errorMessage(reason)}`); } finally { setBusy(""); }
+    try { await action(); showToast(successMessage); onRefresh(); void loadDetail(); } catch (reason) { showToast(`操作失败：${errorMessage(reason)}`); } finally { setBusy(""); }
   };
   const abort = () => {
     const source = session.activityFromSubagent ? `检测到 Subagent「${session.activitySourceTitle}」停滞；该操作会中断主 Session。` : "该操作会中断当前主 Session。";
     if (window.confirm(`${source}确定继续？`)) void act("abort", "已请求中断主 Session", () => AppService.AbortSessionExecution(session.id, session.directory));
   };
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="session-detail-modal" role="dialog" aria-modal="true" aria-label="Session 详情">
-    <header><div><span>Session 详情</span><h2>{session.title}</h2><code>{session.id}</code></div><button onClick={onClose} aria-label="关闭"><X size={17} /></button></header>
+    <header><div><span>Session 分析</span><h2>{session.title}</h2><code>{session.id}</code></div><div className="session-detail-head-actions"><button onClick={() => void loadDetail()} aria-label="刷新详情" title="刷新详情" disabled={detailLoading}>{detailLoading ? <LoaderCircle size={17} className="spin" /> : <RefreshCw size={17} />}</button><button onClick={onClose} aria-label="关闭"><X size={17} /></button></div></header>
     <div className="session-detail-body">
       <div className={`stall-banner ${session.activityLevel}`}><CircleAlert size={19} /><div><strong>{activityStatusLabel(session)}</strong><span>{isSessionBusy(session) ? `已经 ${formatDuration(noActivity)} 没有检测到新动作` : `最后活动于 ${formatDateTime(session.lastActivityAt || session.updatedAt)}`}</span></div></div>
-      <div className="session-detail-grid"><DetailFact label="当前状态" value={session.statusLabel} hint={session.statusDetail || "OpenCode 当前状态"} /><DetailFact label="执行类型" value={session.goalLoopActive ? "Goal Session" : "普通 Session"} hint={session.goalLoopActive ? session.goalAutoRecoverStalls ? "已开启停滞自动恢复" : "自动恢复未开启" : "停滞后由人工处理"} /><DetailFact label="最后操作" value={operationLabel(session)} hint={session.operationSummary || "尚未获取到操作摘要"} /><DetailFact label="操作状态" value={session.operationStatus || "未知"} hint={session.operationStartedAt ? `${formatDateTime(session.operationStartedAt)} 开始` : "暂无开始时间"} /><DetailFact label="执行来源" value={session.activityFromSubagent ? `Subagent · ${session.activitySourceAgent}` : session.activitySourceAgent || "主 Agent"} hint={session.activitySourceTitle || session.title} /><DetailFact label="最后活动" value={formatDateTime(session.lastActivityAt || session.updatedAt)} hint={isSessionBusy(session) ? `无动作 ${formatDuration(noActivity)}` : "当前未运行"} /></div>
-      {session.activityFromSubagent && <div className="subagent-impact"><Bot size={17} /><span><strong>停滞发生在 Subagent</strong><small>{session.activitySourceTitle} · {shortID(session.activitySourceSessionId)}。执行中断会作用于主 Session。</small></span></div>}
+      {detailLoading && !detail ? <div className="session-analysis-loading"><LoaderCircle className="spin" /><span>正在读取主 Session 与 Subagent 操作数据</span></div> : detailError ? <div className="session-analysis-error"><CircleAlert size={18} /><span>{detailError}</span><button className="secondary-button" onClick={() => void loadDetail()}>重试</button></div> : detail && <>
+        <div className="session-analysis-summary"><AnalysisMetric label="Session 跨度" value={formatDuration(detail.elapsedSeconds)} hint={`${formatDateTime(detail.createdAt)} 开始`} /><AnalysisMetric label="工具调用" value={`${detail.toolCallCount} 次`} hint={`${detail.runningOperationCount} 个正在运行 · ${detail.failedOperationCount} 个失败`} /><AnalysisMetric label="工具累计耗时" value={formatDuration(detail.totalToolSeconds)} hint="并行工具耗时会分别累计" /><AnalysisMetric label="Subagents" value={`${detail.subagentCount} 个`} hint={`${detail.messageCount} 条消息已分析`} /></div>
+        <section className="session-tool-breakdown"><header><div><strong>工具耗时分布</strong><span>按累计耗时排序</span></div>{detail.truncated && <em>消息较多，仅分析最近窗口与已保存慢操作</em>}</header>{toolStats.length ? <div className="tool-stat-list">{toolStats.slice(0, 8).map((item) => <div className="tool-stat-row" key={item.tool}><code>{item.tool || "tool"}</code><div><i style={{ width: `${Math.max(3, item.totalSeconds / maxToolSeconds * 100)}%` }} /></div><strong>{formatDuration(item.totalSeconds)}</strong><span>{item.callCount} 次 · 最长 {formatDuration(item.longestSeconds)}</span></div>)}</div> : <p className="analysis-empty">该 Session 暂无工具调用。</p>}</section>
+        <section className="session-operation-analysis"><header><div className="analysis-tabs" role="tablist"><button className={detailTab === "slow" ? "active" : ""} onClick={() => setDetailTab("slow")}>耗时操作</button><button className={detailTab === "recent" ? "active" : ""} onClick={() => setDetailTab("recent")}>最近操作</button><button className={detailTab === "subagents" ? "active" : ""} onClick={() => setDetailTab("subagents")}>Subagents</button></div><span>{detailTab === "slow" ? "耗时从高到低，可展开查看输入" : detailTab === "recent" ? "按开始时间倒序" : "按工具累计耗时排序"}</span></header>
+          {detailTab === "slow" && <SessionOperationList operations={slowOperations} emptyText="没有可展示的耗时操作。" />}
+          {detailTab === "recent" && <SessionOperationList operations={recentOperations} emptyText="没有可展示的最近操作。" />}
+          {detailTab === "subagents" && <SubagentAnalysisList items={subagents} />}
+        </section>
+      </>}
+      {session.activityFromSubagent && <div className="subagent-impact"><Bot size={17} /><span><strong>当前停滞发生在 Subagent</strong><small>{session.activitySourceTitle} · {shortID(session.activitySourceSessionId)}。执行中断会作用于主 Session。</small></span></div>}
     </div>
-    <footer>{["suspected", "stalled"].includes(session.activityLevel) && <div className="stall-wait-control"><select aria-label="继续等待时长" value={waitMinutes} disabled={!!busy} onChange={(event) => setWaitMinutes(Number(event.target.value))}><option value={15}>15 分钟</option><option value={30}>30 分钟</option><option value={60}>60 分钟</option></select><button className="secondary-button" disabled={!!busy} onClick={() => void act("snooze", `已继续等待 ${waitMinutes} 分钟`, () => AppService.SnoozeSessionStall(session.id, session.directory, waitMinutes))}><Clock3 size={15} />继续等待</button></div>}<span className="toolbar-spacer" /><button className="secondary-button" onClick={onOpen}>打开 OpenCode</button>{isSessionBusy(session) && <button className="danger-button" disabled={!!busy} onClick={abort}>{busy === "abort" ? <LoaderCircle size={15} className="spin" /> : <X size={15} />}中断主 Session</button>}</footer>
+    <footer>{["suspected", "stalled"].includes(session.activityLevel) && <div className="stall-wait-control"><select aria-label="继续等待时长" value={waitMinutes} disabled={!!busy} onChange={(event) => setWaitMinutes(Number(event.target.value))}><option value={15}>15 分钟</option><option value={30}>30 分钟</option><option value={60}>60 分钟</option></select><button className="secondary-button" disabled={!!busy} onClick={() => void act("snooze", `已继续等待 ${waitMinutes} 分钟`, () => AppService.SnoozeSessionStall(session.id, session.directory, waitMinutes))}><Clock3 size={15} />继续等待</button></div>}<span className="toolbar-spacer" /><button className="secondary-button" onClick={onClose}>关闭</button>{isSessionBusy(session) && <button className="danger-button" disabled={!!busy} onClick={abort}>{busy === "abort" ? <LoaderCircle size={15} className="spin" /> : <X size={15} />}中断主 Session</button>}</footer>
   </section></div>;
 }
 
-function DetailFact({ label, value, hint }: { label: string; value: string; hint: string }) { return <div><span>{label}</span><strong title={value}>{value}</strong><small title={hint}>{hint}</small></div>; }
+function AnalysisMetric({ label, value, hint }: { label: string; value: string; hint: string }) { return <div><span>{label}</span><strong>{value}</strong><small title={hint}>{hint}</small></div>; }
+
+function SessionOperationList({ operations, emptyText }: { operations: SessionOperationView[]; emptyText: string }) {
+  if (!operations.length) return <p className="analysis-empty">{emptyText}</p>;
+  return <div className="analysis-operation-list">{operations.map((operation, index) => <article className={`analysis-operation-row${operation.running ? " running" : operation.failed ? " failed" : ""}`} key={operation.id}>
+    <span className="operation-rank">{index + 1}</span><div className="operation-main"><div><code>{operation.tool || "tool"}</code><strong title={operation.summary}>{operation.summary || "未命名操作"}</strong>{operation.persisted && <em>已保存</em>}{operation.running && <em className="running">运行中</em>}</div><details><summary>{operation.inputPreview || "无可用输入参数"}</summary>{operation.inputPreview && <pre>{operation.inputPreview}</pre>}</details></div><div className="operation-source"><strong>{operation.fromSubagent ? "Subagent" : "主 Agent"}</strong><span title={operation.sessionTitle}>{operation.sessionTitle}</span><small>{operation.agent || "默认 Agent"}</small></div><div className="operation-time"><strong>{formatDuration(operation.durationSeconds)}</strong><span>{formatDateTime(operation.startedAt)}</span><small>{operation.status || "未知状态"}</small></div>
+  </article>)}</div>;
+}
+
+function SubagentAnalysisList({ items }: { items: NonNullable<SessionDetailView["subagents"]> }) {
+  if (!items.length) return <p className="analysis-empty">该 Session 没有 Subagent。</p>;
+  return <div className="subagent-analysis-list">{items.map((item) => <article key={item.id}><Bot size={17} /><div><strong title={item.title}>{item.title || shortID(item.id)}</strong><code>{shortID(item.id)}</code></div><span>{item.agent || "默认 Agent"}</span><span>{item.toolCallCount} 次工具调用</span><span>累计 {formatDuration(item.totalToolSeconds)}</span><span>最长 {formatDuration(item.longestSeconds)}</span>{item.runningCount > 0 && <em>{item.runningCount} 个运行中</em>}{item.failedCount > 0 && <em className="failed">{item.failedCount} 个失败</em>}</article>)}</div>;
+}
 
 function rankingTone(item: ExecutionRankingItem): string {
   if (item.active) return "running";
@@ -692,7 +726,7 @@ function SettingsPage({ interfaceDensity, onInterfaceDensityChange, showToast, o
         <section className="panel settings-section">
           <h2>Handoff 与通知</h2>
           <div className="form-grid two"><FormField label="轮询间隔"><input value={form.pollingInterval} onChange={(event) => update("pollingInterval", event.target.value)} /></FormField><FormField label="最大输出字符" lockedBy={locked("handoff.max_output_chars")}><input type="number" value={form.maxOutputChars} disabled={!!locked("handoff.max_output_chars")} onChange={(event) => update("maxOutputChars", Number(event.target.value))} /></FormField></div>
-          <div className="form-grid two"><FormField label="疑似停滞时间" hint="例如 10m；必须小于长时间停滞阈值"><input value={form.activitySuspectedAfter} onChange={(event) => update("activitySuspectedAfter", event.target.value)} /></FormField><FormField label="长时间停滞时间" hint="例如 30m；Goal 可在达到后自动恢复"><input value={form.activityStalledAfter} onChange={(event) => update("activityStalledAfter", event.target.value)} /></FormField></div>
+          <div className="form-grid two"><FormField label="疑似停滞时间" hint="例如 10m；必须小于长时间停滞阈值"><input value={form.activitySuspectedAfter} onChange={(event) => update("activitySuspectedAfter", event.target.value)} /></FormField><FormField label="长时间停滞时间" hint="例如 30m；Goal 可在达到后自动恢复"><input value={form.activityStalledAfter} onChange={(event) => update("activityStalledAfter", event.target.value)} /></FormField><FormField label="耗时操作阈值" hint="例如 30s；达到后保存输入摘要和耗时"><input value={form.slowOperationAfter} onChange={(event) => update("slowOperationAfter", event.target.value)} /></FormField></div>
           <FormField label="自主执行记录保留天数" hint="默认 30 天；保存后会立即清理超过保留期的统计记录" lockedBy={locked("analytics.retention_days")}><input type="number" min="1" max="3650" value={form.executionRetentionDays} disabled={!!locked("analytics.retention_days")} onChange={(event) => update("executionRetentionDays", Number(event.target.value))} /></FormField>
           <ToggleRow label="通知 Session 空闲" checked={form.notifyIdle} disabled={!!locked("handoff.notify_idle")} onChange={(value) => update("notifyIdle", value)} />
           <ToggleRow label="通知运行错误" checked={form.notifyError} disabled={!!locked("handoff.notify_error")} onChange={(value) => update("notifyError", value)} />
@@ -805,6 +839,7 @@ function settingsToInput(settings: SettingsView): SettingsInput {
     executionRetentionDays: settings.executionRetentionDays,
     activitySuspectedAfter: settings.activitySuspectedAfter,
     activityStalledAfter: settings.activityStalledAfter,
+    slowOperationAfter: settings.slowOperationAfter,
   };
 }
 

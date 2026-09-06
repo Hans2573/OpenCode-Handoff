@@ -133,6 +133,12 @@ func sessionGroupWaiting(group []opencode.Session, waiting map[string]struct{}) 
 
 func (m *Manager) observeSessionActivity(ctx context.Context, directory string, root opencode.Session, group []opencode.Session, status opencode.SessionStatus, waiting bool) domain.SessionActivitySnapshot {
 	now := time.Now().UTC()
+	readMessages := isOpenCodeBusy(status.Type)
+	if !readMessages {
+		if previous, err := m.store.GetSessionActivity(ctx, root.ID, directory); err == nil {
+			readMessages = isOpenCodeBusy(previous.SessionStatus)
+		}
+	}
 	sort.Slice(group, func(i, j int) bool { return group[i].Time.Updated > group[j].Time.Updated })
 	if len(group) > 25 {
 		group = group[:25]
@@ -142,11 +148,12 @@ func (m *Manager) observeSessionActivity(ctx context.Context, directory string, 
 	for _, session := range group {
 		fingerprintParts = append(fingerprintParts, session.ID, fmt.Sprint(session.Time.Updated))
 		candidate := observedOperation{activityAt: unixMilliTime(session.Time.Updated), typeName: "Session", summary: sessionTitle(session), status: status.Type}
-		if isOpenCodeBusy(status.Type) {
+		if readMessages {
 			m.mu.RLock()
 			client := m.raw
 			m.mu.RUnlock()
 			if messages, err := client.GetMessages(ctx, session.ID, directory, 12); err == nil {
+				m.captureSlowOperations(ctx, directory, root, session, messages)
 				if operation, ok := lastObservedOperation(messages); ok {
 					if operation.activityAt.After(candidate.activityAt) || operation.activityAt.IsZero() {
 						candidate = operation
@@ -170,6 +177,7 @@ func (m *Manager) observeSessionActivity(ctx context.Context, directory string, 
 			latest.fingerprint = session.ID
 		}
 	}
+	_ = m.store.PruneSlowOperations(ctx, root.ID, directory, sessionSlowOperationLimit)
 	fingerprint := activityFingerprint(fingerprintParts)
 	m.activityMu.Lock()
 	defer m.activityMu.Unlock()
