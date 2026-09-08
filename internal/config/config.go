@@ -45,9 +45,12 @@ type Config struct {
 }
 
 type ActivityConfig struct {
-	SuspectedAfter     Duration `yaml:"suspected_after"`
-	StalledAfter       Duration `yaml:"stalled_after"`
-	SlowOperationAfter Duration `yaml:"slow_operation_after"`
+	SuspectedAfter             Duration `yaml:"suspected_after"`
+	StalledAfter               Duration `yaml:"stalled_after"`
+	SlowOperationAfter         Duration `yaml:"slow_operation_after"`
+	NotifySystem               bool     `yaml:"notify_system"`
+	SystemNotificationAfter    Duration `yaml:"system_notification_after"`
+	SystemNotificationInterval Duration `yaml:"system_notification_interval"`
 }
 
 type OpenCodeConfig struct {
@@ -107,9 +110,12 @@ func Default() Config {
 			PollingInterval: Duration{Duration: 3 * time.Second},
 		},
 		Activity: ActivityConfig{
-			SuspectedAfter:     Duration{Duration: 10 * time.Minute},
-			StalledAfter:       Duration{Duration: 30 * time.Minute},
-			SlowOperationAfter: Duration{Duration: 30 * time.Second},
+			SuspectedAfter:             Duration{Duration: 10 * time.Minute},
+			StalledAfter:               Duration{Duration: 30 * time.Minute},
+			SlowOperationAfter:         Duration{Duration: 30 * time.Second},
+			NotifySystem:               true,
+			SystemNotificationAfter:    Duration{Duration: 10 * time.Minute},
+			SystemNotificationInterval: Duration{Duration: time.Minute},
 		},
 		Handoff: HandoffConfig{
 			MaxOutputChars:   3000,
@@ -417,6 +423,12 @@ func (c Config) Validate() error {
 	}
 	if c.Activity.SlowOperationAfter.Duration <= 0 {
 		return errors.New("activity.slow_operation_after must be positive")
+	}
+	if c.Activity.SystemNotificationInterval.Duration <= 0 {
+		return errors.New("activity.system_notification_interval must be positive")
+	}
+	if c.Activity.SystemNotificationAfter.Duration <= 0 {
+		return errors.New("activity.system_notification_after must be positive")
 	}
 	if c.Handoff.MaxOutputChars <= 0 {
 		return errors.New("handoff.max_output_chars must be positive")

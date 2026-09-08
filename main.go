@@ -15,6 +15,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/icons"
+	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
 //go:embed all:frontend/dist
@@ -56,12 +57,14 @@ func main() {
 	defer manager.Close()
 	logLevel.Set(parseLogLevel(manager.GetSettings().LoggingLevel))
 	service := NewAppService(manager, logLevel)
+	notificationService := notifications.New()
 
 	var mainWindow *application.WebviewWindow
 	app := application.New(application.Options{
 		Name:        "Agent Handoff",
 		Description: "Route local coding agent sessions to communication channels",
 		Services: []application.Service{
+			application.NewService(notificationService),
 			application.NewService(service),
 		},
 		Assets: application.AssetOptions{Handler: application.AssetFileServerFS(assets)},
@@ -82,6 +85,22 @@ func main() {
 		BackgroundColour: application.NewRGB(11, 17, 24), URL: "/",
 	})
 	service.attach(app, mainWindow)
+	manager.SetSystemNotifier(func(message desktop.SystemNotification) error {
+		return notificationService.SendNotification(notifications.NotificationOptions{
+			ID:                message.ID,
+			Title:             message.Title,
+			Body:              message.Body,
+			Data:              map[string]interface{}{"sessionId": message.SessionID, "directory": message.Directory},
+			InterruptionLevel: notifications.InterruptionLevelTimeSensitive,
+		})
+	})
+	notificationService.OnNotificationResponse(func(result notifications.NotificationResult) {
+		if result.Error != nil {
+			logger.Warn("handle system notification response", "error", result.Error)
+			return
+		}
+		mainWindow.Show().Focus()
+	})
 	mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		mainWindow.Hide()
 		event.Cancel()

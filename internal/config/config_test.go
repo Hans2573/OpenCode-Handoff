@@ -47,6 +47,9 @@ store:
 	if cfg.Activity.SlowOperationAfter.Duration != 30*time.Second {
 		t.Fatalf("unexpected slow operation threshold: %s", cfg.Activity.SlowOperationAfter.Duration)
 	}
+	if !cfg.Activity.NotifySystem || cfg.Activity.SystemNotificationAfter.Duration != 10*time.Minute || cfg.Activity.SystemNotificationInterval.Duration != time.Minute {
+		t.Fatalf("unexpected system notification defaults: %+v", cfg.Activity)
+	}
 	wantStore := filepath.Join(directory, "state", "handoff.db")
 	if cfg.Store.Path != wantStore {
 		t.Fatalf("store path = %q, want %q", cfg.Store.Path, wantStore)
@@ -83,6 +86,22 @@ func TestValidateAllowsQuestionNotifications(t *testing.T) {
 	cfg.Handoff.NotifyPermission = true
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() permission notifications error = %v", err)
+	}
+}
+
+func TestValidateRejectsNonPositiveSystemNotificationInterval(t *testing.T) {
+	cfg := validConfig()
+	cfg.Activity.SystemNotificationInterval.Duration = 0
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "system_notification_interval") {
+		t.Fatalf("Validate() error = %v, want notification interval error", err)
+	}
+}
+
+func TestValidateRejectsNonPositiveSystemNotificationAfter(t *testing.T) {
+	cfg := validConfig()
+	cfg.Activity.SystemNotificationAfter.Duration = 0
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "system_notification_after") {
+		t.Fatalf("Validate() error = %v, want notification wait error", err)
 	}
 }
 

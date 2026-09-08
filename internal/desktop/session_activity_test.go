@@ -1,9 +1,12 @@
 package desktop
 
 import (
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
+	"github.com/Hans2573/OpenCode-Handoff/internal/config"
 	"github.com/Hans2573/OpenCode-Handoff/internal/domain"
 	"github.com/Hans2573/OpenCode-Handoff/internal/opencode"
 )
@@ -23,6 +26,75 @@ func TestLastObservedOperationReportsRunningTool(t *testing.T) {
 	operation, ok := lastObservedOperation([]opencode.Message{message})
 	if !ok || operation.typeName != "bash" || operation.summary != "npm test" || operation.status != "running" || operation.agent != "general" || !operation.startedAt.Equal(started) {
 		t.Fatalf("operation = %+v, ok = %v", operation, ok)
+	}
+}
+
+func TestSystemInactivityNotificationRepeatsAndResets(t *testing.T) {
+	cfg := config.Default()
+	cfg.Activity.SystemNotificationInterval.Duration = time.Minute
+	manager := &Manager{
+		cfg:               cfg,
+		logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		activityReminders: make(map[string]activityReminder),
+	}
+	var notifications []SystemNotification
+	manager.SetSystemNotifier(func(notification SystemNotification) error {
+		notifications = append(notifications, notification)
+		return nil
+	})
+	session := opencode.Session{ID: "ses_1"}
+	item := domain.SessionActivitySnapshot{
+		SessionID: "ses_1", Directory: "/work", Fingerprint: "activity-1",
+		SessionStatus: "busy", Level: domain.SessionActivitySuspected, LastActivityAt: time.Now().UTC().Add(-10 * time.Minute),
+		OperationType: "bash", OperationSummary: "go test ./...",
+	}
+
+	manager.notifySessionInactivity(session, item)
+	manager.notifySessionInactivity(session, item)
+	if len(notifications) != 1 {
+		t.Fatalf("immediate notifications = %d, want 1", len(notifications))
+	}
+	if notifications[0].SessionID != item.SessionID || notifications[0].Directory != item.Directory {
+		t.Fatalf("notification target = %+v", notifications[0])
+	}
+
+	key := item.Directory + "\x00" + item.SessionID
+	manager.activityReminders[key] = activityReminder{fingerprint: item.Fingerprint, sentAt: time.Now().UTC().Add(-time.Minute)}
+	manager.notifySessionInactivity(session, item)
+	if len(notifications) != 2 {
+		t.Fatalf("repeated notifications = %d, want 2", len(notifications))
+	}
+
+	item.LastActivityAt = time.Now().UTC()
+	manager.notifySessionInactivity(session, item)
+	item.LastActivityAt = time.Now().UTC().Add(-10 * time.Minute)
+	manager.notifySessionInactivity(session, item)
+	if len(notifications) != 3 {
+		t.Fatalf("notifications after reset = %d, want 3", len(notifications))
+	}
+}
+
+func TestSystemInactivityNotificationUsesIndependentWaitThreshold(t *testing.T) {
+	cfg := config.Default()
+	cfg.Activity.SuspectedAfter.Duration = 30 * time.Minute
+	cfg.Activity.StalledAfter.Duration = time.Hour
+	cfg.Activity.SystemNotificationAfter.Duration = 5 * time.Minute
+	manager := &Manager{
+		cfg:               cfg,
+		logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		activityReminders: make(map[string]activityReminder),
+	}
+	count := 0
+	manager.SetSystemNotifier(func(SystemNotification) error { count++; return nil })
+	item := domain.SessionActivitySnapshot{
+		SessionID: "ses_1", Directory: "/work", Fingerprint: "activity-1",
+		SessionStatus: "busy", Level: domain.SessionActivityNormal,
+		LastActivityAt: time.Now().UTC().Add(-6 * time.Minute),
+	}
+
+	manager.notifySessionInactivity(opencode.Session{ID: item.SessionID}, item)
+	if count != 1 {
+		t.Fatalf("notifications = %d, want 1 before suspected threshold", count)
 	}
 }
 

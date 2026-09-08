@@ -225,7 +225,66 @@ func (m *Manager) observeSessionActivity(ctx context.Context, directory string, 
 	if saveErr := m.store.UpsertSessionActivity(ctx, item); saveErr != nil {
 		m.logger.Debug("save session activity", "session", root.ID, "error", saveErr)
 	}
+	m.notifySessionInactivity(root, item)
 	return item
+}
+
+func (m *Manager) notifySessionInactivity(session opencode.Session, item domain.SessionActivitySnapshot) {
+	key := item.Directory + "\x00" + item.SessionID
+	m.mu.RLock()
+	enabled := m.cfg.Activity.NotifySystem
+	after := m.cfg.Activity.SystemNotificationAfter.Duration
+	interval := m.cfg.Activity.SystemNotificationInterval.Duration
+	m.mu.RUnlock()
+	now := time.Now().UTC()
+	eligible := isOpenCodeBusy(item.SessionStatus) &&
+		item.Level != domain.SessionActivityWaiting &&
+		!item.LastActivityAt.IsZero() &&
+		!item.SnoozedUntil.After(now) &&
+		now.Sub(item.LastActivityAt) >= after
+	if !enabled || !eligible || after <= 0 || interval <= 0 {
+		m.reminderMu.Lock()
+		delete(m.activityReminders, key)
+		m.reminderMu.Unlock()
+		return
+	}
+
+	m.notifierMu.RLock()
+	notifier := m.systemNotifier
+	m.notifierMu.RUnlock()
+	if notifier == nil {
+		return
+	}
+
+	m.reminderMu.Lock()
+	if m.activityReminders == nil {
+		m.activityReminders = make(map[string]activityReminder)
+	}
+	previous, sent := m.activityReminders[key]
+	if sent && previous.fingerprint == item.Fingerprint && now.Sub(previous.sentAt) < interval {
+		m.reminderMu.Unlock()
+		return
+	}
+	// Reserve this interval before calling the platform service so overlapping
+	// refreshes and delivery failures cannot generate a notification storm.
+	m.activityReminders[key] = activityReminder{fingerprint: item.Fingerprint, sentAt: now}
+	m.reminderMu.Unlock()
+
+	inactiveMinutes := maxInt64(1, int64(now.Sub(item.LastActivityAt).Minutes()))
+	operation := strings.Trim(strings.TrimSpace(strings.Join([]string{item.OperationType, item.OperationSummary}, " · ")), " ·")
+	if operation == "" {
+		operation = "未识别到最近操作"
+	}
+	notification := SystemNotification{
+		ID:        fmt.Sprintf("session-inactive-%s-%d", item.SessionID, now.Unix()),
+		Title:     "OpenCode Session 长时间无活动",
+		Body:      fmt.Sprintf("%s 已 %d 分钟没有新活动。最后操作：%s", sessionTitle(session), inactiveMinutes, operation),
+		SessionID: item.SessionID,
+		Directory: item.Directory,
+	}
+	if err := notifier(notification); err != nil {
+		m.logger.Warn("send system inactivity notification", "session_id", item.SessionID, "error", err)
+	}
 }
 
 func (m *Manager) activityThresholds() [2]time.Duration {

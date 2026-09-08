@@ -19,6 +19,10 @@ activity:
   suspected_after: 10m
   stalled_after: 30m
   slow_operation_after: 30s
+  # 最后操作超过 10 分钟没有新活动后发系统通知，持续无活动时每分钟重复。
+  notify_system: true
+  system_notification_after: 10m
+  system_notification_interval: 1m
 
 handoff:
   max_output_chars: 3000

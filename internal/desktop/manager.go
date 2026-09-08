@@ -43,6 +43,24 @@ type Manager struct {
 	engineMu   sync.Mutex
 	goalMu     sync.Mutex
 	activityMu sync.Mutex
+	notifierMu sync.RWMutex
+	reminderMu sync.Mutex
+
+	systemNotifier    func(SystemNotification) error
+	activityReminders map[string]activityReminder
+}
+
+type SystemNotification struct {
+	ID        string
+	Title     string
+	Body      string
+	SessionID string
+	Directory string
+}
+
+type activityReminder struct {
+	fingerprint string
+	sentAt      time.Time
 }
 
 type sessionTracker struct {
@@ -91,16 +109,17 @@ func NewManager(parent context.Context, paths Paths, logger *slog.Logger) (*Mana
 		return nil, err
 	}
 	manager := &Manager{
-		ctx:          ctx,
-		cancel:       cancel,
-		paths:        paths,
-		logger:       logger,
-		store:        database,
-		routes:       NewRouteRegistry(),
-		cfg:          cfg,
-		raw:          client,
-		serviceState: "stopped",
-		trackers:     make(map[string]sessionTracker),
+		ctx:               ctx,
+		cancel:            cancel,
+		paths:             paths,
+		logger:            logger,
+		store:             database,
+		routes:            NewRouteRegistry(),
+		cfg:               cfg,
+		raw:               client,
+		serviceState:      "stopped",
+		trackers:          make(map[string]sessionTracker),
+		activityReminders: make(map[string]activityReminder),
 	}
 	if loadErr != nil {
 		manager.configError = loadErr.Error()
@@ -127,6 +146,14 @@ func NewManager(parent context.Context, paths Paths, logger *slog.Logger) (*Mana
 	go manager.goalLoopSupervisor()
 	go manager.sessionActivityLoop()
 	return manager, nil
+}
+
+// SetSystemNotifier attaches desktop notification delivery without coupling
+// the Manager to the Wails application package.
+func (m *Manager) SetSystemNotifier(notifier func(SystemNotification) error) {
+	m.notifierMu.Lock()
+	m.systemNotifier = notifier
+	m.notifierMu.Unlock()
 }
 
 func (m *Manager) Close() error {
@@ -986,10 +1013,13 @@ func (m *Manager) GetSettings() SettingsView {
 		NotifyIdle: cfg.Handoff.NotifyIdle, NotifyError: cfg.Handoff.NotifyError,
 		NotifyQuestion: cfg.Handoff.NotifyQuestion, NotifyPermission: cfg.Handoff.NotifyPermission,
 		LoggingLevel: cfg.Logging.Level, ExecutionRetentionDays: cfg.Analytics.RetentionDays,
-		ActivitySuspectedAfter: cfg.Activity.SuspectedAfter.Duration.String(),
-		ActivityStalledAfter:   cfg.Activity.StalledAfter.Duration.String(),
-		SlowOperationAfter:     cfg.Activity.SlowOperationAfter.Duration.String(),
-		EnvironmentOverrides:   config.EnvironmentOverrides(), ConfigError: configError,
+		ActivitySuspectedAfter:     cfg.Activity.SuspectedAfter.Duration.String(),
+		ActivityStalledAfter:       cfg.Activity.StalledAfter.Duration.String(),
+		SlowOperationAfter:         cfg.Activity.SlowOperationAfter.Duration.String(),
+		NotifySystem:               cfg.Activity.NotifySystem,
+		SystemNotificationAfter:    cfg.Activity.SystemNotificationAfter.Duration.String(),
+		SystemNotificationInterval: cfg.Activity.SystemNotificationInterval.Duration.String(),
+		EnvironmentOverrides:       config.EnvironmentOverrides(), ConfigError: configError,
 	}
 }
 
@@ -1059,6 +1089,17 @@ func (m *Manager) SaveSettings(input SettingsInput) error {
 		next.Activity.SlowOperationAfter = config.Duration{Duration: value}
 	} else {
 		return fmt.Errorf("耗时操作阈值无效：%w", err)
+	}
+	next.Activity.NotifySystem = input.NotifySystem
+	if value, err := time.ParseDuration(strings.TrimSpace(input.SystemNotificationAfter)); err == nil {
+		next.Activity.SystemNotificationAfter = config.Duration{Duration: value}
+	} else {
+		return fmt.Errorf("系统通知等待时间无效：%w", err)
+	}
+	if value, err := time.ParseDuration(strings.TrimSpace(input.SystemNotificationInterval)); err == nil {
+		next.Activity.SystemNotificationInterval = config.Duration{Duration: value}
+	} else {
+		return fmt.Errorf("系统通知重复间隔无效：%w", err)
 	}
 	if value, err := time.ParseDuration(strings.TrimSpace(input.PollingInterval)); err == nil {
 		next.Watcher.PollingInterval = config.Duration{Duration: value}

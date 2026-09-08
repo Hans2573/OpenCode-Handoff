@@ -739,9 +739,10 @@ function SettingsPage({ interfaceDensity, onInterfaceDensityChange, showToast, o
         <section className="panel settings-section">
           <h2>Handoff 与通知</h2>
           <div className="form-grid two"><FormField label="轮询间隔"><input value={form.pollingInterval} onChange={(event) => update("pollingInterval", event.target.value)} /></FormField><FormField label="最大输出字符" lockedBy={locked("handoff.max_output_chars")}><input type="number" value={form.maxOutputChars} disabled={!!locked("handoff.max_output_chars")} onChange={(event) => update("maxOutputChars", Number(event.target.value))} /></FormField></div>
-          <div className="form-grid two"><FormField label="疑似停滞时间" hint="例如 10m；必须小于长时间停滞阈值"><input value={form.activitySuspectedAfter} onChange={(event) => update("activitySuspectedAfter", event.target.value)} /></FormField><FormField label="长时间停滞时间" hint="例如 30m；Goal 可在达到后自动恢复"><input value={form.activityStalledAfter} onChange={(event) => update("activityStalledAfter", event.target.value)} /></FormField><FormField label="耗时操作阈值" hint="例如 30s；达到后保存输入摘要和耗时"><input value={form.slowOperationAfter} onChange={(event) => update("slowOperationAfter", event.target.value)} /></FormField></div>
+          <div className="form-grid two"><FormField label="疑似停滞时间" hint="例如 10m；必须小于长时间停滞阈值"><input value={form.activitySuspectedAfter} onChange={(event) => update("activitySuspectedAfter", event.target.value)} /></FormField><FormField label="长时间停滞时间" hint="例如 30m；Goal 可在达到后自动恢复"><input value={form.activityStalledAfter} onChange={(event) => update("activityStalledAfter", event.target.value)} /></FormField><FormField label="耗时操作阈值" hint="例如 30s；达到后保存输入摘要和耗时"><input value={form.slowOperationAfter} onChange={(event) => update("slowOperationAfter", event.target.value)} /></FormField><FormField label="系统通知等待时间" hint="例如 10m；最后操作超过此时间没有新活动时开始通知"><input value={form.systemNotificationAfter} onChange={(event) => update("systemNotificationAfter", event.target.value)} /></FormField><FormField label="系统通知重复间隔" hint="例如 1m；持续无活动时按此间隔再次提醒"><input value={form.systemNotificationInterval} onChange={(event) => update("systemNotificationInterval", event.target.value)} /></FormField></div>
           <FormField label="自主执行记录保留天数" hint="默认 30 天；保存后会立即清理超过保留期的统计记录" lockedBy={locked("analytics.retention_days")}><input type="number" min="1" max="3650" value={form.executionRetentionDays} disabled={!!locked("analytics.retention_days")} onChange={(event) => update("executionRetentionDays", Number(event.target.value))} /></FormField>
           <ToggleRow label="通知 Session 空闲" checked={form.notifyIdle} disabled={!!locked("handoff.notify_idle")} onChange={(value) => update("notifyIdle", value)} />
+          <ToggleRow label="系统通知无活动 Session" description="超过设置的等待时间后发送；恢复活动、等待人工处理或继续等待时停止提醒" checked={form.notifySystem} onChange={(value) => update("notifySystem", value)} />
           <ToggleRow label="通知运行错误" checked={form.notifyError} disabled={!!locked("handoff.notify_error")} onChange={(value) => update("notifyError", value)} />
           <ToggleRow label="转发 Question" checked={form.notifyQuestion} disabled={!!locked("handoff.notify_question")} onChange={(value) => update("notifyQuestion", value)} />
           <ToggleRow label="转发 Permission" checked={form.notifyPermission} disabled={!!locked("handoff.notify_permission")} onChange={(value) => update("notifyPermission", value)} />
@@ -853,6 +854,9 @@ function settingsToInput(settings: SettingsView): SettingsInput {
     activitySuspectedAfter: settings.activitySuspectedAfter,
     activityStalledAfter: settings.activityStalledAfter,
     slowOperationAfter: settings.slowOperationAfter,
+    notifySystem: settings.notifySystem,
+    systemNotificationAfter: settings.systemNotificationAfter,
+    systemNotificationInterval: settings.systemNotificationInterval,
   };
 }
 

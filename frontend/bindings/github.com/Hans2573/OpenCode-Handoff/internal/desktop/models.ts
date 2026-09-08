@@ -377,6 +377,9 @@ export interface SettingsInput {
     "activitySuspectedAfter": string;
     "activityStalledAfter": string;
     "slowOperationAfter": string;
+    "notifySystem": boolean;
+    "systemNotificationAfter": string;
+    "systemNotificationInterval": string;
 }
 
 export interface SettingsView {
@@ -402,6 +405,9 @@ export interface SettingsView {
     "activitySuspectedAfter": string;
     "activityStalledAfter": string;
     "slowOperationAfter": string;
+    "notifySystem": boolean;
+    "systemNotificationAfter": string;
+    "systemNotificationInterval": string;
     "environmentOverrides": { [_ in string]?: string } | null;
     "configError": string;
 }

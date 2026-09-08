@@ -21,6 +21,9 @@ activity:
   suspected_after: 10m
   stalled_after: 30m
   slow_operation_after: 30s
+  notify_system: true
+  system_notification_after: 10m
+  system_notification_interval: 1m
 
 handoff:
   max_output_chars: 3000
@@ -122,6 +125,8 @@ handoff:
 ## Session 活动监测
 
 `activity.suspected_after` 和 `activity.stalled_after` 分别控制“疑似停滞”和“长时间停滞”阈值，默认是 10 分钟和 30 分钟，后者必须大于前者。应用根据 Assistant 消息、Tool 状态与时间、Session 状态、retry 变化以及 Subagent Session 的活动更新时间刷新计时；Question 和 Permission 等待人工处理时会暂停停滞判断。
+
+`activity.notify_system` 默认开启。Session 最后操作超过 `activity.system_notification_after`（默认 `10m`）仍没有新活动后，桌面应用会发送原生系统通知；只要仍在执行且没有新活动，就按 `activity.system_notification_interval`（默认 `1m`）重复提醒。这两个通知时间与界面的疑似/长时间停滞阈值彼此独立。Session 恢复活动、结束执行、进入 Question/Permission 等待或被暂缓停滞提醒后，重复通知会停止。
 
 `activity.slow_operation_after` 控制耗时工具调用的保存阈值，默认 `30s`。输入先按敏感字段脱敏并截断到 4 KB，同一工具调用只更新一条记录，每个主 Session 最多保留最慢的 100 条，并沿用自主执行记录的保留天数。
 
